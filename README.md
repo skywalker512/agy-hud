@@ -45,15 +45,17 @@
 
 ## <a id="overview"></a>Overview
 
-**AGY-HUD** is a lightweight desktop floating monitor, CLI tool, and side-pane plugin for Google Antigravity. It reads Antigravity's local SQLite conversation databases (`~/.gemini/antigravity/conversations/<uuid>.db` and `-wal`) strictly in read-only mode to display generation speed, time to first token (`TTFT`), the **actual routed backend model ID**, and context window usage without proxying API requests.
+**AGY-HUD** is a lightweight side-pane plugin, desktop floating monitor, and CLI tool for Google Antigravity. It reads Antigravity's local SQLite conversation databases (`~/.gemini/antigravity/conversations/<uuid>.db` and `-wal`) in read-only mode (plus optional local loopback Language Server RPCs inside the IDE side-pane for live streaming steps and 5h/7d quota windows) to monitor generation throughput, `TTFT`, **actual routed backend model IDs**, context window composition, per-call phase timing, subagent/Side-Q trees, and API-equivalent spend.
 
 ### Key Features
 
-- **Actual Routed Model ID First**: Prioritizes protobuf field `f19`—the actual routed backend model identifier (such as `gemini-3.8-flash-k`)—instead of the UI display label in `f21` (which is used only as a fallback when `f19` is absent). Also reads the reported context limit from `f9.f10.f4` (for example `256,000`), falling back to a built-in table only when omitted.
-- **Generation & End-to-End Speed**: Reports both streaming throughput after the first token (`GEN TPS = output / stream_sec`) and overall speed including initial wait (`E2E TPS = output / (ttft + stream_sec)`). Responses finishing in under `0.5s` (or under `1.0s` above `1,200 tok/s`) are flagged as buffered (`BUF`), excluded from peak `GEN TPS`, and plotted/shown using `E2E` speed plus the previous sustained streaming speed (`STR`).
-- **Read-Only Local Database Access**: The Python desktop app and CLI open databases via SQLite URI `?mode=ro` and track `.db` / `.db-wal` modification times; the Antigravity side-pane plugin opens them via Node.js `node:sqlite` (`{ readOnly: true }`). No API keys or network proxies required.
-- **Zero External Packages**: The desktop floating window and CLI use only Python 3.9+ standard library (`sqlite3`, `tkinter`), while the side-pane plugin uses Antigravity's built-in `sidecar_sdk` and Node.js 22.5+ built-in `node:sqlite`. No `pip install` or `npm install` needed.
-- **Desktop Pill, CLI & Side-Pane Plugin**: The side-pane view follows light/dark themes automatically, lets you switch between `Auto Pane`, `Latest DB`, or the 15 most recent conversations, and renders a 28-turn bar chart plus a 30-turn call log. Both the desktop window and plugin default to concise English labels (`GEN`, `E2E`, `STR`, `BUF`, `TTFT`, `THK`, `OUT`, `CTX`) and switch cleanly between `EN` and `中文`.
+- **Actual Routed Model ID First**: Prioritizes protobuf field `f19`—the actual routed backend model identifier (such as `gemini-4-carbon` or `gemini-3.8-flash-k`)—and normalizes LS generator aliases (e.g. `-high` / `MODEL_PLACEHOLDER_*`). Reads the reported context limit from `f9.f10.f4` (for example `256,000`), falling back to pattern-matched model limits only when omitted.
+- **Generation, End-to-End & Phase Diagnostics**: Reports both post-TTFT streaming speed (`GEN TPS`) and overall speed including `TTFT` (`E2E TPS`). Single-packet buffered responses are flagged as `BUF` and excluded from both `PEAK TPS` and weighted `AVG GEN` so averages never exceed peak throughput. Slow tool-call turns separate `THK` vs `TOOL GEN` duration (`TC-WAIT`) and clamp tool execution intervals so model streaming time never inflates `TOOL TIME`.
+- **3-Tab Side-Pane HUD (`Live` / `Calls` / `Account`)**:
+  - **Live**: Real-time `GEN`/`E2E` speed cards, context window breakdown (`Sys Prompt`, `Tool Defs`, `Tool Results`, `Model Replies`, `User/Ckpt`, plus per-tool token footprint), recent calls with auto-scrolling live `THINKING` / `REPLY` previews, and linked **Subagent / Side-Q** navigation.
+  - **Calls**: Multi-metric trend chart (`TPS` / `TTFT` / `OUT` / `CACHE` / `CTX`), collapsible turn dividers, context compaction cards, and on-demand expandable call traces (`60k` char detail cap).
+  - **Account**: Dual `5h` / `7d` quota pool windows with countdowns, local API-equivalent spend (`Session` / `Today` / `Month` / `All DBs`), cache savings, and non-blocking background indexing across large conversation histories.
+- **Zero External Packages**: The CLI (`--cli`, `--watch`, `--data-dir`) runs on pure Python 3.9+ stdlib without requiring `tkinter` until GUI mode is launched; the side-pane plugin uses Antigravity's built-in `sidecar_sdk` and Node.js 22.5+ built-in `node:sqlite`. Both UIs switch cleanly between `EN` and `中文`.
 
 ---
 
@@ -64,7 +66,11 @@
 Install into `~/.gemini/config/plugins/agy-hud` (reload/restart Antigravity if the icon does not appear immediately):
 
 ```bash
+# Copy-install (staged atomic replace; requires Node.js >= 22.5)
 python plugin/install_plugin.py
+
+# Or symlink repo plugin/ for live development hot-reload
+python plugin/install_plugin.py --link
 ```
 
 To uninstall:
@@ -87,10 +93,10 @@ python -m desktop.cli
 # Optional flags: --lang en|zh, --refresh-ms 500, --alpha 0.92
 python -m desktop.cli --lang zh --refresh-ms 1000
 
-# Print one snapshot to the terminal and exit
+# Print one snapshot to the terminal and exit (works in headless Python without tkinter)
 python -m desktop.cli --cli
 
-# Stream a summary line whenever a new turn finishes (--interval defaults to 1.0s)
+# Stream a summary line whenever a new turn finishes (--data-dir optional)
 python -m desktop.cli --watch --interval 1.0
 ```
 

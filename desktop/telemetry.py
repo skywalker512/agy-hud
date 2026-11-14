@@ -12,6 +12,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 DB_ID_PATTERN = re.compile(r"^[0-9a-f-]{8,}$", re.I)
 
 FALLBACK_CONTEXT_LIMITS: Dict[str, int] = {
+    "gemini-4-carbon": 256_000,
     "gemini-3.8-flash-k": 256_000,
     "gemini-3.7-flash": 1_048_576,
     "gemini-3.1-pro": 1_048_576,
@@ -21,6 +22,32 @@ FALLBACK_CONTEXT_LIMITS: Dict[str, int] = {
     "gpt-4o": 128_000,
     "default": 256_000,
 }
+
+FALLBACK_CONTEXT_PATTERNS: List[Tuple[re.Pattern[str], int]] = [
+    (re.compile(r"gemini-4", re.I), 256_000),
+    (re.compile(r"gemini-pro-orchestrator", re.I), 256_000),
+    (re.compile(r"gemini-3\.8-flash", re.I), 256_000),
+    (re.compile(r"claude", re.I), 200_000),
+    (re.compile(r"gpt-4o", re.I), 128_000),
+    (re.compile(r"gemini-2\.5-pro", re.I), 2_097_152),
+    (re.compile(r"gemini", re.I), 1_048_576),
+]
+
+
+def fmt_count(n: int) -> str:
+    """Format large integer token counts with k / M suffix."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.2f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}k"
+    return str(n)
+
+
+def fmt_tps(tps: float) -> str:
+    """Format token/s speed cleanly."""
+    if tps <= 0:
+        return "--"
+    return f"{tps:.1f}" if tps >= 10 else f"{tps:.2f}"
 
 
 @dataclass
@@ -142,19 +169,19 @@ def read_duration_sec(buf: bytes) -> float:
 
 def _parse_usage_fields(buf: bytes) -> Dict[str, int]:
     counts: Dict[str, int] = {
+        "model_enum": 0,
         "input": 0,
         "output": 0,
         "cached": 0,
         "thinking": 0,
         "visible": 0,
-        "fallback_out": 0,
     }
     for fnum, wtype, val in iter_fields(buf):
         if wtype != 0:
             continue
         num = int(val)  # type: ignore[arg-type]
         if fnum == 1:
-            counts["fallback_out"] = num
+            counts["model_enum"] = num
         elif fnum == 2:
             counts["input"] = num
         elif fnum == 3:
@@ -224,7 +251,7 @@ def decode_generation_record(blob: bytes) -> Optional[TurnRecord]:
     input_tokens = active_usage.get("input", 0)
     thinking_tokens = active_usage.get("thinking", 0)
     visible_tokens = active_usage.get("visible", 0)
-    output_tokens = active_usage.get("output", 0) or active_usage.get("fallback_out", 0)
+    output_tokens = active_usage.get("output", 0)
     if output_tokens == 0 and (thinking_tokens or visible_tokens):
         output_tokens = thinking_tokens + visible_tokens
 
@@ -261,20 +288,29 @@ def _detect_active_step(cursor: sqlite3.Cursor) -> Tuple[bool, bool, float]:
     except Exception:
         return False, False, 0.0
 
-    if not row or row[2] == 3:
+    if not row:
+        return False, False, 0.0
+    step_type, status, meta = row[1], row[2], row[3]
+    if status in (3, 4, 5, 6, 7):
+        return False, False, 0.0
+    if status <= 0 and step_type != 23:
         return False, False, 0.0
 
-    step_type, meta = row[1], row[3]
-    is_gen = step_type == 15
+    is_gen = step_type in (15, 23)
     is_tool = not is_gen
     elapsed = 0.0
     if isinstance(meta, (bytes, bytearray)):
         started_at = 0.0
+        ended_at = 0.0
         for fnum, wtype, val in iter_fields(bytes(meta)):
-            if wtype == 2 and fnum in (1, 6) and isinstance(val, (bytes, bytearray)):
+            if wtype == 2 and fnum in (1, 6, 7, 8, 32) and isinstance(val, (bytes, bytearray)):
                 ts = read_duration_sec(bytes(val))
-                if fnum == 6 or started_at == 0.0:
+                if fnum in (7, 8) and ts > ended_at:
+                    ended_at = ts
+                elif fnum == 6 or (fnum in (1, 32) and started_at == 0.0):
                     started_at = ts
+        if ended_at > 0.0:
+            return False, False, 0.0
         if started_at > 0:
             elapsed = max(0.0, time.time() - started_at)
     return is_gen, is_tool, elapsed
@@ -283,9 +319,14 @@ def _detect_active_step(cursor: sqlite3.Cursor) -> Tuple[bool, bool, float]:
 def _resolve_context_limit(turn: TurnRecord) -> int:
     if turn.context_limit > 0:
         return turn.context_limit
-    for candidate in (turn.model_id.lower(), turn.model_display.lower()):
+    candidates = [c for c in (turn.model_id.lower(), turn.model_display.lower()) if c]
+    for candidate in candidates:
         if candidate in FALLBACK_CONTEXT_LIMITS:
             return FALLBACK_CONTEXT_LIMITS[candidate]
+    for candidate in candidates:
+        for pattern, limit in FALLBACK_CONTEXT_PATTERNS:
+            if pattern.search(candidate):
+                return limit
     return FALLBACK_CONTEXT_LIMITS["default"]
 
 
@@ -296,9 +337,10 @@ class TelemetryStore:
         if conversations_dir:
             self.conversations_dir = conversations_dir
         else:
-            self.conversations_dir = os.path.join(
-                os.path.expanduser("~"), ".gemini", "antigravity", "conversations"
+            app_data_dir = os.environ.get("ANTIGRAVITY_APP_DATA_DIR") or os.path.join(
+                os.path.expanduser("~"), ".gemini", "antigravity"
             )
+            self.conversations_dir = os.path.join(app_data_dir, "conversations")
 
     @staticmethod
     def _wal_aware_mtime(db_path: str) -> float:
@@ -353,9 +395,13 @@ class TelemetryStore:
 
         latest = turns[-1]
         total_out = sum(t.output_tokens for t in turns)
-        total_stream = sum(t.stream_sec for t in turns)
         total_e2e = sum(t.total_sec for t in turns)
-        sustained = [t.gen_tps for t in turns if not t.is_buffered]
+        sustained_turns = [t for t in turns if not t.is_buffered]
+        sustained = [t.gen_tps for t in sustained_turns]
+        sustained_out = sum(t.output_tokens for t in sustained_turns)
+        sustained_sec = sum(t.stream_sec for t in sustained_turns)
+        avg_e2e = (total_out / total_e2e) if total_e2e > 0 else 0.0
+        avg_gen = (sustained_out / sustained_sec) if sustained_sec > 0 else avg_e2e
 
         context_used = (
             latest.reported_context
@@ -385,8 +431,8 @@ class TelemetryStore:
             e2e_tps=latest.e2e_tps,
             is_buffered=latest.is_buffered,
             last_sustained_tps=sustained[-1] if sustained else 0.0,
-            avg_gen_tps=(total_out / total_stream) if total_stream > 0 else 0.0,
-            avg_e2e_tps=(total_out / total_e2e) if total_e2e > 0 else 0.0,
+            avg_gen_tps=avg_gen,
+            avg_e2e_tps=avg_e2e,
             peak_gen_tps=max(sustained) if sustained else max(t.e2e_tps for t in turns),
             is_generating=is_gen,
             is_tool_running=is_tool,

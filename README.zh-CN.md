@@ -45,15 +45,17 @@
 
 ## <a id="overview"></a>功能介绍
 
-**AGY-HUD** 是一款轻量级的 Google Antigravity 桌面悬浮监控窗、命令行工具与侧边栏插件。它以只读方式直接读取本地 SQLite 对话数据库（`~/.gemini/antigravity/conversations/<uuid>.db` 及其 `-wal` 日志），无需代理 API 请求或抓包，即可实时显示生成速度、首字延迟（`TTFT`）、**实际路由到的后端模型标识**以及上下文窗口占用情况。
+**AGY-HUD** 是一款面向 Google Antigravity 的侧边栏插件、桌面悬浮监控窗与命令行工具。它以只读模式直接解析本地 SQLite 对话数据库（`~/.gemini/antigravity/conversations/<uuid>.db` 及其 `-wal` 日志；侧边栏插件在 IDE 内还会按需读取本机回环 Language Server 状态以展示流式正文与 5h/7d 配额窗口），无需代理外部 API 请求，即可实时监控生成速度、`TTFT`、**实际路由到的后端模型标识**、上下文窗口精细构成、分阶段耗时、子智能体 / Side Question 拓扑关系以及 API 等价成本。
 
 ### 主要特性
 
-- **优先读取实际路由模型标识**：读取 `gen_metadata` 中实际路由到的后端模型标识字段 `f19`（例如 `gemini-3.8-flash-k`），而不是只看前端展示名称（`f21` 仅在缺失 `f19` 时作为兜底）；同时读取记录中上报的真实上下文窗口上限 `f9.f10.f4`（例如 `256,000`），仅在缺失时回退到内置模型上限表。
-- **生成速度与端到端速度**：同时计算首字之后的流式生成速度（`GEN TPS = 输出 Token / 流式耗时`）以及计入首字延迟后的整体速度（`E2E TPS = 输出 Token / (TTFT + 流式耗时)`）。对于流式耗时低于 `0.5s`（或低于 `1.0s` 且速率超过 `1,200 tok/s`）的瞬时缓冲响应，会标记为 `BUF` 并排除出 `PEAK TPS` 峰值统计，改用 `E2E` 速度与上一轮持续流式速度（`STR`）展示。
-- **本地只读数据库访问**：Python 桌面端与命令行工具通过 `?mode=ro` 只读 URI 连接数据库并监控 `.db` 与 `.db-wal` 文件更新时间；Antigravity 侧边栏插件通过 Node.js 内置的 `node:sqlite` 以 `{ readOnly: true }` 模式打开数据库。全程无需填写 API 密钥或配置网络代理。
-- **零外部第三方依赖**：桌面悬浮窗与命令行仅使用 Python 3.9+ 标准库（`sqlite3`、`tkinter`），侧边栏插件直接运行在 Antigravity 自带的 `sidecar_sdk` 与 Node.js 22.5+ 内置 `node:sqlite` 上，无需安装任何第三方包（无需 `pip install` 或 `npm install`）。
-- **桌面悬浮窗、CLI 与侧边栏插件**：侧边栏面板会自动跟随 IDE 明暗主题，支持切换跟随当前对话（`Auto Pane`）、最新活跃数据库（`Latest DB`）或最近 15 个历史对话，并提供最近 28 次调用的柱状图与最近 30 条调用明细。桌面端与插件端默认采用简洁的英文指标缩写（`GEN`、`E2E`、`STR`、`BUF`、`TTFT`、`THK`、`OUT`、`CTX`），且支持随时切换中英文界面。
+- **优先读取实际路由模型标识**：优先展示 `gen_metadata` 中实际路由到的后端模型标识 `f19`（例如 `gemini-4-carbon`、`gemini-3.8-flash-k`），并自动归一化 LS 模型别名（如 `-high` 后缀与 `MODEL_PLACEHOLDER_*`）；同时读取真实上下文窗口上限 `f9.f10.f4`（如 `256,000`）。
+- **生成速度、端到端速度与阶段诊断**：同时展示首字后流式速率（`GEN TPS`）与含 `TTFT` 的端到端速率（`E2E TPS`）。单包缓冲响应标记为 `BUF`，同时从 `PEAK TPS` 与加权 `AVG GEN` 中剔除，避免出现均值高于峰值的失真；针对短输出但流式工具参数等待较慢的请求自动拆分 `思考 (THK)` 与 `工具生成 (TOOL GEN / 工具等待)` 阶段，并将工具耗时起点钳制在模型流式完成之后。
+- **三页签侧边栏面板（`实时` / `调用` / `账户`）**：
+  - **实时 (Live)**：实时生成与端到端速度卡片、上下文五维构成拆解（系统提示、工具定义、工具返回、模型回复、用户/检查点及单工具占用排行）、支持流式自动跟随到底部的 `思考摘要` / `模型回复` 实时预览，以及主子会话 / `Side Q` 一键跳转。
+  - **调用 (Calls)**：五维指标趋势柱状图（速度 / 首字 / 输出 / 缓存率 / 上下文）、轮次折叠、上下文压缩卡片以及按需展开的完整调用正文（上限提升至 `60k` 字符）。
+  - **账户 (Account)**：`5h` / `7d` 双窗口模型池配额与重置倒计时、本地 API 等价账单（当前会话 / 今日 / 本月 / 全部历史）、缓存节省金额及大规模历史库后台异步索引。
+- **零外部第三方依赖**：命令行模式（`--cli`、`--watch`、`--data-dir`）仅依赖 Python 3.9+ 标准库且不依赖 `tkinter`（仅启动桌面悬浮窗时按需加载 `tkinter`）；侧边栏插件直接运行在 Antigravity 自带的 `sidecar_sdk` 与 Node.js 22.5+ 内置 `node:sqlite` 上，支持随时切换 `EN` / `中文`。
 
 ---
 
@@ -64,7 +66,11 @@
 一键安装到 `~/.gemini/config/plugins/agy-hud`（若侧边栏图标未立即出现，重新加载或重启 Antigravity 即可）：
 
 ```bash
+# 复制安装（先写入临时目录再原子替换；需要 Node.js >= 22.5）
 python plugin/install_plugin.py
+
+# 或使用软链接开发模式（修改仓库代码实时热重载）
+python plugin/install_plugin.py --link
 ```
 
 卸载插件：
@@ -87,10 +93,10 @@ python -m desktop.cli
 # 可选参数：--lang en|zh，--refresh-ms 500，--alpha 0.92
 python -m desktop.cli --lang zh --refresh-ms 1000
 
-# 在终端输出一次当前状态后退出
+# 在终端输出一次当前状态后退出（无 tkinter 的无头 Python 环境亦可直接运行）
 python -m desktop.cli --cli
 
-# 在终端中监听变化，每当完成新的一轮调用时输出一行摘要（--interval 默认 1.0 秒）
+# 在终端中监听变化，每当完成新的一轮调用时输出一行摘要（支持 --data-dir 指定目录）
 python -m desktop.cli --watch --interval 1.0
 ```
 

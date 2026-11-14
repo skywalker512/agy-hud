@@ -2,7 +2,7 @@
 
 import tkinter as tk
 from typing import Dict, Optional, Tuple
-from .telemetry import ConversationSnapshot, TelemetryStore
+from .telemetry import ConversationSnapshot, TelemetryStore, fmt_count, fmt_tps
 
 
 LANG_PACK: Dict[str, Dict[str, object]] = {
@@ -63,22 +63,6 @@ LANG_PACK: Dict[str, Dict[str, object]] = {
         "refresh_opts": [(500, "0.5 秒 (实时)"), (1000, "1 秒 (极速)"), (2000, "2 秒 (平衡)"), (5000, "5 秒 (低占用)")],
     },
 }
-
-
-def fmt_count(n: int) -> str:
-    """Format large integer token counts with k / M suffix."""
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.2f}M"
-    if n >= 1_000:
-        return f"{n / 1_000:.1f}k"
-    return str(n)
-
-
-def fmt_tps(tps: float) -> str:
-    """Format token/s speed cleanly."""
-    if tps <= 0:
-        return "--"
-    return f"{tps:.1f}" if tps >= 10 else f"{tps:.2f}"
 
 
 class HudPill:
@@ -228,6 +212,8 @@ class HudPill:
         self.pill_label.bind("<Double-Button-1>", lambda _e: self.toggle_expand())
         for w in (self.root, self.frame_outer, self.frame_body, self.header, self.pill_label, self.card):
             w.bind("<Button-3>", self._popup_menu)
+            w.bind("<Button-2>", self._popup_menu)
+            w.bind("<Control-Button-1>", self._popup_menu)
 
     def _drag_begin(self, event):
         if not self.pinned:

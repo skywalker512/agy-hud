@@ -5,12 +5,27 @@ import os
 import signal
 import sys
 import time
+from typing import Optional
 
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from desktop.hud_pill import HudPill, fmt_count, fmt_tps
-from desktop.telemetry import TelemetryStore
+from desktop.telemetry import TelemetryStore, fmt_count, fmt_tps
+
+
+def _build_store(data_dir: Optional[str] = None) -> TelemetryStore:
+    """Construct TelemetryStore from an optional app-data or conversations path."""
+    if not data_dir:
+        return TelemetryStore()
+    expanded = os.path.expanduser(data_dir)
+    conv_sub = os.path.join(expanded, "conversations")
+    if os.path.isdir(conv_sub):
+        return TelemetryStore(conversations_dir=conv_sub)
+    if os.path.basename(os.path.normpath(expanded)) == "conversations" or (
+        os.path.isdir(expanded) and any(name.endswith(".db") for name in os.listdir(expanded))
+    ):
+        return TelemetryStore(conversations_dir=expanded)
+    return TelemetryStore(conversations_dir=conv_sub)
 
 
 def run_once(store: TelemetryStore) -> int:
@@ -65,9 +80,24 @@ def run_watch(store: TelemetryStore, interval: float = 1.0):
         print("\nStopped.")
 
 
-def run_gui(refresh_ms: int = 500, alpha: float = 0.92, lang: str = "en"):
+def run_gui(
+    store: Optional[TelemetryStore] = None,
+    refresh_ms: int = 500,
+    alpha: float = 0.92,
+    lang: str = "en",
+):
     """Launch the floating Tkinter HUD pill."""
-    app = HudPill(store=TelemetryStore(), interval_ms=refresh_ms, topmost=True, alpha=alpha, lang=lang)
+    try:
+        from desktop.hud_pill import HudPill
+    except (ImportError, ModuleNotFoundError) as exc:
+        print(
+            f"Tkinter GUI is unavailable in this Python environment ({exc}).\n"
+            "Use `--cli` or `--watch` for terminal mode, or install Tk support (e.g. `brew install python-tk`).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    app = HudPill(store=store or TelemetryStore(), interval_ms=refresh_ms, topmost=True, alpha=alpha, lang=lang)
 
     def _on_signal(_sig, _frame):
         try:
@@ -85,18 +115,20 @@ def main():
     parser = argparse.ArgumentParser(description="AGY-HUD Token/s & Context Telemetry")
     parser.add_argument("--cli", action="store_true", help="Print snapshot once and exit")
     parser.add_argument("--watch", action="store_true", help="Stream live telemetry lines")
+    parser.add_argument("--data-dir", type=str, default=None, help="Antigravity app data or conversations directory")
     parser.add_argument("--interval", type=float, default=1.0, help="Watch polling interval in seconds")
     parser.add_argument("--alpha", type=float, default=0.92, help="GUI opacity (0.3 to 1.0)")
     parser.add_argument("--refresh-ms", type=int, default=500, help="GUI refresh interval in ms")
     parser.add_argument("--lang", choices=["en", "zh"], default="en", help="Initial GUI language")
 
     args = parser.parse_args()
+    store = _build_store(args.data_dir)
     if args.cli:
-        sys.exit(run_once(TelemetryStore()))
+        sys.exit(run_once(store))
     elif args.watch:
-        run_watch(TelemetryStore(), interval=args.interval)
+        run_watch(store, interval=args.interval)
     else:
-        run_gui(refresh_ms=args.refresh_ms, alpha=args.alpha, lang=args.lang)
+        run_gui(store=store, refresh_ms=args.refresh_ms, alpha=args.alpha, lang=args.lang)
 
 
 if __name__ == "__main__":

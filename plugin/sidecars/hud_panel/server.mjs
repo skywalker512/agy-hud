@@ -1,376 +1,415 @@
 /**
  * AGY-HUD sidecar telemetry server.
- * Reads local Antigravity SQLite + WAL conversation DBs in read-only mode
- * and exposes live TPS, TTFT, token breakdown, and step activity via HTTP.
+ * Serves the Preact + Tailwind compiled bundle from ./ui/ and exposes read-only
+ * SQLite + Language Server telemetry over HTTP via sidecar_sdk.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { existsSync, readdirSync, readFileSync, realpathSync, watch } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Response, SidecarApp } from 'sidecar_sdk';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const UUID_RE = /^[0-9a-f-]{8,}$/i;
+import {
+  QUOTA_TTL_MS,
+  UUID_RE,
+  clipLiveStreamText,
+  clipText,
+  mergeIntervalDurationSec,
+  resolveAppDataDir,
+  resolveTranscriptPaths,
+  statSafe,
+} from './lib/constants.mjs';
+import {
+  computeCallCost,
+  resolveModelPricing,
+} from './lib/pricing.mjs';
+import {
+  isCompactPromptText,
+  iterFields,
+  parseAnnotationPbtxt,
+  parseContextBreakdown,
+  parseGenRow,
+  parsePlannerPayload,
+  parseStepMetadata,
+  parseUserPromptPayload,
+  readDurationSec,
+  readVarint,
+  unescapePbtxtString,
+} from './lib/protobuf.mjs';
+import {
+  ensureLsModelCatalogWarm,
+  extractLiveStepFromTrajectory,
+  fetchLiveActiveStep,
+  getCascadeSummariesCached,
+  getLsModelCatalogVersion,
+  getUserStatusCached,
+  isCascadeStatusActive,
+  isCompactUserInputLs,
+  isLoopbackHost,
+  normalizeLsBaseUrl,
+  quotaCache,
+  resolveLsGeneratorModel,
+} from './lib/ls-client.mjs';
+import {
+  getTelemetryCached,
+  listConversations,
+  readTelemetry,
+  toLightTelemetryPayload,
+} from './lib/telemetry.mjs';
+import {
+  attachQuotaBudgetEstimates,
+  buildAccountHistory,
+  buildSessionInfo,
+  conversationEffectiveMs,
+  getBgSummaryWarmSeq,
+  getConversationGraph,
+  pickTargetConversation,
+  summarizeConversationDb,
+} from './lib/graph.mjs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const UI_DIR = join(__dirname, 'ui');
+const BOOT_ID = `${process.pid}-${Date.now()}`;
+
 const STATIC_ASSETS = {
-  '/styles.css': ['styles.css', 'text/css; charset=utf-8'],
-  '/app.js': ['app.js', 'application/javascript; charset=utf-8'],
+  '/styles.css': [join(UI_DIR, 'styles.css'), 'text/css; charset=utf-8'],
+  '/app.js': [join(UI_DIR, 'app.js'), 'application/javascript; charset=utf-8'],
 };
+const WATCHED_ASSETS = ['index.html', 'styles.css', 'app.js'];
+const assetMemCache = new Map();
+let lastCompleteAssetKey = '';
 
-const MODEL_LIMIT_FALLBACKS = [
-  [/gemini-3\.8-flash-k/i, 256_000],
-  [/claude/i, 200_000],
-  [/gpt-4o/i, 128_000],
-  [/gemini-2\.5-pro/i, 2_097_152],
-  [/gemini/i, 1_048_576],
-];
-
-function resolveAppDataDir() {
-  const execData = process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR;
-  if (execData) {
-    for (let d = execData; d !== dirname(d); d = dirname(d)) {
-      if (basename(d) === 'sidecar_data') {
-        const root = dirname(d);
-        if (existsSync(join(root, 'conversations'))) return root;
-      }
-    }
-  }
-  const envApp = process.env.ANTIGRAVITY_APP_DATA_DIR;
-  if (envApp && existsSync(join(envApp, 'conversations'))) return envApp;
-  return join(homedir(), '.gemini', 'antigravity');
-}
-
-function statSafe(path) {
+function readUiAsset(filePath, fallback = '') {
   try {
-    const s = statSync(path);
-    return { mtimeMs: s.mtimeMs, size: s.size };
-  } catch {
-    return { mtimeMs: 0, size: 0 };
-  }
-}
-
-function listConversations(dir) {
-  let entries;
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return [];
-  }
-  const items = [];
-  for (const name of entries) {
-    if (!name.endsWith('.db')) continue;
-    const id = name.slice(0, -3);
-    if (!UUID_RE.test(id)) continue;
-    const dbPath = join(dir, name);
-    const dbStat = statSafe(dbPath);
-    const walStat = statSafe(`${dbPath}-wal`);
-    items.push({
-      id,
-      dbPath,
-      updatedMs: Math.max(dbStat.mtimeMs, walStat.mtimeMs),
-      key: `${dbStat.mtimeMs}:${dbStat.size}:${walStat.mtimeMs}:${walStat.size}`,
-    });
-  }
-  items.sort((a, b) => b.updatedMs - a.updatedMs);
-  return items;
-}
-
-function readVarint(buf, pos) {
-  let val = 0n;
-  let shift = 0n;
-  while (pos < buf.length) {
-    const b = buf[pos++];
-    val |= BigInt(b & 0x7f) << shift;
-    if ((b & 0x80) === 0) break;
-    shift += 7n;
-  }
-  return [val, pos];
-}
-
-function iterFields(buf) {
-  const fields = [];
-  let pos = 0;
-  while (pos < buf.length) {
-    const [key, p1] = readVarint(buf, pos);
-    pos = p1;
-    const fnum = Number(key >> 3n);
-    const wtype = Number(key & 7n);
-    if (wtype === 0) {
-      const [v, p2] = readVarint(buf, pos);
-      pos = p2;
-      fields.push([fnum, wtype, v]);
-    } else if (wtype === 2) {
-      const [lenBig, p2] = readVarint(buf, pos);
-      const len = Number(lenBig);
-      pos = p2;
-      if (len < 0 || pos + len > buf.length) break;
-      fields.push([fnum, wtype, buf.subarray(pos, pos + len)]);
-      pos += len;
-    } else if (wtype === 1) {
-      if (pos + 8 > buf.length) break;
-      fields.push([fnum, wtype, buf.subarray(pos, pos + 8)]);
-      pos += 8;
-    } else if (wtype === 5) {
-      if (pos + 4 > buf.length) break;
-      fields.push([fnum, wtype, buf.subarray(pos, pos + 4)]);
-      pos += 4;
-    } else {
-      break;
+    const content = readFileSync(filePath, 'utf-8');
+    if (content && content.length > 0) {
+      assetMemCache.set(filePath, content);
+      return content;
     }
+  } catch {
+    /* transient read error during rebuild; fall back to cached copy */
   }
-  return fields;
+  return assetMemCache.get(filePath) ?? fallback;
 }
 
-function readDurationSec(buf) {
-  let sec = 0;
-  let nanos = 0;
-  for (const [fn, wt, val] of iterFields(buf)) {
-    if (wt !== 0) continue;
-    if (fn === 1) sec = Number(val);
-    else if (fn === 2) nanos = Number(val);
+function getAssetKey() {
+  const stats = WATCHED_ASSETS.map((name) => statSafe(join(UI_DIR, name)));
+  if (stats.every((s) => s.size > 0)) {
+    lastCompleteAssetKey = stats.map((s) => `${s.mtimeMs}:${s.size}`).join('|');
   }
-  return sec + nanos / 1e9;
+  return lastCompleteAssetKey;
 }
 
-function parseUsageSubmsg(buf) {
-  const out = { newInput: 0, cachedInput: 0, outputTokens: 0, thinkingTokens: 0, candidateTokens: 0, fallbackOut: 0 };
-  for (const [fn, wt, val] of iterFields(buf)) {
-    if (wt !== 0) continue;
-    const n = Number(val);
-    if (fn === 1) out.fallbackOut = n;
-    else if (fn === 2) out.newInput = n;
-    else if (fn === 3) out.outputTokens = n;
-    else if (fn === 5) out.cachedInput = n;
-    else if (fn === 9) out.thinkingTokens = n;
-    else if (fn === 10) out.candidateTokens = n;
-  }
-  return out;
-}
+function startSelfWatch() {
+  if (!process.env.ANTIGRAVITY_SIDECAR_WEB_PORT) return;
+  try {
+    const realDir = dirname(realpathSync(__filename));
+    const libDir = join(realDir, 'lib');
+    const rootFiles = ['server.mjs', 'pricing.json'];
 
-function resolveLimitFallback(model) {
-  for (const [re, limit] of MODEL_LIMIT_FALLBACKS) {
-    if (re.test(model || '')) return limit;
-  }
-  return 256_000;
-}
-
-function parseGenRow(idx, raw) {
-  const f1 = iterFields(raw).find(([fn, wt]) => fn === 1 && wt === 2);
-  if (!f1) return null;
-
-  let modelId = '';
-  let modelDisplay = '';
-  let primaryUsage = null;
-  let legacyUsage = null;
-  let ttftSec = 0;
-  let genSec = 0;
-  let contextReported = 0;
-  let contextLimit = 0;
-  let lastStepIndex = null;
-
-  for (const [fn, wt, val] of iterFields(f1[2])) {
-    if (wt !== 2) continue;
-    if (fn === 19) modelId = Buffer.from(val).toString('utf8');
-    else if (fn === 21) modelDisplay = Buffer.from(val).toString('utf8');
-    else if (fn === 4) primaryUsage = parseUsageSubmsg(val);
-    else if (fn === 11) ttftSec = readDurationSec(val);
-    else if (fn === 12) genSec = readDurationSec(val);
-    else if (fn === 9) {
-      for (const [bf, bw, bv] of iterFields(val)) {
-        if (bf === 10 && bw === 2) {
-          for (const [cf, cw, cv] of iterFields(bv)) {
-            if (cw !== 0) continue;
-            if (cf === 1) contextReported = Number(cv);
-            else if (cf === 4) contextLimit = Number(cv);
-          }
+    const snapshotSig = () => {
+      const parts = rootFiles.map((n) => {
+        const s = statSafe(join(realDir, n));
+        return `${n}:${s.mtimeMs}:${s.size}`;
+      });
+      if (existsSync(libDir)) {
+        const libFiles = readdirSync(libDir).filter((n) => n.endsWith('.mjs')).sort();
+        for (const lf of libFiles) {
+          const s = statSafe(join(libDir, lf));
+          parts.push(`lib/${lf}:${s.mtimeMs}:${s.size}`);
         }
       }
-    } else if (fn === 17) {
-      const f2 = iterFields(val).find(([sf, sw]) => sf === 2 && sw === 2);
-      if (f2) legacyUsage = parseUsageSubmsg(f2[2]);
-    } else if (fn === 20) {
-      let k = '';
-      let v = '';
-      for (const [kf, kw, kv] of iterFields(val)) {
-        if (kw !== 2) continue;
-        if (kf === 1) k = Buffer.from(kv).toString('utf8');
-        else if (kf === 2) v = Buffer.from(kv).toString('utf8');
-      }
-      if (k === 'last_step_index' && v !== '') {
-        const parsed = Number(v);
-        if (Number.isFinite(parsed)) lastStepIndex = parsed;
-      }
-    }
-  }
+      return parts.join('|');
+    };
 
-  const u = (primaryUsage && (primaryUsage.cachedInput || primaryUsage.newInput || primaryUsage.outputTokens))
-    ? primaryUsage
-    : (legacyUsage || { newInput: 0, cachedInput: 0, outputTokens: 0, thinkingTokens: 0, candidateTokens: 0, fallbackOut: 0 });
-  const outputTokens = u.outputTokens || u.fallbackOut || (u.thinkingTokens + u.candidateTokens);
-  const model = modelId || modelDisplay || 'Unknown Model';
-  const totalContext = contextReported > 0 ? contextReported : u.cachedInput + u.newInput;
-  const limit = contextLimit > 0 ? contextLimit : resolveLimitFallback(model);
-  const totalSec = ttftSec + genSec;
-  const genTps = genSec > 0 ? outputTokens / genSec : 0;
-  const e2eTps = totalSec > 0 ? outputTokens / totalSec : 0;
-  const isBuffered = genSec < 0.5 || (genSec < 1.0 && genTps > 1200);
+    const bootSig = snapshotSig();
+    let timer = null;
+    const triggerRestartCheck = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const serverStat = statSafe(join(realDir, 'server.mjs'));
+        if (serverStat.size > 100 && snapshotSig() !== bootSig) {
+          process.exit(0);
+        }
+      }, 350);
+    };
 
-  return {
-    idx,
-    lastStepIndex,
-    model,
-    modelId,
-    modelDisplay,
-    newInput: u.newInput,
-    cachedInput: u.cachedInput,
-    outputTokens,
-    thinkingTokens: u.thinkingTokens,
-    candidateTokens: u.candidateTokens,
-    ttftSec,
-    genSec,
-    totalSec,
-    isBuffered,
-    genTps,
-    e2eTps,
-    totalContext,
-    contextLimit: limit,
-    contextPct: limit > 0 ? Math.min(100, (totalContext / limit) * 100) : 0,
-  };
-}
+    const rootWatcher = watch(realDir, (_evt, filename) => {
+      if (filename && !rootFiles.includes(String(filename))) return;
+      triggerRestartCheck();
+    });
+    rootWatcher.unref?.();
 
-function readStepTimes(metaBuf) {
-  let createdAtMs = 0;
-  let streamStartMs = 0;
-  let completedAtMs = 0;
-  for (const [fn, wt, val] of iterFields(metaBuf)) {
-    if (wt !== 2) continue;
-    if (fn === 1) createdAtMs = readDurationSec(val) * 1000;
-    else if (fn === 6) streamStartMs = readDurationSec(val) * 1000;
-    else if (fn === 7) completedAtMs = readDurationSec(val) * 1000;
-  }
-  return { createdAtMs, streamStartMs, completedAtMs };
-}
-
-function readTelemetry(dbPath) {
-  let db;
-  try {
-    db = new DatabaseSync(dbPath, { readOnly: true });
-    const gmRows = db.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx ASC').all();
-    const stepRows = db.prepare('SELECT idx, step_type, status, metadata FROM steps ORDER BY idx ASC').all();
-
-    const plannerTimes = new Map();
-    let activeStep = null;
-    for (const s of stepRows) {
-      const ts = s.metadata ? readStepTimes(s.metadata) : { createdAtMs: 0, streamStartMs: 0, completedAtMs: 0 };
-      if (s.step_type === 15) plannerTimes.set(s.idx, ts);
-      if (s.status !== 3) {
-        activeStep = {
-          idx: s.idx,
-          stepType: s.step_type,
-          status: s.status,
-          createdAtMs: ts.createdAtMs,
-          streamStartMs: ts.streamStartMs,
-        };
-      }
-    }
-
-    const invocations = [];
-    for (const row of gmRows) {
-      const parsed = parseGenRow(row.idx, row.data);
-      if (!parsed) continue;
-      const stepIdx = parsed.lastStepIndex !== null ? parsed.lastStepIndex + 1 : null;
-      const times = stepIdx !== null ? plannerTimes.get(stepIdx) : null;
-      invocations.push({
-        ...parsed,
-        timestampMs: times?.completedAtMs || times?.createdAtMs || 0,
+    if (existsSync(libDir)) {
+      const libWatcher = watch(libDir, (_evt, filename) => {
+        if (filename && !String(filename).endsWith('.mjs')) return;
+        triggerRestartCheck();
       });
+      libWatcher.unref?.();
     }
-
-    let totalOutput = 0;
-    let totalGenSec = 0;
-    let totalE2eSec = 0;
-    let peakGenTps = 0;
-    let latestSustained = null;
-    for (const inv of invocations) {
-      totalOutput += inv.outputTokens;
-      totalGenSec += inv.genSec;
-      totalE2eSec += inv.totalSec;
-      if (!inv.isBuffered) {
-        latestSustained = inv;
-        if (inv.genTps > peakGenTps) peakGenTps = inv.genTps;
-      }
-    }
-    if (peakGenTps === 0 && invocations.length) {
-      peakGenTps = Math.max(...invocations.map((i) => i.e2eTps));
-    }
-
-    return {
-      invocations,
-      latest: invocations.length ? invocations[invocations.length - 1] : null,
-      latestSustained,
-      summary: {
-        count: invocations.length,
-        totalOutput,
-        avgGenTps: totalGenSec > 0 ? totalOutput / totalGenSec : 0,
-        avgE2eTps: totalE2eSec > 0 ? totalOutput / totalE2eSec : 0,
-        peakGenTps,
-      },
-      activeStep,
-    };
-  } finally {
-    try { db?.close(); } catch { /* ignore */ }
+  } catch {
+    /* ignore watch failures */
   }
 }
 
-const conversationsDir = join(resolveAppDataDir(), 'conversations');
-const app = new SidecarApp();
+let lastAutoTargetId = '';
 
-app.page('/', () => readFileSync(join(__dirname, 'index.html'), 'utf-8'));
+async function startServer() {
+  const { Response, SidecarApp } = await import('sidecar_sdk');
+  const appDataDir = resolveAppDataDir();
+  const conversationsDir = join(appDataDir, 'conversations');
+  const annotationsDir = join(appDataDir, 'annotations');
+  const app = new SidecarApp();
 
-for (const [route, [file, contentType]] of Object.entries(STATIC_ASSETS)) {
-  app.api(route, () => new Response(readFileSync(join(__dirname, file), 'utf-8'), { contentType }), 'GET');
-}
+  ensureLsModelCatalogWarm();
 
-app.api('/api/stats', (data) => {
-  const mode = data.mode === 'latest' ? 'latest' : 'auto';
-  const requestedConv = typeof data.conversationId === 'string' && UUID_RE.test(data.conversationId)
-    ? data.conversationId
-    : (app.config.conversationId || '');
+  const NO_STORE_HEADERS = {
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    Pragma: 'no-cache',
+  };
 
-  const conversations = listConversations(conversationsDir);
-  if (!conversations.length) {
-    return { found: false, conversations: [], serverTimeMs: Date.now() };
+  const indexHtmlPath = join(UI_DIR, 'index.html');
+  readUiAsset(indexHtmlPath);
+  for (const [filePath] of Object.values(STATIC_ASSETS)) {
+    readUiAsset(filePath);
   }
 
-  const target = (mode === 'auto' && requestedConv
-    ? conversations.find((c) => c.id === requestedConv)
-    : null) || conversations[0];
+  app.page('/', () => readUiAsset(indexHtmlPath));
 
-  const recentList = conversations.slice(0, 15).map((c) => ({ id: c.id, updatedMs: c.updatedMs }));
-  const etag = `${mode}|${target.id}|${target.key}|${recentList[0]?.id || ''}`;
-  if (data.etag && data.etag === etag) {
-    return { unchanged: true, etag, serverTimeMs: Date.now() };
+  for (const [route, [filePath, contentType]] of Object.entries(STATIC_ASSETS)) {
+    app.api(
+      route,
+      () => new Response(readUiAsset(filePath), { contentType, headers: NO_STORE_HEADERS }),
+      'GET',
+    );
   }
 
-  try {
-    return {
-      found: true,
-      etag,
+  app.api('/api/stats', async (data) => {
+    const mode = data.mode === 'latest' ? 'latest' : 'auto';
+    const rawConvId = typeof data.conversationId === 'string' && UUID_RE.test(data.conversationId)
+      ? data.conversationId
+      : (mode === 'auto' && UUID_RE.test(app.config?.conversationId || '') ? app.config.conversationId : '');
+    const explicitConvId = rawConvId;
+    const assetKey = getAssetKey();
+
+    const conversations = listConversations(conversationsDir, annotationsDir);
+    const forceQuota = data.refreshQuota === '1';
+    const includeQuota = data.includeQuota !== '0';
+    let accountQuota;
+    if (forceQuota || includeQuota) {
+      accountQuota = await getUserStatusCached(quotaCache.fetchedAtMs === 0 || forceQuota, forceQuota);
+    } else {
+      ensureLsModelCatalogWarm();
+      accountQuota = quotaCache.fetchedAtMs > 0
+        ? quotaCache.data
+        : { available: false, deferred: true, reason: 'deferred', ttlMs: QUOTA_TTL_MS };
+    }
+
+    if (!conversations.length) {
+      return { found: false, bootId: BOOT_ID, assetKey, conversations: [], accountQuota, serverTimeMs: Date.now() };
+    }
+
+    const graph = getConversationGraph(conversations, explicitConvId);
+    const lsSummaries = (!explicitConvId || mode === 'latest')
+      ? await getCascadeSummariesCached(600)
+      : undefined;
+
+    const target = pickTargetConversation({
       mode,
-      conversationId: target.id,
-      serverTimeMs: Date.now(),
-      conversations: recentList,
-      ...readTelemetry(target.dbPath),
-    };
-  } catch (err) {
-    return {
-      found: false,
-      error: err.message,
-      conversationId: target.id,
-      conversations: recentList,
-      serverTimeMs: Date.now(),
-    };
-  }
-}, 'GET');
+      explicitConvId,
+      conversations,
+      graph,
+      lsSummaries,
+      prevAutoTargetId: lastAutoTargetId,
+    });
+    if (!explicitConvId && target?.id) {
+      lastAutoTargetId = target.id;
+    }
 
-app.run();
+    const liveOverlay = await fetchLiveActiveStep(target.id, lsSummaries);
+    const sessionInfoFull = buildSessionInfo(target.id, graph);
+    const { childKeys, ...sessionInfo } = sessionInfoFull;
+    const accountHistory = buildAccountHistory(graph);
+
+    const nowMs = Date.now();
+    const sortedRecent = [...conversations].slice(0, 25).sort((a, b) => {
+      const effB = conversationEffectiveMs(b, graph, lsSummaries, nowMs);
+      const effA = conversationEffectiveMs(a, graph, lsSummaries, nowMs);
+      return (effB - effA) || (b.updatedMs - a.updatedMs);
+    });
+    const recentList = sortedRecent.slice(0, 15).map((c) => {
+      const s = graph.byId.get(c.id);
+      const link = graph.parentLinks.get(c.id);
+      const kind = link ? link.kind : (s?.trajectoryType === 22 ? 'side_question' : 'main');
+      const effMs = conversationEffectiveMs(c, graph, lsSummaries, nowMs);
+      return {
+        id: c.id,
+        updatedMs: effMs || c.updatedMs,
+        title: graph.sqTitleOverrides.get(c.id) || s?.title || '',
+        kind,
+        parentId: link?.parentId || '',
+        childCount: (graph.childrenByParent.get(c.id) || []).length,
+        costUSD: s?.costUSD || 0,
+      };
+    });
+
+    const histSig = `${accountHistory.totalCalls}:${accountHistory.totalCostUSD.toFixed(5)}:${getBgSummaryWarmSeq()}`;
+    const liveSig = liveOverlay?.sig || '';
+    const quotaSig = accountQuota?.deferred
+      ? `${quotaCache.updatedSeq}:d`
+      : `${quotaCache.updatedSeq}:${quotaCache.fetchedAtMs}`;
+    const etag = `${mode}|${target.id}|${target.key}|${target.annoKey}|${childKeys}|${recentList[0]?.id || ''}|${quotaSig}|${histSig}|${liveSig}|${getLsModelCatalogVersion()}`;
+    if (data.etag && data.etag === etag) {
+      return { unchanged: true, etag, bootId: BOOT_ID, assetKey, serverTimeMs: Date.now() };
+    }
+
+    const paths = resolveTranscriptPaths(appDataDir, target.id);
+    try {
+      const cachedTelemetry = getTelemetryCached(target, conversations);
+      const telemetry = toLightTelemetryPayload(cachedTelemetry.telemetry);
+      if (liveOverlay?.liveStep) {
+        let lsStep = liveOverlay.liveStep;
+        if (lsStep.syntheticFallback && telemetry.pendingCompact) {
+          lsStep = {
+            ...lsStep,
+            stepType: 23,
+            statusName: 'COMPACTING',
+            createdAtMs: telemetry.pendingCompact.startedAtMs || telemetry.pendingCompact.createdAtMs || lsStep.createdAtMs,
+          };
+        }
+        const latestTurn = telemetry.turns?.length ? telemetry.turns[telemetry.turns.length - 1] : null;
+        const fallbackModel = telemetry.currentModel || telemetry.latest || null;
+        const resolvedModel = (lsStep.modelDisplay || lsStep.model)
+          ? lsStep
+          : {
+              model: fallbackModel?.model || '',
+              modelId: fallbackModel?.modelId || '',
+              modelDisplay: fallbackModel?.modelDisplay || '',
+            };
+        telemetry.activeStep = {
+          ...lsStep,
+          turnIndex: latestTurn?.turnIndex || null,
+          model: resolvedModel.model,
+          modelId: resolvedModel.modelId,
+          modelDisplay: resolvedModel.modelDisplay,
+        };
+        if (resolvedModel.modelDisplay || resolvedModel.model) {
+          telemetry.currentModel = {
+            model: resolvedModel.model,
+            modelId: resolvedModel.modelId,
+            modelDisplay: resolvedModel.modelDisplay,
+            isActive: true,
+            stepType: lsStep.stepType,
+            toolName: lsStep.toolName,
+            statusName: lsStep.statusName,
+          };
+        }
+      }
+      return {
+        found: true,
+        etag,
+        bootId: BOOT_ID,
+        assetKey,
+        mode,
+        conversationId: target.id,
+        dbPath: target.dbPath,
+        ...paths,
+        serverTimeMs: Date.now(),
+        conversations: recentList,
+        sessionInfo,
+        accountHistory,
+        accountQuota: attachQuotaBudgetEstimates(accountQuota, graph),
+        ...telemetry,
+      };
+    } catch (err) {
+      return {
+        found: false,
+        bootId: BOOT_ID,
+        assetKey,
+        error: err.message,
+        conversationId: target.id,
+        dbPath: target.dbPath,
+        ...paths,
+        conversations: recentList,
+        sessionInfo,
+        accountHistory,
+        accountQuota,
+        serverTimeMs: Date.now(),
+      };
+    }
+  }, 'GET');
+
+  app.api('/api/call-detail', async (data) => {
+    const convId = typeof data.conversationId === 'string' && UUID_RE.test(data.conversationId)
+      ? data.conversationId
+      : '';
+    const kind = data.kind === 'compact' || data.kind === 'turn' ? data.kind : 'inv';
+    const idNum = Number(data.id);
+    if (!convId || !Number.isFinite(idNum)) {
+      return { found: false, reason: 'invalid_params' };
+    }
+    const conversations = listConversations(conversationsDir, annotationsDir);
+    const conv = conversations.find((c) => c.id === convId);
+    if (!conv) {
+      return { found: false, reason: 'not_found' };
+    }
+    try {
+      const cached = getTelemetryCached(conv, conversations);
+      const map = cached.detailIndex?.[kind];
+      const detail = map ? map.get(idNum) || null : null;
+      if (!detail) {
+        return { found: false, reason: 'missing_item' };
+      }
+      return { found: true, conversationId: convId, kind, id: idNum, detail };
+    } catch (err) {
+      return { found: false, reason: err?.message || 'read_error' };
+    }
+  }, 'GET');
+
+  app.run();
+  startSelfWatch();
+}
+
+function isEntrypoint() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(__filename);
+  } catch {
+    return process.argv[1] === __filename;
+  }
+}
+
+if (isEntrypoint()) {
+  startServer();
+}
+
+export {
+  attachQuotaBudgetEstimates,
+  clipLiveStreamText,
+  clipText,
+  computeCallCost,
+  conversationEffectiveMs,
+  extractLiveStepFromTrajectory,
+  getConversationGraph,
+  isCascadeStatusActive,
+  isCompactPromptText,
+  isCompactUserInputLs,
+  isLoopbackHost,
+  iterFields,
+  listConversations,
+  mergeIntervalDurationSec,
+  normalizeLsBaseUrl,
+  parseAnnotationPbtxt,
+  parseContextBreakdown,
+  parseGenRow,
+  parsePlannerPayload,
+  parseStepMetadata,
+  parseUserPromptPayload,
+  pickTargetConversation,
+  readDurationSec,
+  readTelemetry,
+  readVarint,
+  resolveLsGeneratorModel,
+  resolveModelPricing,
+  summarizeConversationDb,
+  unescapePbtxtString,
+};

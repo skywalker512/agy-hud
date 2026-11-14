@@ -1,0 +1,51 @@
+{
+  "updatedAt": "2026-11-14",
+  "note": "Reference API-equivalent USD rates per 1M tokens. Models in unpricedSubstrings remain unpriced.",
+  "unpricedSubstrings": ["gpt-oss"],
+  "rules": [
+    {
+      "match": ["gemini-3.8-flash", "gemini-flash-worker-agy"],
+      "key": "gemini-3.8-flash",
+      "input": 0.75,
+      "output": 3.75,
+      "cached": 0.075
+    },
+    {
+      "match": ["gemini-4-hydrogen", "orchestrator (hydrogen)"],
+      "key": "gemini-4-hydrogen",
+      "input": 1.5,
+      "output": 7.5,
+      "cached": 0.075
+    },
+    {
+      "match": ["gemini-4-carbon", "gemini-4-argon", "gemini-pro-orchestrator", "orchestrator (carbon)"],
+      "gaCutoffIso": "2026-12-01T00:00:00.000Z",
+      "preview": {
+        "key": "gemini-4-pro-preview",
+        "input": 2.0,
+        "output": 10.0,
+        "cached": 0.1
+      },
+      "ga": {
+        "key": "gemini-4-pro-ga",
+        "input": 4.0,
+        "output": 20.0,
+        "cached": 0.2
+      }
+    },
+    {
+      "match": ["claude-opus-5-5", "claude-opus-5.5"],
+      "key": "claude-opus-5-5",
+      "input": 4.0,
+      "output": 20.0,
+      "cached": 0.2
+    },
+    {
+      "match": ["claude-sonnet-5-5", "claude-sonnet-5.5"],
+      "key": "claude-sonnet-5-5",
+      "input": 2.0,
+      "output": 10.0,
+      "cached": 0.2
+    }
+  ]
+}
