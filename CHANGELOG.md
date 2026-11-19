@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Plugin-only**: Removed the Python desktop pill, `--cli` / `--watch` modes, and `pyproject.toml`. AGY-HUD now ships only as the Antigravity app side-pane plugin.
+- **Node installer**: `plugin/install_plugin.py` is replaced by `node plugin/install.mjs` (same `--link` / `--uninstall` flags), so installing needs only Node.js 22.5+.
+- **Docs**: READMEs are now maintained in English and Simplified Chinese only.
+
 ## v1.1.0 — Live Streaming, Target Stability & Phase Diagnostics
 
 - **Per-Call Phase & Tool-Stall Diagnostics**: Separates post-TTFT thinking time (`THK`) from tool-call argument streaming time (`TOOL GEN` / `TC-WAIT`) on tool-invoking turns, and clamps `TOOL TIME` start timestamps to planner completion so multi-tool streaming no longer inflates tool execution totals.

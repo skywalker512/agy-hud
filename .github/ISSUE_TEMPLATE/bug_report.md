@@ -1,20 +1,18 @@
 ---
 name: Bug report
-about: Report an issue with AGY-HUD telemetry decoding, floating pill UI, or sidecar panel
+about: Report an issue with AGY-HUD telemetry decoding or the side-pane panel
 title: "[Bug] "
 labels: bug
 ---
 
 ## Environment
 - OS: (e.g. Windows 11, macOS 15)
-- Python / Node version:
-- Mode: Desktop Pill (`desktop/cli.py`) / Side-Pane Plugin (`plugin/`)
+- Antigravity app version:
+- Node version (`node -v`):
+- AGY-HUD version (`plugin/plugin.json`):
 
 ## What happened
 Describe what AGY-HUD displayed vs what you expected.
 
-## CLI diagnostics
-Please attach output from:
-```bash
-python -m desktop.cli --cli
-```
+## Diagnostics
+If possible, attach a screenshot of the panel and the model / turn number shown in its header.

@@ -8,16 +8,16 @@ Requires **Node.js >= 22.5** (for built-in `node:sqlite`).
 
 ```bash
 # Standard staged copy install
-python plugin/install_plugin.py
+node plugin/install.mjs
 
 # Live development symlink mode
-python plugin/install_plugin.py --link
+node plugin/install.mjs --link
 ```
 
 Restart or reload Antigravity plugins if the side-pane icon does not appear immediately. To remove:
 
 ```bash
-python plugin/install_plugin.py --uninstall
+node plugin/install.mjs --uninstall
 ```
 
 ## Run Unit Tests
