@@ -45,10 +45,10 @@ export interface Translations {
   tabOut: string;
   tabCache: string;
   tabCtx: string;
+  tabQuota: string;
   noCalls: string;
   histTitle: string;
   histHint: string;
-  waitStep: string;
   badgeWait: (s: string) => string;
   badgeGen: (s: string) => string;
   badgeCompact: (s: string) => string;
@@ -84,11 +84,13 @@ export interface Translations {
   tipOut: (idx: number, m: string, out: string, thk: string, vis: string, gen: string) => string;
   tipCache: (idx: number, m: string, cachePct: string, cached: string, newIn: string) => string;
   tipCtx: (idx: number, m: string, used: string, lim: string, pct: number) => string;
+  tipQuota: (idx: number, m: string, pct5h: string, pct7d: string, kStr: string, costStr: string) => string;
   chartSubTps: (n: number, avg: string, max: string, last: string) => string;
   chartSubTtft: (n: number, avg: string, max: string, last: string) => string;
   chartSubOut: (n: number, avg: string, max: string, last: string) => string;
   chartSubCache: (n: number, avg: string, min: string, last: string) => string;
   chartSubCtx: (n: number, last: string, max: string) => string;
+  chartSubQuota: (n: number, sum: string, avg: string, max: string) => string;
   chartAllModels: (n: number) => string;
   chartModelFilterTip: (name: string, count: number, avgStr: string, active: boolean) => string;
   histDetail: (
@@ -158,8 +160,8 @@ export interface Translations {
   showAllHistoryBtn: (shown: number, total: number) => string;
   collapseHistoryBtn: (limit: number) => string;
   turnDividerBadge: (n: number) => string;
-  turnDividerStats: (calls: number, outStr: string, secStr: string, compacts?: number) => string;
-  turnDividerTip: (n: number, tm: string, calls: number, outTok: number, secStr: string, prompt: string, compacts?: number) => string;
+  turnDividerStats: (calls: number, outStr: string, secStr: string, compacts?: number, quotaStr?: string) => string;
+  turnDividerTip: (n: number, tm: string, calls: number, outTok: number, secStr: string, prompt: string, compacts?: number, quotaStr?: string) => string;
   btnCopyId: string;
   btnCopyJsonl: string;
   btnCopyJsonlFull: string;
@@ -175,11 +177,21 @@ export interface Translations {
   linkedTitle: string;
   linkedHint: string;
   jumpAction: string;
-  linkedMeta: (calls: number, outStr: string, costStr: string) => string;
+  linkedMeta: (calls: number, outStr: string, costStr: string, quotaStr?: string) => string;
   cacheAgeLabel: (ageStr: string) => string;
   cacheAgeTip: (ageStr: string, tm: string) => string;
   sessionCostPill: (costStr: string, savedStr: string) => string;
   sessionCostTip: (costStr: string, savedStr: string, priced: number, unpriced: number) => string;
+  sessionQuotaPill: (val: string) => string;
+  sessionQuotaPoolLine: (
+    poolName: string,
+    active5h: string,
+    active7d: string,
+    expired5h: string,
+    fallback5h: string,
+    isFitted: boolean,
+  ) => string;
+  sessionQuotaTip: (lines: string) => string;
   accountTitle: string;
   creditsRealMini: (c: string) => string;
   creditsRealTip: (c: string) => string;
@@ -188,13 +200,61 @@ export interface Translations {
   quotaOffline: string;
   heldByWeeklyTag: string;
   winMeta: (pct: number, resetStr: string) => string;
-  winBudgetEst: (spent: string, full: string, lowSample?: boolean) => string;
+  winBudgetEst: (spent: string, full: string, lowSample?: boolean, remote?: string, effSpent?: string) => string;
   winSpentOnly: (spent: string, minPct?: string) => string;
-  poolTip: (label: string, winsText: string, held: boolean) => string;
+  winRunwayWarn: (dur: string, clock: string) => string;
+  winRunwaySafe: (remAtReset: string) => string;
+  winRunwayExhausted: string;
+  winRunwayTip: (
+    burnPerHr: string,
+    exhaustDur: string,
+    exhaustClock: string,
+    remAtReset: string,
+    willExhaust: boolean,
+    isRecent: boolean,
+  ) => string;
+  rulesTitle: string;
+  rulesAccHigh: (errStr: string, wins: number) => string;
+  rulesAccProv: (wins: number) => string;
+  rulesDriftBadge: string;
+  rules5hTankLabel: string;
+  rules7dTankLabel: (ratioStr: string) => string;
+  rulesTankRemSub: (remPct: string, remUsd: string) => string;
+  rulesTankTip: (cap5h: string, cap7d: string) => string;
+  rulesFormulaPill: (kStr: string, deductUsd: string) => string;
+  rulesEffectiveApiCap: (usableApiUsd: string, poolFullUsd: string, isShrink: boolean) => string;
+  rulesSourceTag: (isFitted: boolean) => string;
+  rulesTokBurnStrip: (inPct: string, caPct: string, outPct: string, fullOutTok: string) => string;
+  rulesPerTokCapBadge: (fullOutTok: string) => string;
+  rulesTokInLabel: string;
+  rulesTokCacheLabel: string;
+  rulesTokOutLabel: string;
+  rulesTokCapSub: (tok: string) => string;
+  rulesModelTip: (family: string, kStr: string, deductUsd: string, usableApiUsd: string, obsCalls: number, isFitted: boolean) => string;
+  heatmapTitle: string;
+  heatmapSummary: (activeDays: number, streakDays: number, peakUsd: string) => string;
+  heatmapLess: string;
+  heatmapMore: string;
+  heatmapMonths: string[];
+  heatmapWeekdays: [string, string, string];
+  heatmapDayTip: (
+    dateStr: string,
+    costStr: string,
+    calls: number,
+    appCalls: number,
+    cliCalls: number,
+    outStr: string,
+  ) => string;
+  heatmapEmptyTip: (dateStr: string) => string;
+  poolTip: (label: string, winsText: string, held: boolean, fitNotes?: string, driftWarn?: boolean) => string;
+  poolFitTipLine: (modelsStr: string, gammaStr: string, shortCount: number, errLabel: string) => string;
+  remoteWinBanner: (remoteUsd: string) => string;
+  remoteWinBannerTip: string;
   spendSession: string;
   spendToday: string;
   spendMonth: string;
   spendAll: string;
+  spendAllSourceTip: (appCost: string, appCalls: number, appDbs: number, cliCost: string, cliCalls: number, cliDbs: number) => string;
   spendSavedSub: (s: string) => string;
   spendCallsSub: (n: number, dbs?: number) => string;
   spendIndexingSub: (idx: number, tot: number) => string;
@@ -202,5 +262,7 @@ export interface Translations {
   pricedAllNote: string;
   histCostTip: (costStr: string, savedStr: string) => string;
   histUnpricedTip: string;
+  histQuotaPillTip: (pct5h: string, err5h: string, pct7d: string, kStr: string, isFitted: boolean) => string;
+  histQuotaLine: (pct5h: string, err5h: string, pct7d: string, kStr: string, isFitted: boolean) => string;
   noDbEmpty: string;
 }

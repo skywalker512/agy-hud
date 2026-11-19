@@ -1,7 +1,9 @@
 import type { Translations } from '../../i18n';
 import type { StatsSnapshot } from '../../types/telemetry';
-import { fmtClock, fmtNum } from '../../utils/format';
+import { fmtClock, fmtNum, fmtUsdWithBand } from '../../utils/format';
+import { ActivityHeatmapCard } from './ActivityHeatmapCard';
 import { QuotaPoolsList } from './QuotaPoolsList';
+import { QuotaRulesCard } from './QuotaRulesCard';
 import { SpendGrid } from './SpendGrid';
 
 interface AccountTabProps {
@@ -30,6 +32,7 @@ export function AccountTab({ snap, nowMs, t, onRefreshQuota }: AccountTabProps) 
 
   const totalUnpriced = h?.unpricedCount || s?.unpricedCount || 0;
   const footnote = totalUnpriced > 0 ? t.unpricedNote(totalUnpriced) : t.pricedAllNote;
+  const remoteActiveUsd = q?.available && q.remoteEstimate?.activeWindowUSD ? q.remoteEstimate.activeWindowUSD : 0;
 
   return (
     <section id="tab-account" className="flex flex-col gap-2.5 min-w-0">
@@ -68,9 +71,22 @@ export function AccountTab({ snap, nowMs, t, onRefreshQuota }: AccountTabProps) 
         <div className="mt-2 flex flex-col gap-2 min-w-0">
           <QuotaPoolsList quota={q} nowMs={nowMs} t={t} />
           <SpendGrid summary={s} history={h} t={t} />
+          {remoteActiveUsd > 0 && (
+            <div
+              className="flex items-center justify-between gap-2 px-2 py-1 rounded-[5px] bg-hud-fill border border-hud-border font-hud-mono text-[10px] text-hud-muted cursor-help"
+              data-tip={t.remoteWinBannerTip}
+            >
+              <span className="truncate">
+                {t.remoteWinBanner(fmtUsdWithBand(remoteActiveUsd, q?.remoteEstimate?.activeWindowPlusMinusUSD))}
+              </span>
+            </div>
+          )}
           <div className="text-[10px] text-hud-muted leading-[1.35] break-words">{footnote}</div>
         </div>
       </section>
+
+      <QuotaRulesCard quota={q} t={t} />
+      <ActivityHeatmapCard history={h} t={t} />
     </section>
   );
 }

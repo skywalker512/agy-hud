@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +36,29 @@ export function loadPricingConfig(pricingJsonPath = join(PANEL_ROOT, 'pricing.js
 
 const PRICING_CONFIG = loadPricingConfig();
 
+export function getPricingVectorSig(config = PRICING_CONFIG) {
+  const canonical = {
+    unpriced: config.unpricedSubstrings || [],
+    baseRules: (config.rules || []).map((r) => {
+      const base = r.preview || { key: r.key, input: r.input, cached: r.cached, output: r.output };
+      return {
+        match: r.match || [],
+        key: base.key || '',
+        input: base.input,
+        cached: base.cached,
+        output: base.output,
+      };
+    }),
+  };
+  return createHash('sha1').update(JSON.stringify(canonical)).digest('hex').slice(0, 12);
+}
+
+const PRICING_VECTOR_SIG = getPricingVectorSig(PRICING_CONFIG);
+
+export function getCurrentPricingSig() {
+  return PRICING_VECTOR_SIG;
+}
+
 export function resolveModelPricing(modelId, modelDisplay, model, timestampMs = 0) {
   const probe = `${modelId || ''} ${modelDisplay || ''} ${model || ''}`.toLowerCase();
   if (!probe.trim()) return null;
@@ -69,9 +93,15 @@ export function resolveLimitFallback(model) {
 
 export function poolKeyForModel(modelId, modelDisplay, model) {
   const s = `${modelId || ''} ${modelDisplay || ''} ${model || ''}`.toLowerCase();
-  if (s.includes('argon')) return 'argon';
   if (s.includes('claude') || s.includes('gpt')) return 'claude_gpt';
-  if (s.includes('gemini')) return 'gemini';
+  if (
+    s.includes('gemini')
+    || s.includes('neon')
+    || s.includes('carbon')
+    || s.includes('argon')
+    || s.includes('hydrogen')
+    || s.includes('orchestrator')
+  ) return 'gemini';
   return 'other';
 }
 

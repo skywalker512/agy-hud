@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Multi-Store DB Discovery & Merge**: Auto-discovers and merges App, CLI (`agy`), ACP, and IDE sibling/running-process conversation stores (with persisted `discovered-roots.json`) into unified history, spend, and quota-pool accounting.
+- **Quota Pool `k`-Multiplier Fitter & Quota Rules Card**: Added empirical OLS/Bayesian quota-pool calibration ([quota-fitter.mjs](plugin/sidecars/hud_panel/lib/quota-fitter.mjs)) with drift/OOS guardrails and adaptive MAD outlier rejection, runway depletion forecasts, unattributed remote quota gap estimates, per-call/turn/session quota burn indicators, a `QUOTA%` trend chart mode, the Quota Rules card, and a 16-week daily activity heatmap.
+- **LS Placeholder & Idle State Fixes**: Expanded `KNOWN_LS_PLACEHOLDERS`, preserved fallback generator model from tail steps on synthetic fallbacks, and cleared stale `activeStep` / `currentModel.isActive` when LS reports idle.
+- **Trace Collector & Replay CLI**: Added `tools/hud-trace.mjs` and `tools/test/trace.test.mjs` for recording mid-execution LS + SQLite transitions, viewing timelines, and exporting sanitized regression fixtures.
 - **Plugin-only**: Removed the Python desktop pill, `--cli` / `--watch` modes, and `pyproject.toml`. AGY-HUD now ships only as the Antigravity app side-pane plugin.
 - **Node installer**: `plugin/install_plugin.py` is replaced by `node plugin/install.mjs` (same `--link` / `--uninstall` flags), so installing needs only Node.js 22.5+.
 - **Docs**: READMEs are now maintained in English and Simplified Chinese only.

@@ -1,5 +1,6 @@
 import type { Translations } from '../../i18n';
 import type { StatsSnapshot } from '../../types/telemetry';
+import { formatModelTag } from '../../utils/format';
 
 interface ModelBarProps {
   snap: StatsSnapshot | null;
@@ -54,7 +55,8 @@ export function ModelBar({ snap, t }: ModelBarProps) {
   }
 
   const disp = cm.modelDisplay || cm.model || 'Unknown Model';
-  const rawId = cm.modelId && cm.modelId !== disp ? cm.modelId : '';
+  const fullId = formatModelTag(cm.modelId, cm.modelDisplay, cm.model);
+  const rawId = fullId && fullId !== disp ? fullId : '';
 
   let pillCls = 'model-pill';
   let primaryText = disp;

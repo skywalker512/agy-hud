@@ -69,7 +69,7 @@ export function useHudStore(): HudStore {
   const [lang, setLang] = useState<Lang>(() => readStorage('agy_hud_lang', ['en', 'zh'] as const, 'en'));
   const [tab, setTabState] = useState<HudTab>(() => readStorage('agy_hud_tab', ['live', 'calls', 'account'] as const, 'live'));
   const [metric, setMetricState] = useState<ChartMetric>(() =>
-    readStorage('agy_hud_metric', ['tps', 'ttft', 'out', 'cache', 'ctx'] as const, 'tps'),
+    readStorage('agy_hud_metric', ['tps', 'ttft', 'out', 'cache', 'ctx', 'quota'] as const, 'tps'),
   );
   const [mode, setMode] = useState<ConvMode>('auto');
   const [selectedConv, setSelectedConv] = useState<string>('');

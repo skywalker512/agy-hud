@@ -1,6 +1,7 @@
-import { existsSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 
 export const UUID_RE = /^[0-9a-f-]{8,}$/i;
 export const LIVE_STREAM_PREVIEW_MAX = 24_000;
@@ -12,9 +13,9 @@ export const SYNC_GRAPH_WARM_LIMIT = 30;
 export const QUOTA_TTL_MS = 300_000;
 
 export const MODEL_LIMIT_FALLBACKS = [
-  [/gemini-4/i, 256_000],
-  [/gemini-pro-orchestrator/i, 256_000],
-  [/gemini-flash-worker/i, 256_000],
+  [/gemini-4/i, 512_000],
+  [/gemini-pro-orchestrator/i, 512_000],
+  [/gemini-flash-worker/i, 512_000],
   [/gemini-3\.8-flash/i, 256_000],
   [/claude/i, 200_000],
   [/gpt-4o/i, 128_000],
@@ -25,10 +26,18 @@ export const MODEL_LIMIT_FALLBACKS = [
 export const DEFAULT_PRICING_CONFIG = {
   unpricedSubstrings: ['gpt-oss'],
   rules: [
+    { match: ['gemini-4-hydrogen', 'gemini 4 hydrogen', 'hydrogen', 'orchestrator (hydrogen)'], key: 'gemini-4-hydrogen', input: 1.50, output: 7.50, cached: 0.075 },
     { match: ['gemini-3.8-flash', 'gemini-flash-worker-agy'], key: 'gemini-3.8-flash', input: 0.75, output: 3.75, cached: 0.075 },
-    { match: ['gemini-4-hydrogen', 'orchestrator (hydrogen)'], key: 'gemini-4-hydrogen', input: 1.50, output: 7.50, cached: 0.075 },
+    { match: ['gemini-4-neon', 'gemini 4 neon', 'gemini-pro-orchestrator-neon', 'orchestrator (neon)', 'neon'], key: 'gemini-4-neon', input: 3.00, output: 15.00, cached: 0.15 },
     {
-      match: ['gemini-4-carbon', 'gemini-4-argon', 'gemini-pro-orchestrator', 'orchestrator (carbon)'],
+      match: [
+        'gemini-4-carbon',
+        'gemini-4-argon',
+        'gemini-pro-orchestrator',
+        'orchestrator (carbon)',
+        'gemini-pro-orchestrator-argon',
+        'orchestrator (argon)',
+      ],
       gaCutoffIso: '2026-12-01T00:00:00.000Z',
       preview: { key: 'gemini-4-pro-preview', input: 2.00, output: 10.00, cached: 0.10 },
       ga: { key: 'gemini-4-pro-ga', input: 4.00, output: 20.00, cached: 0.20 },
@@ -101,6 +110,13 @@ export const KNOWN_LS_PLACEHOLDERS = new Map([
   ['MODEL_PLACEHOLDER_M461', { model: 'gemini-4-hydrogen-high', modelId: 'gemini-4-hydrogen-high', modelDisplay: 'Gemini 4 Hydrogen (High)' }],
   ['MODEL_PLACEHOLDER_M462', { model: 'gemini-4-hydrogen-medium', modelId: 'gemini-4-hydrogen-medium', modelDisplay: 'Gemini 4 Hydrogen (Medium)' }],
   ['MODEL_PLACEHOLDER_M463', { model: 'gemini-4-hydrogen-low', modelId: 'gemini-4-hydrogen-low', modelDisplay: 'Gemini 4 Hydrogen (Low)' }],
+  ['MODEL_PLACEHOLDER_M532', { model: 'gemini-4-neon', modelId: 'gemini-4-neon', modelDisplay: 'Gemini 4 Neon (High)' }],
+  ['MODEL_PLACEHOLDER_M533', { model: 'gemini-4-neon', modelId: 'gemini-4-neon', modelDisplay: 'Gemini 4 Neon (Medium)' }],
+  ['MODEL_PLACEHOLDER_M534', { model: 'gemini-4-neon', modelId: 'gemini-4-neon', modelDisplay: 'Gemini 4 Neon (Low)' }],
+  ['MODEL_PLACEHOLDER_M535', { model: 'gemini-4-neon', modelId: 'gemini-4-neon', modelDisplay: 'Gemini 4 Neon (XHigh)' }],
+  ['MODEL_PLACEHOLDER_M537', { model: 'gemini-pro-orchestrator-neon', modelId: 'gemini-pro-orchestrator-neon', modelDisplay: 'Orchestrator (Neon)' }],
+  ['MODEL_PLACEHOLDER_M667', { model: 'gemini-pro-orchestrator', modelId: 'gemini-pro-orchestrator', modelDisplay: 'Orchestrator (Carbon)' }],
+  ['MODEL_PLACEHOLDER_M681', { model: 'gemini-pro-orchestrator-argon', modelId: 'gemini-pro-orchestrator-argon', modelDisplay: 'Orchestrator (Argon)' }],
 ]);
 
 export const KNOWN_MODEL_ENUMS = new Map([
@@ -109,12 +125,25 @@ export const KNOWN_MODEL_ENUMS = new Map([
   [1320, { model: 'gemini-3.8-flash', modelId: 'gemini-3.8-flash', modelDisplay: 'Gemini 3.8 Flash (Low)' }],
   [1402, { model: 'claude-opus-5-5-high', modelId: 'claude-opus-5-5-high', modelDisplay: 'Claude Opus 5.5 (High)' }],
   [1405, { model: 'claude-sonnet-5-5-high', modelId: 'claude-sonnet-5-5-high', modelDisplay: 'Claude Sonnet 5.5 (High)' }],
+  [1417, { model: 'gemini-4-argon', modelId: 'gemini-4-argon', modelDisplay: 'Gemini 4 Argon (High)' }],
+  [1418, { model: 'gemini-4-argon', modelId: 'gemini-4-argon', modelDisplay: 'Gemini 4 Argon (Medium)' }],
+  [1419, { model: 'gemini-4-argon', modelId: 'gemini-4-argon', modelDisplay: 'Gemini 4 Argon (Low)' }],
   [1427, { model: 'gemini-4-carbon', modelId: 'gemini-4-carbon', modelDisplay: 'Gemini 4 Carbon (High)' }],
+  [1437, { model: 'gemini-4-carbon', modelId: 'gemini-4-carbon', modelDisplay: 'Gemini 4 Carbon (Medium)' }],
+  [1438, { model: 'gemini-4-carbon', modelId: 'gemini-4-carbon', modelDisplay: 'Gemini 4 Carbon (Low)' }],
   [1461, { model: 'gemini-4-hydrogen', modelId: 'gemini-4-hydrogen', modelDisplay: 'Gemini 4 Hydrogen (High)' }],
   [1525, { model: 'gemini-4-hydrogen', modelId: 'gemini-4-hydrogen', modelDisplay: 'Gemini 4 Hydrogen (High)' }],
+  [1526, { model: 'gemini-4-hydrogen', modelId: 'gemini-4-hydrogen', modelDisplay: 'Gemini 4 Hydrogen (Medium)' }],
+  [1527, { model: 'gemini-4-hydrogen', modelId: 'gemini-4-hydrogen', modelDisplay: 'Gemini 4 Hydrogen (Low)' }],
   [1528, { model: 'gemini-4-hydrogen', modelId: 'gemini-4-hydrogen', modelDisplay: 'Gemini 4 Hydrogen (XHigh)' }],
+  [1532, { model: 'gemini-4-neon', modelId: 'gemini-4-neon', modelDisplay: 'Gemini 4 Neon (High)' }],
+  [1533, { model: 'gemini-4-neon', modelId: 'gemini-4-neon', modelDisplay: 'Gemini 4 Neon (Medium)' }],
+  [1534, { model: 'gemini-4-neon', modelId: 'gemini-4-neon', modelDisplay: 'Gemini 4 Neon (Low)' }],
+  [1535, { model: 'gemini-4-neon', modelId: 'gemini-4-neon', modelDisplay: 'Gemini 4 Neon (XHigh)' }],
+  [1537, { model: 'gemini-pro-orchestrator-neon', modelId: 'gemini-pro-orchestrator-neon', modelDisplay: 'Orchestrator (Neon)' }],
   [1667, { model: 'gemini-pro-orchestrator', modelId: 'gemini-pro-orchestrator', modelDisplay: 'Orchestrator (Carbon)' }],
-  [1669, { model: 'gemini-flash-worker-agy', modelId: 'gemini-flash-worker-agy', modelDisplay: 'Gemini Flash' }],
+  [1669, { model: 'gemini-flash-worker-agy', modelId: 'gemini-flash-worker-agy', modelDisplay: 'Gemini 4 Hydrogen (Orchestrator)' }],
+  [1681, { model: 'gemini-pro-orchestrator-argon', modelId: 'gemini-pro-orchestrator-argon', modelDisplay: 'Orchestrator (Argon)' }],
 ]);
 
 export function localDayKey(ms) {
@@ -195,22 +224,307 @@ export function resolveAppDataDir() {
   return join(homedir(), '.gemini', 'antigravity');
 }
 
+const KNOWN_SIBLING_APP_DIRS = [
+  { dirName: 'antigravity', source: 'app' },
+  { dirName: 'antigravity-cli', source: 'cli' },
+  { dirName: 'antigravity-acp', source: 'cli' },
+  { dirName: 'antigravity-ide', source: 'ide' },
+];
+
+const PROCESS_SCAN_TTL_MS = process.platform === 'win32' ? 10_000 : 5_000;
+let processScanCache = { atMs: 0, entries: [] };
+
+function isPathAbsolute(p) {
+  return Boolean(p) && (isAbsolute(p) || /^[a-zA-Z]:[\\/]/.test(p));
+}
+
+function isDefaultGeminiRoot(primaryDir) {
+  const defaultGemini = join(homedir(), '.gemini');
+  try {
+    return realpathSync(dirname(primaryDir)) === realpathSync(defaultGemini);
+  } catch {
+    return resolve(dirname(primaryDir)) === resolve(defaultGemini);
+  }
+}
+
+function extractCliFlag(line, flagPattern) {
+  const re = new RegExp(`(?:^|\\s)${flagPattern}(?:=|\\s+)(?:"([^"]+)"|'([^']+)'|(.+?))(?=\\s+--?[a-zA-Z]|\\s*$)`);
+  const m = re.exec(line);
+  if (!m) return '';
+  return (m[1] ?? m[2] ?? m[3] ?? '').trim();
+}
+
+export function parseProcessCommandLines(stdout, homeDir = homedir()) {
+  if (!stdout) return [];
+  const results = [];
+  const seen = new Set();
+  for (const rawLine of String(stdout).split(/\r?\n/)) {
+    let line = rawLine.trim();
+    if (!line) continue;
+    if (/^CommandLine=/i.test(line)) {
+      line = line.slice('CommandLine='.length).trim();
+    }
+    const head = line.split(/\s+-/, 1)[0].trim();
+    const binMatch = /(?:^|[\\/]|["'])(agy|language_server(?:_[^\s\\"']+)?)(?:\.exe)?(?=["']?(?:\s|$))/i.exec(head);
+    if (!binMatch) continue;
+    const isAgyCli = binMatch[1].toLowerCase() === 'agy';
+
+    const rawGeminiDir = extractCliFlag(line, '--gemini[-_]dir');
+    const rawAppDataDir = extractCliFlag(line, '--app[-_]data[-_]dir');
+    if (!rawGeminiDir && !rawAppDataDir) continue;
+
+    let geminiDir = join(homeDir, '.gemini');
+    if (rawGeminiDir) {
+      geminiDir = isPathAbsolute(rawGeminiDir) ? rawGeminiDir : join(homeDir, rawGeminiDir);
+    }
+
+    const effectiveAppDir = rawAppDataDir || (isAgyCli ? 'antigravity-cli' : 'antigravity');
+    const appDataDir = isPathAbsolute(effectiveAppDir) ? effectiveAppDir : join(geminiDir, effectiveAppDir);
+    if (seen.has(appDataDir)) continue;
+    seen.add(appDataDir);
+    results.push({
+      appDataDir,
+      source: isAgyCli ? 'cli' : inferAppDataSource(appDataDir),
+    });
+  }
+  return results;
+}
+
+function readLinuxProcCommandLines() {
+  const lines = [];
+  let pids;
+  try {
+    pids = readdirSync('/proc');
+  } catch {
+    return null;
+  }
+  for (const pid of pids) {
+    if (!/^\d+$/.test(pid)) continue;
+    try {
+      const raw = readFileSync(`/proc/${pid}/cmdline`);
+      if (!raw || !raw.length) continue;
+      const args = raw.toString('utf8').split('\0').filter(Boolean);
+      if (!args.length) continue;
+      if (!/(?:^|\/)(?:agy|language_server[^/]*)$/i.test(args[0])) continue;
+      lines.push(args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' '));
+    } catch {
+      /* process exited or permission denied */
+    }
+  }
+  return lines.join('\n');
+}
+
+function discoverRunningProcessAppDataDirs(homeDir = homedir()) {
+  const now = Date.now();
+  if (now - processScanCache.atMs < PROCESS_SCAN_TTL_MS) {
+    return processScanCache.entries;
+  }
+  let stdout = '';
+  try {
+    if (process.platform === 'win32') {
+      try {
+        stdout = execFileSync(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            "Get-CimInstance Win32_Process -Filter \"Name like 'agy%' or Name like 'language_server%'\" | ForEach-Object { $_.CommandLine }",
+          ],
+          { encoding: 'utf8', timeout: 1500, maxBuffer: 2 * 1024 * 1024, windowsHide: true },
+        );
+      } catch {
+        stdout = execFileSync(
+          'wmic',
+          ['process', 'where', "name like 'agy%' or name like 'language_server%'", 'get', 'CommandLine', '/VALUE'],
+          { encoding: 'utf8', timeout: 1500, maxBuffer: 2 * 1024 * 1024, windowsHide: true },
+        );
+      }
+    } else if (process.platform === 'linux') {
+      const procOut = readLinuxProcCommandLines();
+      if (procOut !== null) {
+        stdout = procOut;
+      } else {
+        stdout = execFileSync('ps', ['-ax', '-o', 'command='], {
+          encoding: 'utf8',
+          timeout: 800,
+          maxBuffer: 2 * 1024 * 1024,
+        });
+      }
+    } else {
+      stdout = execFileSync('ps', ['-ax', '-o', 'command='], {
+        encoding: 'utf8',
+        timeout: 800,
+        maxBuffer: 2 * 1024 * 1024,
+      });
+    }
+  } catch {
+    stdout = '';
+  }
+  const entries = parseProcessCommandLines(stdout, homeDir);
+  processScanCache = { atMs: now, entries };
+  return entries;
+}
+
+export function resolveDiscoveredRootsPath(appDataDir = resolveAppDataDir()) {
+  const execData = process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR;
+  if (execData) return join(execData, 'discovered-roots.json');
+  return join(appDataDir, 'sidecar_data', 'agy-hud', 'hud_panel', 'data', 'discovered-roots.json');
+}
+
+function loadDiscoveredRoots(filePath) {
+  if (!filePath || !existsSync(filePath)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+    const list = Array.isArray(parsed?.roots) ? parsed.roots : [];
+    return list.filter((r) => r && typeof r.appDataDir === 'string' && r.appDataDir);
+  } catch {
+    return [];
+  }
+}
+
+function saveDiscoveredRoots(filePath, roots) {
+  if (!filePath) return;
+  try {
+    mkdirSync(dirname(filePath), { recursive: true });
+    const tmp = `${filePath}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ version: 1, roots }, null, 2), 'utf8');
+    renameSync(tmp, filePath);
+  } catch {
+    /* non-fatal persistence failure */
+  }
+}
+
+export function inferAppDataSource(appDataDir) {
+  const base = basename(String(appDataDir || '')).toLowerCase();
+  if (base.includes('cli') || base.includes('acp')) return 'cli';
+  if (base.includes('ide')) return 'ide';
+  return 'app';
+}
+
+export function resolveAllAppDataDirs(primaryDir = resolveAppDataDir(), options = {}) {
+  const out = [];
+  const seen = new Set();
+  const pushDir = (dirPath, explicitSource = '') => {
+    if (!dirPath) return;
+    const convDir = join(dirPath, 'conversations');
+    if (dirPath !== primaryDir && !existsSync(convDir)) return;
+    let canonical = dirPath;
+    try {
+      canonical = realpathSync(dirPath);
+    } catch {
+      /* keep raw path when directory does not exist yet */
+    }
+    if (seen.has(canonical)) return;
+    seen.add(canonical);
+    out.push({
+      appDataDir: dirPath,
+      conversationsDir: convDir,
+      annotationsDir: join(dirPath, 'annotations'),
+      source: explicitSource || inferAppDataSource(dirPath),
+    });
+  };
+
+  pushDir(primaryDir);
+
+  const extraEnv = process.env.ANTIGRAVITY_EXTRA_DATA_DIRS || '';
+  if (extraEnv.trim()) {
+    for (const part of extraEnv.split(delimiter)) {
+      const trimmed = part.trim();
+      if (trimmed) pushDir(trimmed);
+    }
+    return out;
+  }
+
+  const base = basename(primaryDir);
+  if (KNOWN_SIBLING_APP_DIRS.some((s) => s.dirName === base)) {
+    const parent = dirname(primaryDir);
+    for (const sib of KNOWN_SIBLING_APP_DIRS) {
+      pushDir(join(parent, sib.dirName), sib.source);
+    }
+  }
+
+  const discoverExternal = options.discoverExternal !== undefined
+    ? Boolean(options.discoverExternal)
+    : (process.env.ANTIGRAVITY_DISABLE_EXTERNAL_DISCOVERY !== '1' && isDefaultGeminiRoot(primaryDir));
+
+  if (discoverExternal) {
+    const homeDir = options.homeDir || homedir();
+    const rootsPath = options.discoveredRootsPath !== undefined
+      ? options.discoveredRootsPath
+      : resolveDiscoveredRootsPath(primaryDir);
+    const savedRoots = loadDiscoveredRoots(rootsPath);
+    const procEntries = typeof options.processCommands === 'string'
+      ? parseProcessCommandLines(options.processCommands, homeDir)
+      : discoverRunningProcessAppDataDirs(homeDir);
+
+    const baseKnownCount = out.length;
+    for (const item of procEntries) {
+      pushDir(item.appDataDir, item.source);
+    }
+    for (const item of savedRoots) {
+      pushDir(item.appDataDir, item.source || '');
+    }
+
+    if (rootsPath) {
+      const externalRoots = out.slice(baseKnownCount).map((r) => ({
+        appDataDir: r.appDataDir,
+        source: r.source,
+      }));
+      const prevSig = savedRoots.map((r) => `${r.appDataDir}|${r.source || ''}`).join('\n');
+      const nextSig = externalRoots.map((r) => `${r.appDataDir}|${r.source}`).join('\n');
+      if (prevSig !== nextSig) {
+        saveDiscoveredRoots(rootsPath, externalRoots);
+      }
+    }
+  }
+
+  return out;
+}
+
 export function resolveQuotaCalibrationPath(appDataDir = resolveAppDataDir()) {
   const envCal = process.env.AGY_HUD_CALIBRATION_PATH;
   if (envCal) return envCal;
   const execData = process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR;
   if (execData) return join(execData, 'quota-calibration.json');
+  const dataSub = join(appDataDir, 'sidecar_data', 'agy-hud', 'hud_panel', 'data', 'quota-calibration.json');
+  if (existsSync(dataSub)) return dataSub;
   return join(appDataDir, 'sidecar_data', 'agy-hud', 'hud_panel', 'quota-calibration.json');
 }
 
-export function resolveTranscriptPaths(appDataDir, convId) {
-  const logsDir = join(appDataDir, 'brain', convId, '.system_generated', 'logs');
-  const jsonlPath = join(logsDir, 'transcript.jsonl');
-  const jsonlFullPath = join(logsDir, 'transcript_full.jsonl');
-  return {
-    jsonlPath,
-    jsonlFullPath,
-    jsonlExists: existsSync(jsonlPath),
-    jsonlFullExists: existsSync(jsonlFullPath),
+export function resolveQuotaFitPath(appDataDir = resolveAppDataDir()) {
+  const envFit = process.env.AGY_HUD_QUOTA_FIT_PATH;
+  if (envFit) return envFit;
+  const envCal = process.env.AGY_HUD_CALIBRATION_PATH;
+  if (envCal) return join(dirname(envCal), 'quota-model-fit.json');
+  const execData = process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR;
+  if (execData) return join(execData, 'quota-model-fit.json');
+  const dataSub = join(appDataDir, 'sidecar_data', 'agy-hud', 'hud_panel', 'data', 'quota-model-fit.json');
+  if (existsSync(dataSub)) return dataSub;
+  return join(appDataDir, 'sidecar_data', 'agy-hud', 'hud_panel', 'quota-model-fit.json');
+}
+
+export function resolveTranscriptPaths(appDataDir, convId, allAppDirs = null) {
+  const buildFor = (rootDir) => {
+    const logsDir = join(rootDir, 'brain', convId, '.system_generated', 'logs');
+    const jsonlPath = join(logsDir, 'transcript.jsonl');
+    const jsonlFullPath = join(logsDir, 'transcript_full.jsonl');
+    return {
+      jsonlPath,
+      jsonlFullPath,
+      jsonlExists: existsSync(jsonlPath),
+      jsonlFullExists: existsSync(jsonlFullPath),
+    };
   };
+  const primary = buildFor(appDataDir);
+  if (primary.jsonlExists || primary.jsonlFullExists || !Array.isArray(allAppDirs)) {
+    return primary;
+  }
+  for (const entry of allAppDirs) {
+    const dir = typeof entry === 'string' ? entry : entry?.appDataDir;
+    if (!dir || dir === appDataDir) continue;
+    const alt = buildFor(dir);
+    if (alt.jsonlExists || alt.jsonlFullExists) return alt;
+  }
+  return primary;
 }

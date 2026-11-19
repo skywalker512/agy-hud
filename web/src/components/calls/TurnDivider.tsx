@@ -1,6 +1,6 @@
 import type { Translations } from '../../i18n';
 import type { CallDetailPayload, TurnSummary } from '../../types/telemetry';
-import { fmtClock, fmtNum, fmtSec } from '../../utils/format';
+import { fmtClock, fmtNum, fmtQuotaPct, fmtSec } from '../../utils/format';
 
 interface TurnDividerProps {
   turn: TurnSummary;
@@ -23,7 +23,8 @@ export function TurnDivider({
   const outStr = turn.outputTokens > 0 ? fmtNum(turn.outputTokens) : '';
   const secStr = turn.totalSec > 0 ? fmtSec(turn.totalSec) : '';
   const compacts = turn.compactCount || (turn.isCompact ? 1 : 0);
-  const stats = t.turnDividerStats(turn.callCount || 0, outStr, secStr, compacts);
+  const quotaStr = fmtQuotaPct(turn.quotaPct5h);
+  const stats = t.turnDividerStats(turn.callCount || 0, outStr, secStr, compacts, quotaStr);
 
   const cachedPrompt = convId ? detailCache.get(`${convId}:turn:${turn.turnIndex}`)?.promptFull : '';
   const promptText = cachedPrompt || turn.promptFull || turn.promptPreview || '';
@@ -35,6 +36,7 @@ export function TurnDivider({
     secStr,
     promptText,
     compacts,
+    quotaStr,
   );
 
   const isCompactTurn = Boolean(

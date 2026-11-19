@@ -405,6 +405,23 @@
     @apply text-hud-fg bg-hud-fill border border-hud-border;
   }
 
+  .quota-pill {
+    @apply inline-flex items-center px-1.5 py-[1px] rounded-full font-hud-mono font-semibold tabular-nums whitespace-nowrap text-hud-accent-ink;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+    background: color-mix(in srgb, var(--hud-accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--hud-accent) 32%, var(--hud-border));
+  }
+
+  .quota-burn-pill {
+    @apply inline-flex items-center gap-[3px] px-[5px] py-[0.5px] rounded font-hud-mono tabular-nums whitespace-nowrap text-hud-muted bg-hud-card border border-hud-border;
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+  .quota-burn-pill.is-high-mult {
+    @apply text-seg-out font-semibold;
+    background: color-mix(in srgb, var(--seg-out) 11%, var(--hud-card));
+    border-color: color-mix(in srgb, var(--seg-out) 36%, var(--hud-border));
+  }
+
   .headroom-pill {
     @apply inline-flex items-center px-1.5 py-[1px] rounded-full font-hud-mono font-semibold tabular-nums text-hud-fg bg-hud-fill border border-hud-border whitespace-nowrap cursor-help;
     font-size: calc(10px * var(--hud-font-scale, 1));
@@ -668,7 +685,7 @@
   }
 
   .history-model {
-    @apply font-hud-mono text-hud-fg bg-hud-card border border-hud-border rounded px-[5px] py-[1px] min-w-0 max-w-[145px] overflow-hidden text-ellipsis whitespace-nowrap;
+    @apply font-hud-mono text-hud-fg bg-hud-card border border-hud-border rounded px-[5px] py-[1px] min-w-0 max-w-[168px] overflow-hidden text-ellipsis whitespace-nowrap;
     font-size: calc(10.5px * var(--hud-font-scale, 1));
   }
 
@@ -697,6 +714,49 @@
   .spend-cell {
     @apply rounded-md bg-hud-fill border border-hud-border flex flex-col gap-[1px] min-w-0;
     padding: 6px 8px;
+  }
+
+  .runway-pill {
+    @apply inline-flex items-center gap-1 px-1.5 py-[1px] rounded font-hud-mono font-medium tabular-nums leading-[1.3];
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+  .runway-pill.is-warn {
+    @apply text-hud-warn font-semibold;
+    background: color-mix(in srgb, var(--hud-warn) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--hud-warn) 34%, transparent);
+  }
+  .runway-pill.is-bad {
+    @apply text-hud-bad font-semibold;
+    background: color-mix(in srgb, var(--hud-bad) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--hud-bad) 36%, transparent);
+  }
+  .runway-pill.is-safe {
+    @apply text-hud-ok;
+    background: color-mix(in srgb, var(--hud-ok) 10%, transparent);
+  }
+
+  .heatmap-cell {
+    @apply rounded-[2.5px] aspect-square w-full transition-transform duration-100;
+    border: 1px solid color-mix(in srgb, var(--hud-fg) 6%, transparent);
+  }
+  .heatmap-cell:hover {
+    transform: scale(1.16);
+    border-color: color-mix(in srgb, var(--hud-fg) 42%, transparent);
+  }
+  .heatmap-cell.lvl-0 {
+    background: var(--hud-fill);
+  }
+  .heatmap-cell.lvl-1 {
+    background: color-mix(in srgb, var(--hud-ok) 26%, var(--hud-fill));
+  }
+  .heatmap-cell.lvl-2 {
+    background: color-mix(in srgb, var(--hud-ok) 50%, var(--hud-fill));
+  }
+  .heatmap-cell.lvl-3 {
+    background: color-mix(in srgb, var(--hud-ok) 75%, var(--hud-fill));
+  }
+  .heatmap-cell.lvl-4 {
+    background: var(--hud-ok);
   }
 
   .hud-tooltip {

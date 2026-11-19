@@ -1,6 +1,6 @@
 import type { Translations } from '../../i18n';
 import type { CallDetailPayload, Compaction } from '../../types/telemetry';
-import { fmtClock, fmtNum, fmtSec, fmtUsd } from '../../utils/format';
+import { fmtClock, fmtNum, fmtQuotaPct, fmtSec, fmtUsd, formatModelTag } from '../../utils/format';
 
 interface CompactCardProps {
   compact: Compaction;
@@ -23,8 +23,11 @@ export function CompactCard({
   t,
   onToggle,
 }: CompactCardProps) {
-  const modelTag = c.modelId || c.modelDisplay || c.model || 'Auto';
-  const modelTitle = c.modelDisplay && c.modelId ? `${c.modelDisplay} (${c.modelId})` : modelTag;
+  const modelTag = formatModelTag(c.modelId, c.modelDisplay, c.model) || 'Auto';
+  const modelTitle =
+    c.modelDisplay && modelTag && c.modelDisplay !== modelTag
+      ? `${c.modelDisplay} (${modelTag})`
+      : c.modelDisplay || modelTag;
 
   let dropStr = '';
   if (c.beforeCtx > 0 && c.afterCtx > 0) {
@@ -51,6 +54,17 @@ export function CompactCard({
   const isLoading = convId ? detailLoading.has(cacheKey) : false;
   const summaryText = cached?.summaryPreview ?? c.summaryPreview ?? '';
 
+  const qPctStr = fmtQuotaPct(c.quotaPct5h);
+  const qErrStr = c.quotaPct5hErr ? fmtQuotaPct(c.quotaPct5hErr) : '';
+  const q7dStr = c.quotaPct7d ? fmtQuotaPct(c.quotaPct7d) : '';
+  const multVal = c.quotaMultiplierK || 1;
+  const kStr = multVal.toFixed(2);
+  const isHighMult = multVal >= 1.8;
+  const multBadge = isHighMult
+    ? `· ${Math.abs(multVal - Math.round(multVal)) < 0.08 ? Math.round(multVal) : multVal.toFixed(1)}×`
+    : '';
+  const isFitted = c.quotaFitSource === 'fitted';
+
   let fullText = '';
   if (expanded) {
     const baseFull = t.compactFull(
@@ -68,7 +82,8 @@ export function CompactCard({
     const costLine = c.priced && c.costUSD !== undefined
       ? t.histCostTip(fmtUsd(c.costUSD), (c.cacheSavedUSD || 0) > 0 ? fmtUsd(c.cacheSavedUSD) : '')
       : '';
-    fullText = baseFull + costLine;
+    const quotaLine = qPctStr ? t.histQuotaLine(qPctStr, qErrStr, q7dStr, kStr, isFitted) : '';
+    fullText = baseFull + costLine + quotaLine;
   }
 
   return (
@@ -83,6 +98,15 @@ export function CompactCard({
           {c.priced && c.costUSD !== undefined && (
             <span className="font-hud-mono text-[10px] text-hud-muted tabular-nums whitespace-nowrap">
               {fmtUsd(c.costUSD)}
+            </span>
+          )}
+          {qPctStr && (
+            <span
+              className={`quota-burn-pill${isHighMult ? ' is-high-mult' : ''} cursor-help`}
+              data-tip={t.histQuotaPillTip(qPctStr, qErrStr, q7dStr, kStr, isFitted)}
+            >
+              <span>{isFitted ? `-${qPctStr}` : `~-${qPctStr}`}</span>
+              {multBadge && <span>{multBadge}</span>}
             </span>
           )}
         </div>

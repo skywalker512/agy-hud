@@ -13,12 +13,14 @@ import {
   clipLiveStreamText,
   clipText,
   mergeIntervalDurationSec,
+  resolveAllAppDataDirs,
   resolveAppDataDir,
   resolveTranscriptPaths,
   statSafe,
 } from './lib/constants.mjs';
 import {
   computeCallCost,
+  getPricingVectorSig,
   resolveModelPricing,
 } from './lib/pricing.mjs';
 import {
@@ -47,6 +49,7 @@ import {
   normalizeLsBaseUrl,
   quotaCache,
   resolveLsGeneratorModel,
+  schedulePostCallQuotaSample,
 } from './lib/ls-client.mjs';
 import {
   getTelemetryCached,
@@ -55,15 +58,25 @@ import {
   toLightTelemetryPayload,
 } from './lib/telemetry.mjs';
 import {
+  attachGraphQuotaSummaries,
   attachQuotaBudgetEstimates,
+  attachTelemetryQuotaPredictions,
   buildAccountHistory,
   buildSessionInfo,
+  computeSummaryQuotaUsage,
   conversationEffectiveMs,
   getBgSummaryWarmSeq,
   getConversationGraph,
   pickTargetConversation,
   summarizeConversationDb,
 } from './lib/graph.mjs';
+import {
+  computeBaseReferenceUSD,
+  ingestQuotaObservation,
+  predictCallQuota,
+  reconcilePoolSamplesPricing,
+  solvePoolFitModel,
+} from './lib/quota-fitter.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -156,8 +169,6 @@ let lastAutoTargetId = '';
 async function startServer() {
   const { Response, SidecarApp } = await import('sidecar_sdk');
   const appDataDir = resolveAppDataDir();
-  const conversationsDir = join(appDataDir, 'conversations');
-  const annotationsDir = join(appDataDir, 'annotations');
   const app = new SidecarApp();
 
   ensureLsModelCatalogWarm();
@@ -191,7 +202,8 @@ async function startServer() {
     const explicitConvId = rawConvId;
     const assetKey = getAssetKey();
 
-    const conversations = listConversations(conversationsDir, annotationsDir);
+    const appDataRoots = resolveAllAppDataDirs(appDataDir);
+    const conversations = listConversations(appDataRoots);
     const forceQuota = data.refreshQuota === '1';
     const includeQuota = data.includeQuota !== '0';
     let accountQuota;
@@ -229,6 +241,9 @@ async function startServer() {
     const sessionInfoFull = buildSessionInfo(target.id, graph);
     const { childKeys, ...sessionInfo } = sessionInfoFull;
     const accountHistory = buildAccountHistory(graph);
+    if (!graph.indexing && accountHistory.totalCalls > 0) {
+      schedulePostCallQuotaSample(`${accountHistory.totalCalls}:${accountHistory.totalCostUSD.toFixed(5)}`);
+    }
 
     const nowMs = Date.now();
     const sortedRecent = [...conversations].slice(0, 25).sort((a, b) => {
@@ -246,6 +261,7 @@ async function startServer() {
         updatedMs: effMs || c.updatedMs,
         title: graph.sqTitleOverrides.get(c.id) || s?.title || '',
         kind,
+        source: s?.source || c.source || 'app',
         parentId: link?.parentId || '',
         childCount: (graph.childrenByParent.get(c.id) || []).length,
         costUSD: s?.costUSD || 0,
@@ -262,7 +278,7 @@ async function startServer() {
       return { unchanged: true, etag, bootId: BOOT_ID, assetKey, serverTimeMs: Date.now() };
     }
 
-    const paths = resolveTranscriptPaths(appDataDir, target.id);
+    const paths = resolveTranscriptPaths(target.appDataDir || appDataDir, target.id, appDataRoots);
     try {
       const cachedTelemetry = getTelemetryCached(target, conversations);
       const telemetry = toLightTelemetryPayload(cachedTelemetry.telemetry);
@@ -318,6 +334,14 @@ async function startServer() {
             : null;
         }
       }
+      const fittedQuota = attachQuotaBudgetEstimates(accountQuota, graph);
+      const decoratedTelemetry = attachTelemetryQuotaPredictions(telemetry, fittedQuota);
+      const enrichedGraph = attachGraphQuotaSummaries({
+        conversations: recentList,
+        sessionInfo,
+        graph,
+        accountQuota: fittedQuota,
+      });
       return {
         found: true,
         etag,
@@ -328,11 +352,11 @@ async function startServer() {
         dbPath: target.dbPath,
         ...paths,
         serverTimeMs: Date.now(),
-        conversations: recentList,
-        sessionInfo,
+        conversations: enrichedGraph.conversations,
+        sessionInfo: enrichedGraph.sessionInfo,
         accountHistory,
-        accountQuota: attachQuotaBudgetEstimates(accountQuota, graph),
-        ...telemetry,
+        accountQuota: fittedQuota,
+        ...decoratedTelemetry,
       };
     } catch (err) {
       return {
@@ -361,7 +385,7 @@ async function startServer() {
     if (!convId || !Number.isFinite(idNum)) {
       return { found: false, reason: 'invalid_params' };
     }
-    const conversations = listConversations(conversationsDir, annotationsDir);
+    const conversations = listConversations(resolveAllAppDataDirs(appDataDir));
     const conv = conversations.find((c) => c.id === convId);
     if (!conv) {
       return { found: false, reason: 'not_found' };
@@ -397,13 +421,20 @@ if (isEntrypoint()) {
 }
 
 export {
+  attachGraphQuotaSummaries,
   attachQuotaBudgetEstimates,
+  attachTelemetryQuotaPredictions,
+  buildAccountHistory,
   clipLiveStreamText,
   clipText,
+  computeBaseReferenceUSD,
   computeCallCost,
+  computeSummaryQuotaUsage,
   conversationEffectiveMs,
   extractLiveStepFromTrajectory,
   getConversationGraph,
+  getPricingVectorSig,
+  ingestQuotaObservation,
   isCascadeStatusActive,
   isCompactPromptText,
   isCompactUserInputLs,
@@ -419,11 +450,15 @@ export {
   parseStepMetadata,
   parseUserPromptPayload,
   pickTargetConversation,
+  predictCallQuota,
   readDurationSec,
   readTelemetry,
   readVarint,
+  reconcilePoolSamplesPricing,
+  resolveAllAppDataDirs,
   resolveLsGeneratorModel,
   resolveModelPricing,
+  solvePoolFitModel,
   summarizeConversationDb,
   unescapePbtxtString,
 };

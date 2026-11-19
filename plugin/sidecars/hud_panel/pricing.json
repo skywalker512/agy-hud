@@ -1,8 +1,15 @@
 {
-  "updatedAt": "2026-11-14",
+  "updatedAt": "2026-11-19",
   "note": "Reference API-equivalent USD rates per 1M tokens. Models in unpricedSubstrings remain unpriced.",
   "unpricedSubstrings": ["gpt-oss"],
   "rules": [
+    {
+      "match": ["gemini-4-hydrogen", "gemini 4 hydrogen", "hydrogen", "orchestrator (hydrogen)"],
+      "key": "gemini-4-hydrogen",
+      "input": 1.5,
+      "output": 7.5,
+      "cached": 0.075
+    },
     {
       "match": ["gemini-3.8-flash", "gemini-flash-worker-agy"],
       "key": "gemini-3.8-flash",
@@ -11,14 +18,21 @@
       "cached": 0.075
     },
     {
-      "match": ["gemini-4-hydrogen", "orchestrator (hydrogen)"],
-      "key": "gemini-4-hydrogen",
-      "input": 1.5,
-      "output": 7.5,
-      "cached": 0.075
+      "match": ["gemini-4-neon", "gemini 4 neon", "gemini-pro-orchestrator-neon", "orchestrator (neon)", "neon"],
+      "key": "gemini-4-neon",
+      "input": 3.0,
+      "output": 15.0,
+      "cached": 0.15
     },
     {
-      "match": ["gemini-4-carbon", "gemini-4-argon", "gemini-pro-orchestrator", "orchestrator (carbon)"],
+      "match": [
+        "gemini-4-carbon",
+        "gemini-4-argon",
+        "gemini-pro-orchestrator",
+        "orchestrator (carbon)",
+        "gemini-pro-orchestrator-argon",
+        "orchestrator (argon)"
+      ],
       "gaCutoffIso": "2026-12-01T00:00:00.000Z",
       "preview": {
         "key": "gemini-4-pro-preview",

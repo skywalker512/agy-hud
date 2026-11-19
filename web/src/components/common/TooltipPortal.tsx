@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import type { CallDetailPayload, StatsSnapshot } from '../../types/telemetry';
-import { fmtClock, fmtSec } from '../../utils/format';
+import { fmtClock, fmtQuotaPct, fmtSec } from '../../utils/format';
 
 interface TooltipPortalProps {
   snap: StatsSnapshot | null;
@@ -65,6 +65,7 @@ export function TooltipPortal({ snap, t, loadCallDetail }: TooltipPortalProps) {
           if (!turn) return;
           const curT = tRef.current;
           const secStr = turn.totalSec > 0 ? fmtSec(turn.totalSec) : '';
+          const qStr = fmtQuotaPct(turn.quotaPct5h);
           const nextTip = curT.turnDividerTip(
             turn.turnIndex,
             fmtClock(turn.timestampMs),
@@ -73,6 +74,7 @@ export function TooltipPortal({ snap, t, loadCallDetail }: TooltipPortalProps) {
             secStr,
             detail.promptFull,
             turn.compactCount || 0,
+            qStr,
           );
           target.dataset.tip = nextTip;
           if (activeTarget === target) {

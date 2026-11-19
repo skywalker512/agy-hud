@@ -7,6 +7,8 @@ import {
   fmtDurationShort,
   fmtNum,
   fmtUsd,
+  formatSessionQuotaCompact,
+  formatSessionQuotaTip,
   getEffectiveContextState,
 } from '../../utils/format';
 
@@ -72,6 +74,10 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
       tip: t.sessionCostTip(costStr, savedStr || '$0.00', s.pricedCount, s.unpricedCount || 0),
     };
   }
+
+  const rawSessionQuota = found ? (s?.sessionQuota || snap?.sessionInfo?.quotaUsage || null) : null;
+  const sessionQuotaStr = formatSessionQuotaCompact(rawSessionQuota);
+  const sessionQuotaTip = sessionQuotaStr ? formatSessionQuotaTip(rawSessionQuota, t) : '';
 
   const hasBreakdown = Boolean(hasContext && breakdown && breakdown.reportedTotal > 0);
   let segs: SegSpec[];
@@ -214,6 +220,11 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
           {sessionCost && (
             <span className="cost-pill cursor-help" data-tip={sessionCost.tip}>
               {sessionCost.text}
+            </span>
+          )}
+          {sessionQuotaStr && (
+            <span className="quota-pill cursor-help" data-tip={sessionQuotaTip}>
+              {t.sessionQuotaPill(sessionQuotaStr)}
             </span>
           )}
           <span className="font-hud-mono text-[11.5px] font-semibold text-hud-fg tabular-nums whitespace-nowrap">

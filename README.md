@@ -38,7 +38,7 @@
 
 ## <a id="overview"></a>Overview
 
-**AGY-HUD** is a side-pane plugin for the Google Antigravity 2.0 app. It reads Antigravity's local SQLite conversation databases (`~/.gemini/antigravity/conversations/<uuid>.db` and `-wal`) in read-only mode, plus the local loopback Language Server for live streaming steps and 5h/7d quota windows. Without proxying any API traffic, it shows generation throughput, `TTFT`, the **actual routed backend model ID**, context window composition, per-call phase timing, subagent/Side-Q trees, and API-equivalent spend.
+**AGY-HUD** is a side-pane plugin for the Google Antigravity 2.0 app. It reads Antigravity's local SQLite conversation databases (`~/.gemini/antigravity/conversations/<uuid>.db` and `-wal`, plus auto-discovered App / CLI / ACP / IDE sibling and running-process stores) in read-only mode, and queries the local loopback Language Server for live streaming steps and 5h/7d quota windows. Without proxying any API traffic, it shows generation throughput, `TTFT`, the **actual routed backend model ID**, context window composition, per-call phase timing, subagent/Side-Q trees, API-equivalent spend, and calibrated quota-pool burn.
 
 ### Key Features
 
@@ -46,8 +46,8 @@
 - **Generation, End-to-End & Phase Diagnostics**: Reports both post-TTFT streaming speed (`GEN TPS`) and overall speed including `TTFT` (`E2E TPS`). Single-packet buffered responses are flagged as `BUF` and excluded from both `PEAK TPS` and weighted `AVG GEN`, so averages never exceed peak throughput. Slow tool-call turns separate `THK` from `TOOL GEN` duration (`TC-WAIT`) and clamp tool execution intervals so model streaming time never inflates `TOOL TIME`.
 - **3-Tab Side Pane (`Live` / `Calls` / `Account`)**:
   - **Live**: Real-time `GEN`/`E2E` speed cards, context window breakdown (`Sys Prompt`, `Tool Defs`, `Tool Results`, `Model Replies`, `User/Ckpt`, plus per-tool token footprint), recent calls with auto-scrolling live `THINKING` / `REPLY` previews, and linked **Subagent / Side-Q** navigation.
-  - **Calls**: Multi-metric trend chart (`TPS` / `TTFT` / `OUT` / `CACHE` / `CTX`), collapsible turn dividers, context compaction cards, and on-demand expandable call traces (`60k` char detail cap).
-  - **Account**: Dual `5h` / `7d` quota pool windows with countdowns, local API-equivalent spend (`Session` / `Today` / `Month` / `All DBs`), cache savings, and non-blocking background indexing across large conversation histories.
+  - **Calls**: 6-metric trend chart (`TPS` / `TTFT` / `OUT` / `CACHE` / `CTX` / `QUOTA%`) with per-model filtering, collapsible turn dividers, context compaction cards, per-call/turn quota burn badges, and on-demand expandable call traces (`60k` char detail cap).
+  - **Account**: Dual `5h` / `7d` quota pool windows with countdowns and runway exhaustion forecasts, empirical `k`-multiplier pool calibration & Quota Rules card (with unattributed remote quota gap estimates), multi-store API-equivalent spend (`Session` / `Today` / `Month` / `All Local` across App + CLI), cache savings, a 16-week daily activity heatmap, and non-blocking background indexing.
 - **Zero Runtime Dependencies**: The sidecar runs on Antigravity's built-in `sidecar_sdk` and Node.js 22.5+ built-in `node:sqlite`. The UI is a prebuilt bundle and switches between `EN` and `中文`.
 
 ---
@@ -101,6 +101,7 @@ Run the tests:
 
 ```bash
 node --test plugin/sidecars/hud_panel/test/server.test.mjs
+node --test tools/test/trace.test.mjs
 ```
 
 ---

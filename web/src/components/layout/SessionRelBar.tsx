@@ -1,6 +1,12 @@
 import type { Translations } from '../../i18n';
 import type { StatsSnapshot } from '../../types/telemetry';
-import { kindBadgeClass, kindBadgeText, shortTitleLabel } from '../../utils/format';
+import {
+  formatSessionQuotaCompact,
+  formatSessionQuotaTip,
+  kindBadgeClass,
+  kindBadgeText,
+  shortTitleLabel,
+} from '../../utils/format';
 
 interface SessionRelBarProps {
   snap: StatsSnapshot | null;
@@ -24,19 +30,23 @@ export function SessionRelBar({
     return null;
   }
 
+  const parentQuotaStr = parent?.quotaUsage ? formatSessionQuotaCompact(parent.quotaUsage, true) : '';
+  const parentQuotaTip = parent?.quotaUsage ? formatSessionQuotaTip(parent.quotaUsage, t) : undefined;
+
   return (
     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">
       {parent && (
         <button
           type="button"
           onClick={() => onJumpConversation(parent.id)}
+          data-tip={parentQuotaTip}
           className="inline-flex items-center gap-1 max-w-full px-[7px] py-[2px] rounded-[5px] border font-hud-mono text-[10.5px] font-semibold text-hud-accent cursor-pointer truncate transition-colors"
           style={{
             borderColor: 'color-mix(in srgb, var(--hud-accent) 42%, var(--hud-border))',
             background: 'color-mix(in srgb, var(--hud-accent) 12%, transparent)',
           }}
         >
-          {t.backParent(shortTitleLabel(parent.title, parent.id))}
+          {t.backParent(`${shortTitleLabel(parent.title, parent.id)}${parentQuotaStr ? ` (${parentQuotaStr})` : ''}`)}
         </button>
       )}
       <span className={`rel-kind-pill ${kindBadgeClass(kind)}`}>

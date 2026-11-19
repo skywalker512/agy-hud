@@ -49,10 +49,10 @@ export const en: Translations = {
   tabOut: 'OUT',
   tabCache: 'CACHE%',
   tabCtx: 'CTX%',
+  tabQuota: 'QUOTA%',
   noCalls: 'No calls yet',
   histTitle: 'CALL LOG',
   histHint: 'Click row to expand',
-  waitStep: 'Waiting for next step...',
   badgeWait: (s) => `WAIT TTFT ${s}s`,
   badgeGen: (s) => `STREAM ${s}s`,
   badgeCompact: (s) => `COMPACT ${s}s`,
@@ -92,11 +92,14 @@ export const en: Translations = {
   tipOut: (idx, m, out, thk, vis, gen) => `#${idx} [${m}] · OUT ${out} tok (THK ${thk} / VIS ${vis}) · GEN ${gen}`,
   tipCache: (idx, m, cachePct, cached, newIn) => `#${idx} [${m}] · Cache ${cachePct} (${cached} cached / ${newIn} new)`,
   tipCtx: (idx, m, used, lim, pct) => `#${idx} [${m}] · Context ${used}/${lim} (${pct.toFixed(1)}%)`,
+  tipQuota: (idx, m, pct5h, pct7d, kStr, costStr) =>
+    `#${idx} [${m}] · 5h quota -${pct5h}${pct7d ? ` (7d -${pct7d})` : ''} · ${kStr}× rate${costStr ? ` · list ${costStr}` : ''}`,
   chartSubTps: (n, avg, max, last) => `Last ${n}: AVG ${avg} · MAX ${max} · Latest ${last} tok/s`,
   chartSubTtft: (n, avg, max, last) => `Last ${n}: AVG ${avg} · MAX ${max} · Latest ${last}`,
   chartSubOut: (n, avg, max, last) => `Last ${n}: AVG ${avg} · MAX ${max} · Latest ${last} tok`,
   chartSubCache: (n, avg, min, last) => `Last ${n}: AVG ${avg} · MIN ${min} · Latest ${last}`,
   chartSubCtx: (n, last, max) => `Last ${n}: MAX ${max} · Latest ${last}`,
+  chartSubQuota: (n, sum, avg, max) => `Last ${n}: SUM -${sum} · AVG -${avg} · MAX -${max} (5h)`,
   chartAllModels: (n) => `All ${n}`,
   chartModelFilterTip: (name, count, avgStr, active) =>
     `${name} · ${count} calls${avgStr ? ` · avg ${avgStr}` : ''}\n${active ? 'Click to show all models' : 'Click to isolate this model'}`,
@@ -136,16 +139,17 @@ export const en: Translations = {
   showAllHistoryBtn: (shown, total) => `Show all ${total} calls (showing latest ${shown})`,
   collapseHistoryBtn: (limit) => `Show latest ${limit} only`,
   turnDividerBadge: (n) => `TURN #${n}`,
-  turnDividerStats: (calls, outStr, secStr, compacts = 0) => {
+  turnDividerStats: (calls, outStr, secStr, compacts = 0, quotaStr = '') => {
     const parts: string[] = [];
     if (calls > 0) parts.push(`${calls}c`);
     if (compacts > 0) parts.push(calls > 0 ? `+${compacts}cmp` : 'COMPACT');
     if (outStr) parts.push(outStr);
     if (secStr) parts.push(secStr);
+    if (quotaStr) parts.push(`-${quotaStr}`);
     return parts.join(' · ');
   },
-  turnDividerTip: (n, tm, calls, outTok, secStr, prompt, compacts = 0) =>
-    `Turn #${n}${tm ? ' · ' + tm : ''}\nCalls: ${calls}${compacts > 0 ? ` · Compactions: ${compacts}` : ''} · Output: ${outTok.toLocaleString()} tok${secStr ? ' · Time: ' + secStr : ''}${prompt ? `\n\n${prompt}` : ''}`,
+  turnDividerTip: (n, tm, calls, outTok, secStr, prompt, compacts = 0, quotaStr = '') =>
+    `Turn #${n}${tm ? ' · ' + tm : ''}\nCalls: ${calls}${compacts > 0 ? ` · Compactions: ${compacts}` : ''} · Output: ${outTok.toLocaleString()} tok${secStr ? ' · Time: ' + secStr : ''}${quotaStr ? ` · 5h quota: -${quotaStr}` : ''}${prompt ? `\n\n${prompt}` : ''}`,
   btnCopyId: 'Copy ID',
   btnCopyJsonl: 'Copy JSONL',
   btnCopyJsonlFull: 'Full JSONL',
@@ -161,13 +165,26 @@ export const en: Translations = {
   linkedTitle: 'SUBAGENTS / SIDE Q',
   linkedHint: 'Click to inspect',
   jumpAction: 'Open →',
-  linkedMeta: (calls, outStr, costStr) => `${calls} calls · ${outStr} out${costStr ? ` · ${costStr}` : ''}`,
+  linkedMeta: (calls, outStr, costStr, quotaStr = '') =>
+    `${calls} calls · ${outStr} out${costStr ? ` · ${costStr}` : ''}${quotaStr ? ` · quota ${quotaStr}` : ''}`,
   cacheAgeLabel: (ageStr) => `AGE ${ageStr}`,
   cacheAgeTip: (ageStr, tm) =>
     `Idle since last call: ${ageStr} (at ${tm})\nAnthropic 5m cache / Gemini dynamic prefix warm window`,
   sessionCostPill: (costStr, savedStr) => `${costStr}${savedStr ? ` · saved ${savedStr}` : ''}`,
   sessionCostTip: (costStr, savedStr, priced, unpriced) =>
     `API-equivalent spend: ${costStr}\nCache saved: ${savedStr}\nPriced calls: ${priced}${unpriced ? ` · Unpriced (GPT-OSS): ${unpriced}` : ''}`,
+  sessionQuotaPill: (val) => `Quota ${val}`,
+  sessionQuotaPoolLine: (poolName, active5h, active7d, expired5h, fallback5h, isFitted) => {
+    if (!active5h && !active7d && fallback5h) {
+      return `${poolName} pool: ~-${fallback5h} (5h scale)`;
+    }
+    const tag = isFitted ? '' : ' [est.]';
+    const cur5 = active5h ? `-${active5h}` : '0% (already reset)';
+    const cur7 = active7d ? `\n  • Current 7d window: -${active7d}` : '';
+    const exp = expired5h ? `\n  (Earlier -${expired5h} from past 5h windows already reset)` : '';
+    return `${poolName} pool${tag}:\n  • Current 5h window: ${cur5}${cur7}${exp}`;
+  },
+  sessionQuotaTip: (lines) => `Current quota occupied by this conversation:\n${lines}`,
   accountTitle: 'ACCOUNT QUOTA & COST',
   creditsRealMini: (c) => `Credits: ${c}`,
   creditsRealTip: (c) => `Available extra credits: ${c}`,
@@ -176,20 +193,73 @@ export const en: Translations = {
   quotaOffline: 'LS quota RPC unavailable outside IDE host (local DB spend active)',
   heldByWeeklyTag: 'WEEKLY CAP',
   winMeta: (pct, resetStr) => `${pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)}%${resetStr ? ` · ${resetStr}` : ''}`,
-  winBudgetEst: (spent, full, lowSample) => `Est. ~${full}${lowSample ? ' (early)' : ''} · win ${spent}`,
+  winBudgetEst: (spent, full, lowSample, remote, effSpent) =>
+    `List-eq cap ~${full}${lowSample ? ' (prov.)' : ''} · local ${spent}${effSpent ? ` (pool-eq ${effSpent})` : ''}${remote ? ` + ~${remote} unattrib.` : ''}`,
   winSpentOnly: (spent, minPct = '0.5%') => `Win spent ${spent} (<${minPct} sample)`,
-  poolTip: (label, winsText, held) =>
-    `${label}\n${winsText}${held ? '\nHeld at weekly cap until weekly window resets' : ''}\nCapacity estimate extrapolates local machine API-equivalent spend / consumed quota %`,
+  winRunwayWarn: (dur, clock) => `⚡ Est. cap hit in ~${dur} (${clock})`,
+  winRunwaySafe: (remAtReset) => `✓ Safe · ~${remAtReset} left at reset`,
+  winRunwayExhausted: 'Cap reached · waiting for reset',
+  winRunwayTip: (burnPerHr, exhaustDur, exhaustClock, remAtReset, willExhaust, isRecent) =>
+    `Burn pace: -${burnPerHr}/hr (${isRecent ? 'recent active + window blend' : 'window average'})\n${
+      willExhaust
+        ? `Projected to hit 0% in ~${exhaustDur} (around ${exhaustClock}) before reset`
+        : `Projected ~${remAtReset} remaining when window resets (at current pace)`
+    }`,
+  rulesTitle: 'HOW QUOTA POOLS WORK',
+  rulesAccHigh: (errStr, wins) => `✓ ${wins}w verified · ${errStr} err`,
+  rulesAccProv: (wins) => `Calibrating (${wins}w)`,
+  rulesDriftBadge: '⚠ Rule shift',
+  rules5hTankLabel: '5h Pool Tank',
+  rules7dTankLabel: (ratioStr) => `7d Weekly (${ratioStr ? `${ratioStr}× 5h` : '7d'})`,
+  rulesTankRemSub: (remPct, remUsd) => `${remPct} left (~${remUsd})`,
+  rulesTankTip: (cap5h, cap7d) =>
+    `Think of this pool as a ~${cap5h} credit tank that refills every 5 hours${cap7d ? ` (~${cap7d} per 7d week)` : ''}.\n• A 1× model deducts $1 of pool credit per $1 of published API list price (full ${cap5h} usable).\n• A 3× model deducts $3 of pool credit per $1 of API list price (so a full pool buys 1/3 as much).\nNot an actual dollar bill charged to your card.`,
+  rulesFormulaPill: (kStr, deductUsd) => `API $1 → -${deductUsd} pool (${kStr}×)`,
+  rulesEffectiveApiCap: (usableApiUsd, poolFullUsd, isShrink) =>
+    `5h full pool buys ~${usableApiUsd} API usage${isShrink ? ` (${poolFullUsd} ÷ mult)` : ' (1:1 full value)'}`,
+  rulesSourceTag: (isFitted) => (isFitted ? 'verified' : '1× baseline'),
+  rulesTokBurnStrip: (inPct, caPct, outPct, fullOutTok) =>
+    `Per 1M tok (5h): In -${inPct}% · Cache -${caPct}% · Out -${outPct}% (~${fullOutTok} out = 100%)`,
+  rulesPerTokCapBadge: (fullOutTok) => `~${fullOutTok} out tok = 100% 5h`,
+  rulesTokInLabel: 'New Input',
+  rulesTokCacheLabel: 'Cache Hit',
+  rulesTokOutLabel: 'Out + Think',
+  rulesTokCapSub: (tok) => `~${tok} fills 5h`,
+  rulesModelTip: (family, kStr, deductUsd, usableApiUsd, obsCalls, isFitted) =>
+    `${family}\nEvery $1 of published API price deducts ${deductUsd} from the pool (${kStr}× rate).\nUsing only this model, a full 5h pool equals ~${usableApiUsd} of API list usage.\nSource: ${isFitted ? `verified across ${obsCalls} local calls` : 'published 1:1 API list price baseline'}`,
+  heatmapTitle: 'DAILY ACTIVITY (16W)',
+  heatmapSummary: (activeDays, streakDays, peakUsd) =>
+    `${activeDays}d active${streakDays > 1 ? ` · ${streakDays}d streak` : ''}${peakUsd ? ` · peak ${peakUsd}` : ''}`,
+  heatmapLess: 'Less',
+  heatmapMore: 'More',
+  heatmapMonths: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+  heatmapWeekdays: ['Mon', 'Wed', 'Fri'],
+  heatmapDayTip: (dateStr, costStr, calls, appCalls, cliCalls, outStr) =>
+    `${dateStr}\nAPI-eq spend: ${costStr} · ${calls} calls${cliCalls > 0 ? ` (App ${appCalls} / CLI ${cliCalls})` : ''}\nOutput: ${outStr} tok`,
+  heatmapEmptyTip: (dateStr) => `${dateStr}\nNo local calls recorded`,
+  poolTip: (label, winsText, held, fitNotes, driftWarn) =>
+    `${label}\n${winsText}${held ? '\nHeld at weekly cap until weekly window resets' : ''}${fitNotes ? `\n${fitNotes}` : ''}${driftWarn ? `\n⚠ Platform billing weights may have changed (>3σ from prior or OOS >0.5%; downgraded to provisional)` : ''}\nList-eq cap F = 100 / beta_ref is projected onto pricing.json reference list prices (not a billed dollar charge, and independent of GA display-price cutoffs)`,
+  poolFitTipLine: (modelsStr, gammaStr, shortCount, errLabel) =>
+    `Fit: ${modelsStr}${gammaStr ? ` · 7d/5h=${gammaStr}` : ''} (${shortCount} short win · ${errLabel})`,
+  remoteWinBanner: (remoteUsd) => `Unattributed quota gap (active window): +~${remoteUsd} est.`,
+  remoteWinBannerTip:
+    'Signed window quota residual minus modelled local App+CLI spend and noise band (may reflect other devices, remote sessions, or unlogged calls)',
   spendSession: 'SESSION',
   spendToday: 'TODAY',
   spendMonth: 'MONTH',
-  spendAll: 'ALL DBs',
+  spendAll: 'ALL LOCAL',
+  spendAllSourceTip: (appCost, appCalls, appDbs, cliCost, cliCalls, cliDbs) =>
+    `Local DB breakdown:\nApp: ${appCost} (${appCalls} calls · ${appDbs} DBs)\nCLI (agy): ${cliCost} (${cliCalls} calls · ${cliDbs} DBs)`,
   spendSavedSub: (s) => `saved ${s}`,
   spendCallsSub: (n, dbs) => `${n} calls${dbs ? ` · ${dbs} DBs` : ''}`,
   spendIndexingSub: (idx, tot) => `indexing ${idx}/${tot} DBs…`,
-  unpricedNote: (n) => `API-equivalent estimate · excludes ${n} unpriced call(s) (GPT-OSS) & cache-write premiums`,
-  pricedAllNote: 'API-equivalent estimate from published token rates (excludes cache-write premiums)',
+  unpricedNote: (n) => `Local App+CLI API-equivalent estimate · excludes ${n} unpriced call(s) (GPT-OSS) & cache-write premiums`,
+  pricedAllNote: 'Local App+CLI API-equivalent estimate from published token rates (excludes cache-write premiums)',
   histCostTip: (costStr, savedStr) => `\nEST COST: ${costStr}${savedStr ? ` (cache saved ${savedStr})` : ''}`,
   histUnpricedTip: '\nEST COST: unpriced model (GPT-OSS)',
+  histQuotaPillTip: (pct5h, err5h, pct7d, kStr, isFitted) =>
+    `Est. 5h quota burn: -${pct5h}${err5h ? ` ± ${err5h}` : ''}${pct7d ? ` · 7d: -${pct7d}` : ''} · ${kStr}× rate (${isFitted ? 'fitted' : 'prior'})`,
+  histQuotaLine: (pct5h, err5h, pct7d, kStr, isFitted) =>
+    `\nEST QUOTA: -${pct5h}${err5h ? ` ± ${err5h}` : ''} (5h)${pct7d ? ` · -${pct7d} (7d)` : ''} · ${kStr}× rate${isFitted ? '' : ' (prior)'}`,
   noDbEmpty: 'No active session DB detected yet.',
 };

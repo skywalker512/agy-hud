@@ -1,8 +1,9 @@
 import { readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
   ACTIVE_STEP_STATUSES,
+  inferAppDataSource,
   KNOWN_MODEL_ENUMS,
   mergeIntervalDurationSec,
   statSafe,
@@ -23,47 +24,78 @@ import {
 
 const globalModelEnumCache = new Map();
 let lastCatalogScanMs = 0;
-let listConvCache = { dir: '', annoDir: '', atMs: 0, items: [] };
+let listConvCache = { sig: '', atMs: 0, items: [] };
 
-export function listConversations(dir, annotationsDir = '', maxAgeMs = 180) {
+export function listConversations(dirOrRoots, annotationsDir = '', maxAgeMs = 180) {
+  const roots = Array.isArray(dirOrRoots)
+    ? dirOrRoots.map((r) => (typeof r === 'string'
+      ? {
+          appDataDir: r,
+          conversationsDir: join(r, 'conversations'),
+          annotationsDir: join(r, 'annotations'),
+          source: inferAppDataSource(r),
+        }
+      : r))
+    : [{
+        appDataDir: annotationsDir ? dirname(annotationsDir) : dirname(String(dirOrRoots || '')),
+        conversationsDir: String(dirOrRoots || ''),
+        annotationsDir: String(annotationsDir || ''),
+        source: inferAppDataSource(annotationsDir ? dirname(annotationsDir) : dirname(String(dirOrRoots || ''))),
+      }];
+
+  const sig = roots.map((r) => `${r?.conversationsDir || ''}|${r?.annotationsDir || ''}`).join(';');
   const now = Date.now();
-  if (
-    maxAgeMs > 0
-    && listConvCache.dir === dir
-    && listConvCache.annoDir === annotationsDir
-    && now - listConvCache.atMs < maxAgeMs
-  ) {
+  if (maxAgeMs > 0 && listConvCache.sig === sig && now - listConvCache.atMs < maxAgeMs) {
     return listConvCache.items;
   }
-  let entries;
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return [];
+
+  const byId = new Map();
+  for (const root of roots) {
+    const dir = root?.conversationsDir;
+    const annoDir = root?.annotationsDir || '';
+    const appDataDir = root?.appDataDir || (dir ? dirname(dir) : '');
+    const source = root?.source || inferAppDataSource(appDataDir);
+    if (!dir) continue;
+    let entries;
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of entries) {
+      if (!name.endsWith('.db')) continue;
+      const id = name.slice(0, -3);
+      if (!UUID_RE.test(id)) continue;
+      const dbPath = join(dir, name);
+      const dbStat = statSafe(dbPath);
+      const walStat = statSafe(`${dbPath}-wal`);
+      const annoPath = annoDir ? join(annoDir, `${id}.pbtxt`) : '';
+      const annoStat = annoPath ? statSafe(annoPath) : { mtimeMs: 0, size: 0 };
+      const updatedMs = Math.max(dbStat.mtimeMs, walStat.mtimeMs);
+      const dbSize = dbStat.size + walStat.size;
+      const item = {
+        id,
+        dbPath,
+        annoPath,
+        appDataDir,
+        source,
+        dbMtimeMs: dbStat.mtimeMs,
+        walMtimeMs: walStat.mtimeMs,
+        dbSize,
+        updatedMs,
+        key: `${dbStat.mtimeMs}:${dbStat.size}:${walStat.mtimeMs}:${walStat.size}`,
+        annoKey: `${annoStat.mtimeMs}:${annoStat.size}`,
+      };
+      const prev = byId.get(id);
+      if (!prev || item.updatedMs > prev.updatedMs || (item.updatedMs === prev.updatedMs && item.dbSize > prev.dbSize)) {
+        byId.set(id, item);
+      }
+    }
   }
-  const items = [];
-  for (const name of entries) {
-    if (!name.endsWith('.db')) continue;
-    const id = name.slice(0, -3);
-    if (!UUID_RE.test(id)) continue;
-    const dbPath = join(dir, name);
-    const dbStat = statSafe(dbPath);
-    const walStat = statSafe(`${dbPath}-wal`);
-    const annoPath = annotationsDir ? join(annotationsDir, `${id}.pbtxt`) : '';
-    const annoStat = annoPath ? statSafe(annoPath) : { mtimeMs: 0, size: 0 };
-    items.push({
-      id,
-      dbPath,
-      annoPath,
-      dbMtimeMs: dbStat.mtimeMs,
-      walMtimeMs: walStat.mtimeMs,
-      updatedMs: Math.max(dbStat.mtimeMs, walStat.mtimeMs),
-      key: `${dbStat.mtimeMs}:${dbStat.size}:${walStat.mtimeMs}:${walStat.size}`,
-      annoKey: `${annoStat.mtimeMs}:${annoStat.size}`,
-    });
-  }
+
+  const items = [...byId.values()];
   items.sort((a, b) => b.updatedMs - a.updatedMs);
-  listConvCache = { dir, annoDir: annotationsDir, atMs: now, items };
+  listConvCache = { sig, atMs: now, items };
   return items;
 }
 
@@ -644,7 +676,7 @@ const telemetryCache = new Map();
 const TELEMETRY_CACHE_MAX = 8;
 
 export function getTelemetryCached(target, conversations) {
-  const cacheKey = `${target.id}|${target.key}|${getLsModelCatalogVersion()}`;
+  const cacheKey = `${target.id}|${target.dbPath || ''}|${target.key}|${getLsModelCatalogVersion()}`;
   const hit = telemetryCache.get(cacheKey);
   if (hit) {
     telemetryCache.delete(cacheKey);

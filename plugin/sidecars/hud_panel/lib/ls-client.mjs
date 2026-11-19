@@ -309,10 +309,13 @@ export function resolveLsGeneratorModel(genModel, fallbackModel = null) {
   if (genModel && lsModelCatalog.has(genModel)) return lsModelCatalog.get(genModel);
   if (genModel) {
     ensureLsModelCatalogWarm();
-    const tierMatch = /^(.+)-(high|medium|low|minimal)$/i.exec(genModel);
+    const tierMatch = /^(.+)-(xhigh|high|medium|low|minimal)$/i.exec(genModel);
     if (tierMatch) {
       const baseId = tierMatch[1];
-      const tierCap = tierMatch[2][0].toUpperCase() + tierMatch[2].slice(1).toLowerCase();
+      const tierRaw = tierMatch[2].toLowerCase();
+      const tierCap = tierRaw === 'xhigh'
+        ? 'XHigh'
+        : tierRaw[0].toUpperCase() + tierRaw.slice(1);
       const knownBase = lsModelCatalog.get(baseId) || KNOWN_LS_PLACEHOLDERS.get(baseId);
       if (knownBase) {
         return {
@@ -673,11 +676,14 @@ async function refreshUserStatus(forceRefresh = false) {
     return quotaCache.data;
   }
   try {
+    const reqStartedAtMs = Date.now();
     const summaryPayload = forceRefresh ? { forceRefresh: true } : {};
+    const summaryTimeoutMs = forceRefresh ? 3500 : 2200;
     const [statusRes, summaryRes] = await Promise.allSettled([
       postLsRpc('GetUserStatus', { metadata: { ideName: 'antigravity' } }, 1500),
-      postLsRpc('RetrieveUserQuotaSummary', summaryPayload, 1800),
+      postLsRpc('RetrieveUserQuotaSummary', summaryPayload, summaryTimeoutMs),
     ]);
+    const fetchedAtMs = Date.now();
 
     const statusNorm = statusRes.status === 'fulfilled'
       ? normalizeUserStatus(statusRes.value)
@@ -718,6 +724,23 @@ async function refreshUserStatus(forceRefresh = false) {
           pools: [],
         };
 
+    // Never downgrade a previously fetched 2-window 'summary' snapshot to GetUserStatus's stale
+    // 5h-only cached quotaInfo when RetrieveUserQuotaSummary transiently times out!
+    if (!summaryPools.length && quotaCache.data?.source === 'summary' && quotaCache.data?.pools?.length) {
+      const preserved = {
+        ...quotaCache.data,
+        name: base.name || quotaCache.data.name,
+        tierName: base.tierName || quotaCache.data.tierName,
+        planName: base.planName || quotaCache.data.planName,
+        teamsTier: base.teamsTier || quotaCache.data.teamsTier,
+        availableCredits: base.availableCredits ?? quotaCache.data.availableCredits,
+        stale: true,
+        summaryReason,
+      };
+      quotaCache.data = preserved;
+      return preserved;
+    }
+
     const merged = {
       ...base,
       available: true,
@@ -727,11 +750,12 @@ async function refreshUserStatus(forceRefresh = false) {
       source: summaryPools.length ? 'summary' : (base.source || 'user_status'),
       summaryReason,
       ttlMs: QUOTA_TTL_MS,
-      fetchedAtMs: Date.now(),
+      reqStartedAtMs,
+      fetchedAtMs,
     };
 
     quotaCache.data = merged;
-    quotaCache.fetchedAtMs = Date.now();
+    quotaCache.fetchedAtMs = fetchedAtMs;
     quotaCache.updatedSeq += 1;
     return merged;
   } catch (err) {
@@ -766,4 +790,27 @@ export async function getUserStatusCached(waitIfCold = true, force = false) {
     ]);
   }
   return quotaCache.data;
+}
+
+let lastEventCallSig = '';
+let lastEventSampleAtMs = 0;
+let pendingEventSampleTimer = null;
+
+export function schedulePostCallQuotaSample(callSig, delayMs = 4500, minCooldownMs = 15_000) {
+  if (!callSig || callSig === lastEventCallSig) return;
+  if (!process.env.ANTIGRAVITY_LS_ADDRESS || !process.env.ANTIGRAVITY_CSRF_TOKEN) return;
+  const isFirstInit = lastEventCallSig === '';
+  lastEventCallSig = callSig;
+  if (isFirstInit && quotaCache.fetchedAtMs > 0) return;
+
+  if (pendingEventSampleTimer) clearTimeout(pendingEventSampleTimer);
+  pendingEventSampleTimer = setTimeout(() => {
+    pendingEventSampleTimer = null;
+    const now = Date.now();
+    const sinceLast = now - Math.max(quotaCache.fetchedAtMs || 0, lastEventSampleAtMs);
+    if (sinceLast < minCooldownMs || quotaCache.inFlight) return;
+    lastEventSampleAtMs = now;
+    void getUserStatusCached(false, true).catch(() => {});
+  }, delayMs);
+  pendingEventSampleTimer.unref?.();
 }

@@ -12,6 +12,19 @@ export function SpendGrid({ summary, history, t }: SpendGridProps) {
   const s = summary;
   const h = history;
 
+  const cliDbs = h?.dbCountBySource?.cli || 0;
+  const cliCalls = h?.callsBySource?.cli || 0;
+  const allSourceTip = cliDbs > 0 || cliCalls > 0
+    ? t.spendAllSourceTip(
+        fmtUsd(h?.costBySource?.app || 0),
+        h?.callsBySource?.app || 0,
+        h?.dbCountBySource?.app || 0,
+        fmtUsd(h?.costBySource?.cli || 0),
+        cliCalls,
+        cliDbs,
+      )
+    : undefined;
+
   const cells = [
     {
       k: t.spendSession,
@@ -36,13 +49,14 @@ export function SpendGrid({ summary, history, t }: SpendGridProps) {
       sub: h?.indexing
         ? t.spendIndexingSub(h.indexedCount || 0, h.dbCount || 0)
         : t.spendCallsSub(h?.totalCalls || 0, h?.dbCount || 0),
+      tip: allSourceTip,
     },
   ];
 
   return (
     <div className="spend-grid grid grid-cols-4 gap-1.5">
       {cells.map((c) => (
-        <div key={c.k} className="spend-cell">
+        <div key={c.k} className={`spend-cell${c.tip ? ' cursor-help' : ''}`} data-tip={c.tip}>
           <span className="text-[9.5px] font-semibold text-hud-muted tracking-[0.02em] truncate">
             {c.k}
           </span>

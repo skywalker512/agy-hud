@@ -1,6 +1,16 @@
 import type { Translations } from '../../i18n';
 import type { CallDetailPayload, Invocation } from '../../types/telemetry';
-import { cacheTier, fmtCachePct, fmtClock, fmtNum, fmtSec, fmtTps, fmtUsd } from '../../utils/format';
+import {
+  cacheTier,
+  fmtCachePct,
+  fmtClock,
+  fmtNum,
+  fmtQuotaPct,
+  fmtSec,
+  fmtTps,
+  fmtUsd,
+  formatModelTag,
+} from '../../utils/format';
 import { ContentBlocks } from './ContentBlocks';
 
 interface InvocationRowProps {
@@ -24,8 +34,11 @@ export function InvocationRow({
   t,
   onToggle,
 }: InvocationRowProps) {
-  const modelTag = r.modelId || r.modelDisplay || r.model;
-  const modelTitle = r.modelDisplay && r.modelId ? `${r.modelDisplay} (${r.modelId})` : modelTag;
+  const modelTag = formatModelTag(r.modelId, r.modelDisplay, r.model);
+  const modelTitle =
+    r.modelDisplay && modelTag && r.modelDisplay !== modelTag
+      ? `${r.modelDisplay} (${modelTag})`
+      : r.modelDisplay || modelTag;
   const cPct = fmtCachePct(r.cacheHitPct);
   const cTier = cacheTier(r.cacheHitPct);
 
@@ -50,6 +63,17 @@ export function InvocationRow({
   const inlineContent =
     r.thinkingPreview || r.replyPreview || (r.toolCalls && r.toolCalls.length > 0) ? r : undefined;
   const contentSrc = cached || inlineContent;
+
+  const qPctStr = fmtQuotaPct(r.quotaPct5h);
+  const qErrStr = r.quotaPct5hErr ? fmtQuotaPct(r.quotaPct5hErr) : '';
+  const q7dStr = r.quotaPct7d ? fmtQuotaPct(r.quotaPct7d) : '';
+  const multVal = r.quotaMultiplierK || 1;
+  const kStr = multVal.toFixed(2);
+  const isHighMult = multVal >= 1.8;
+  const multBadge = isHighMult
+    ? `· ${Math.abs(multVal - Math.round(multVal)) < 0.08 ? Math.round(multVal) : multVal.toFixed(1)}×`
+    : '';
+  const isFitted = r.quotaFitSource === 'fitted';
 
   let fullText = '';
   if (expanded) {
@@ -77,7 +101,8 @@ export function InvocationRow({
     const costLine = r.priced
       ? t.histCostTip(fmtUsd(r.costUSD), r.cacheSavedUSD > 0 ? fmtUsd(r.cacheSavedUSD) : '')
       : t.histUnpricedTip;
-    fullText = baseFull + phaseLine + costLine;
+    const quotaLine = qPctStr ? t.histQuotaLine(qPctStr, qErrStr, q7dStr, kStr, isFitted) : '';
+    fullText = baseFull + phaseLine + costLine + quotaLine;
   }
 
   return (
@@ -93,6 +118,15 @@ export function InvocationRow({
           {r.priced && (
             <span className="font-hud-mono text-[10px] text-hud-muted tabular-nums whitespace-nowrap">
               {fmtUsd(r.costUSD)}
+            </span>
+          )}
+          {qPctStr && (
+            <span
+              className={`quota-burn-pill${isHighMult ? ' is-high-mult' : ''} cursor-help`}
+              data-tip={t.histQuotaPillTip(qPctStr, qErrStr, q7dStr, kStr, isFitted)}
+            >
+              <span>{isFitted ? `-${qPctStr}` : `~-${qPctStr}`}</span>
+              {multBadge && <span>{multBadge}</span>}
             </span>
           )}
         </div>

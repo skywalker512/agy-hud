@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import type { ChartMetric, Compaction, Invocation } from '../../types/telemetry';
-import { cacheTier, fmtCachePct, fmtNum, fmtSec, fmtTps, ttftTier } from '../../utils/format';
+import {
+  cacheTier,
+  fmtCachePct,
+  fmtNum,
+  fmtQuotaPct,
+  fmtSec,
+  fmtTps,
+  fmtUsd,
+  formatModelTag,
+  ttftTier,
+} from '../../utils/format';
 
 interface TrendChartCardProps {
   invocations: Invocation[];
@@ -28,41 +38,57 @@ interface ModelMeta {
   avgBadge: string;
 }
 
-const METRICS: ChartMetric[] = ['tps', 'ttft', 'out', 'cache', 'ctx'];
+const METRICS: ChartMetric[] = ['tps', 'ttft', 'out', 'cache', 'ctx', 'quota'];
 const MODEL_PALETTE = ['var(--seg-think)', 'var(--seg-cache)', 'var(--seg-input)', 'var(--seg-out)'];
 
 function getModelKey(r: Invocation): string {
-  return r.modelId || r.modelDisplay || r.model || 'unknown';
+  return formatModelTag(r.modelId, r.modelDisplay, r.model) || 'unknown';
+}
+
+function shortTierSuffix(probe: string): string {
+  const m = /(?:\(|-)(xhigh|high|medium|low|minimal)\)?\s*$/i.exec(probe.trim());
+  if (!m) return '';
+  const t = m[1].toLowerCase();
+  if (t === 'xhigh') return '·XH';
+  if (t === 'low') return '·L';
+  if (t === 'medium') return '·M';
+  if (t === 'minimal') return '·Min';
+  return '';
 }
 
 function shortModelName(r: Invocation): string {
-  const probe = `${r.modelDisplay || ''} ${r.modelId || ''} ${r.model || ''}`.toLowerCase();
+  const fullTag = formatModelTag(r.modelId, r.modelDisplay, r.model);
+  const probe = `${r.modelDisplay || ''} ${fullTag} ${r.model || ''}`.toLowerCase();
+  const tier = shortTierSuffix(fullTag || r.modelDisplay || '');
   if (probe.includes('orchestrator')) {
     if (probe.includes('carbon')) return 'Orch·Carbon';
+    if (probe.includes('neon')) return 'Orch·Neon';
+    if (probe.includes('argon')) return 'Orch·Argon';
     if (probe.includes('hydrogen')) return 'Orch·Hydro';
     return 'Orchestrator';
   }
   if (probe.includes('flash-worker')) return 'Flash·Worker';
-  if (probe.includes('3.8-flash') || probe.includes('3.8 flash')) return '3.8 Flash';
-  if (probe.includes('carbon')) return 'Carbon';
-  if (probe.includes('argon')) return 'Argon';
-  if (probe.includes('hydrogen')) return 'Hydrogen';
-  if (probe.includes('opus')) return 'Opus';
-  if (probe.includes('sonnet')) return 'Sonnet';
-  const raw = r.modelDisplay || r.modelId || r.model || 'Model';
+  if (probe.includes('3.8-flash') || probe.includes('3.8 flash')) return `3.8 Flash${tier}`;
+  if (probe.includes('carbon')) return `Carbon${tier}`;
+  if (probe.includes('argon')) return `Argon${tier}`;
+  if (probe.includes('hydrogen')) return `Hydrogen${tier}`;
+  if (probe.includes('neon')) return `Neon${tier}`;
+  if (probe.includes('opus')) return `Opus${tier}`;
+  if (probe.includes('sonnet')) return `Sonnet${tier}`;
+  const raw = r.modelDisplay || fullTag || r.model || 'Model';
   return raw.length > 14 ? `${raw.slice(0, 13)}…` : raw;
 }
 
 function preferredModelColor(r: Invocation): string {
   const probe = `${r.modelDisplay || ''} ${r.modelId || ''} ${r.model || ''}`.toLowerCase();
-  if (probe.includes('orchestrator') || probe.includes('carbon') || probe.includes('argon') || probe.includes('opus')) {
-    return 'var(--seg-think)';
-  }
   if (probe.includes('flash') || probe.includes('hydrogen')) {
     return 'var(--seg-cache)';
   }
-  if (probe.includes('sonnet')) {
+  if (probe.includes('neon') || probe.includes('sonnet')) {
     return 'var(--seg-input)';
+  }
+  if (probe.includes('orchestrator') || probe.includes('carbon') || probe.includes('argon') || probe.includes('opus')) {
+    return 'var(--seg-think)';
   }
   return 'var(--seg-out)';
 }
@@ -112,7 +138,7 @@ function buildMonotonePath(pts: Array<{ x: number; y: number }>, minY: number, m
 }
 
 function buildTip(r: Invocation, metric: ChartMetric, t: Translations): string {
-  const modelTag = r.modelId || r.modelDisplay || r.model;
+  const modelTag = formatModelTag(r.modelId, r.modelDisplay, r.model);
   if (metric === 'ttft') {
     return t.tipTtft(r.idx + 1, modelTag, fmtSec(r.ttftSec), fmtSec(r.genSec), fmtSec(r.totalSec));
   }
@@ -127,6 +153,13 @@ function buildTip(r: Invocation, metric: ChartMetric, t: Translations): string {
   }
   if (metric === 'ctx') {
     return t.tipCtx(r.idx + 1, modelTag, fmtNum(r.totalContext), fmtNum(r.contextLimit), r.contextPct);
+  }
+  if (metric === 'quota') {
+    const p5 = fmtQuotaPct(r.quotaPct5h) || '0%';
+    const p7 = r.quotaPct7d ? fmtQuotaPct(r.quotaPct7d) : '';
+    const kStr = (r.quotaMultiplierK || 1).toFixed(2);
+    const cUsd = r.priced ? fmtUsd(r.costUSD) : '';
+    return t.tipQuota(r.idx + 1, modelTag, p5, p7, kStr, cUsd);
   }
   const cStr = fmtCachePct(r.cacheHitPct);
   return r.isBuffered
@@ -151,6 +184,11 @@ function formatModelMetricAvg(items: Invocation[], metric: ChartMetric): string 
   }
   if (metric === 'ctx') {
     return `${items.length}`;
+  }
+  if (metric === 'quota') {
+    const avg = items.reduce((s, r) => s + (r.quotaPct5h || 0), 0) / items.length;
+    const f = fmtQuotaPct(avg);
+    return f ? `-${f}` : '';
   }
   const avg = items.reduce((s, r) => s + (r.isBuffered ? r.e2eTps : r.genTps), 0) / items.length;
   return `${fmtTps(avg)} t/s`;
@@ -240,6 +278,7 @@ export function TrendChartCard({
     if (m === 'ttft') return t.tabTtft;
     if (m === 'out') return t.tabOut;
     if (m === 'cache') return t.tabCache;
+    if (m === 'quota') return t.tabQuota;
     return t.tabCtx;
   };
 
@@ -269,6 +308,18 @@ export function TrendChartCard({
       maxVal = 100;
       const mx = Math.max(...recent.map((r) => r.contextPct || 0));
       subText = t.chartSubCtx(recent.length, `${last.contextPct.toFixed(1)}%`, `${mx.toFixed(1)}%`);
+    } else if (metric === 'quota') {
+      const vals = recent.map((r) => r.quotaPct5h || 0);
+      const mx = Math.max(0, ...vals);
+      maxVal = Math.max(0.02, mx);
+      const sum = vals.reduce((s, v) => s + v, 0);
+      const avg = sum / recent.length;
+      subText = t.chartSubQuota(
+        recent.length,
+        fmtQuotaPct(sum) || '0%',
+        fmtQuotaPct(avg) || '0%',
+        fmtQuotaPct(mx) || '0%',
+      );
     } else {
       const vals = recent.map((r) => (r.isBuffered ? r.e2eTps : r.genTps));
       maxVal = Math.max(10, ...vals);
@@ -309,7 +360,9 @@ export function TrendChartCard({
           ? (r.cacheHitPct ?? 0)
           : metric === 'ctx'
             ? (r.contextPct || 0)
-            : (r.isBuffered ? r.e2eTps : r.genTps);
+            : metric === 'quota'
+              ? (r.quotaPct5h || 0)
+              : (r.isBuffered ? r.e2eTps : r.genTps);
       const pt: Pt = { x: slotX(i), y: valY(val), val, inv: r, slotIdx: i };
       const existing = byKey.get(key);
       if (existing) {
@@ -539,8 +592,34 @@ export function TrendChartCard({
               </g>
             )}
 
+            {metric === 'quota' &&
+              recent.map((r, i) => {
+                const x = slotX(i) - barW / 2;
+                const val = Math.max(0, r.quotaPct5h || 0);
+                const barH = val > 0 ? Math.max(3, (val / maxVal) * chartH) : 1.5;
+                const isHighMult = (r.quotaMultiplierK || 1) >= 1.8;
+                const fill = isMultiInView
+                  ? modelColorMap.get(getModelKey(r)) || 'var(--hud-accent)'
+                  : isHighMult
+                    ? 'var(--seg-out)'
+                    : 'var(--hud-accent)';
+                return (
+                  <rect
+                    key={`quota-${r.idx}`}
+                    x={x.toFixed(1)}
+                    y={(yBase - barH).toFixed(1)}
+                    width={barW.toFixed(1)}
+                    height={barH.toFixed(1)}
+                    rx="2"
+                    fill={fill}
+                    opacity={i === recent.length - 1 ? 1 : 0.84}
+                  />
+                );
+              })}
+
             {metric !== 'out' &&
               metric !== 'ctx' &&
+              metric !== 'quota' &&
               seriesList.map((s) => {
                 const curve = s.points.length >= 2 ? buildMonotonePath(s.points, padTop, yBase) : '';
                 const meanVal = s.points.reduce((acc, p) => acc + p.val, 0) / Math.max(1, s.points.length);

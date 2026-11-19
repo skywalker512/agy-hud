@@ -7,6 +7,8 @@ import {
   fmtDurationShort,
   fmtTps,
   fmtUsd,
+  formatSessionQuotaCompact,
+  formatSessionQuotaTip,
   getEffectiveContextState,
 } from '../../utils/format';
 
@@ -87,6 +89,9 @@ export function PulseBar({ snap, nowMs, t }: PulseBarProps) {
   }
 
   const showCost = Boolean(found && s && s.pricedCount > 0);
+  const sessionQuota = s?.sessionQuota || snap?.sessionInfo?.quotaUsage || null;
+  const quotaStr = found ? formatSessionQuotaCompact(sessionQuota) : '';
+  const quotaTip = quotaStr ? formatSessionQuotaTip(sessionQuota, t) : undefined;
 
   return (
     <div ref={barRef} className="pulse-bar">
@@ -105,6 +110,14 @@ export function PulseBar({ snap, nowMs, t }: PulseBarProps) {
         <>
           <span className="text-hud-muted opacity-70">·</span>
           <span className="pulse-chip">{fmtUsd(s?.totalCostUSD || 0)}</span>
+        </>
+      )}
+      {quotaStr && (
+        <>
+          <span className="text-hud-muted opacity-70">·</span>
+          <span className="pulse-chip text-hud-accent-ink font-semibold cursor-help" data-tip={quotaTip}>
+            {t.sessionQuotaPill(quotaStr)}
+          </span>
         </>
       )}
     </div>

@@ -1,5 +1,12 @@
 import type { Translations } from '../i18n';
-import type { ActiveStep, Compaction, SessionKind, StatsSnapshot } from '../types/telemetry';
+import type {
+  ActiveStep,
+  Compaction,
+  PoolQuotaUsageItem,
+  SessionKind,
+  SessionQuotaUsage,
+  StatsSnapshot,
+} from '../types/telemetry';
 
 export function fmtNum(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '--';
@@ -43,12 +50,139 @@ export function fmtClock(ms: number | null | undefined): string {
   return ms ? new Date(ms).toLocaleTimeString(undefined, { hour12: false }) : '';
 }
 
+export function fmtClockHm(ms: number | null | undefined, refNowMs?: number): string {
+  if (!ms || !Number.isFinite(ms)) return '';
+  const d = new Date(ms);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  if (refNowMs && Number.isFinite(refNowMs)) {
+    const ref = new Date(refNowMs);
+    if (d.getFullYear() !== ref.getFullYear() || d.getMonth() !== ref.getMonth() || d.getDate() !== ref.getDate()) {
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const da = String(d.getDate()).padStart(2, '0');
+      return `${mo}-${da} ${hh}:${mm}`;
+    }
+  }
+  return `${hh}:${mm}`;
+}
+
 export function fmtUsd(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v) || v < 0) return '$0.00';
   if (v === 0) return '$0.00';
   if (v < 0.01) return `$${v.toFixed(4)}`;
   if (v < 10) return `$${v.toFixed(2)}`;
   return `$${v.toFixed(1)}`;
+}
+
+export function fmtUsdWithBand(v: number | null | undefined, err?: number | null): string {
+  const base = fmtUsd(v);
+  if (err && Number.isFinite(err) && err >= 0.01) {
+    return `${base}±${fmtUsd(err)}`;
+  }
+  return base;
+}
+
+export function fmtQuotaPct(pct: number | null | undefined): string {
+  if (pct === null || pct === undefined || !Number.isFinite(pct) || pct <= 0) return '';
+  if (pct < 0.001) return '<0.001%';
+  if (pct < 0.1) return `${pct.toFixed(3)}%`;
+  if (pct < 10) return `${pct.toFixed(2)}%`;
+  return `${pct.toFixed(1)}%`;
+}
+
+function formatSinglePoolQuota(p: PoolQuotaUsageItem | undefined, ultraShort: boolean): string {
+  if (!p || !(p.pct5h >= 0.001)) return '';
+  const approx = p.isFitted === false ? '~' : '';
+  const hasWin = typeof p.active5hPct === 'number' || typeof p.active7dPct === 'number';
+  if (hasWin) {
+    const a5 = typeof p.active5hPct === 'number' ? p.active5hPct : 0;
+    const a7 = typeof p.active7dPct === 'number' ? p.active7dPct : 0;
+    if (a5 >= 0.001) {
+      const s5 = `5h ${approx}-${fmtQuotaPct(a5)}`;
+      if (!ultraShort && a7 >= 0.001 && p.pct5h > a5 + 0.05) {
+        return `${s5} · 7d ${approx}-${fmtQuotaPct(a7)}`;
+      }
+      return s5;
+    }
+    if (a7 >= 0.001) {
+      return `7d ${approx}-${fmtQuotaPct(a7)}`;
+    }
+    return '';
+  }
+  return `5h ${approx}-${fmtQuotaPct(p.pct5h)}`;
+}
+
+export function formatSessionQuotaCompact(q: SessionQuotaUsage | null | undefined, ultraShort = false): string {
+  if (!q) return '';
+  const gStr = formatSinglePoolQuota(q.gemini, ultraShort);
+  const cStr = formatSinglePoolQuota(q.claude_gpt, ultraShort);
+  if (gStr && cStr) {
+    return `G ${gStr} · C ${cStr}`;
+  }
+  return gStr || cStr || '';
+}
+
+function buildPoolTipBlock(poolName: string, p: PoolQuotaUsageItem | undefined, t: Translations): string {
+  if (!p || !(p.pct5h >= 0.001)) return '';
+  const hasWin = typeof p.active5hPct === 'number' || typeof p.active7dPct === 'number';
+  if (!hasWin) {
+    return t.sessionQuotaPoolLine(poolName, '', '', '', fmtQuotaPct(p.pct5h), p.isFitted !== false);
+  }
+  const a5Val = typeof p.active5hPct === 'number' ? p.active5hPct : 0;
+  const a7Val = typeof p.active7dPct === 'number' ? p.active7dPct : 0;
+  if (a5Val < 0.001 && a7Val < 0.001) return '';
+  const a5Str = a5Val >= 0.001 ? fmtQuotaPct(a5Val) : '';
+  const a7Str = a7Val >= 0.001 ? fmtQuotaPct(a7Val) : '';
+  const expiredVal = Math.max(0, p.pct5h - a5Val);
+  const expStr = expiredVal >= 0.05 ? fmtQuotaPct(expiredVal) : '';
+  return t.sessionQuotaPoolLine(poolName, a5Str, a7Str, expStr, '', p.isFitted !== false);
+}
+
+export function formatSessionQuotaTip(q: SessionQuotaUsage | null | undefined, t: Translations): string {
+  if (!q) return '';
+  const lines: string[] = [];
+  const gLine = buildPoolTipBlock('Gemini', q.gemini, t);
+  if (gLine) lines.push(gLine);
+  const cLine = buildPoolTipBlock('Claude & GPT', q.claude_gpt, t);
+  if (cLine) lines.push(cLine);
+  return lines.length ? t.sessionQuotaTip(lines.join('\n')) : '';
+}
+
+export function friendlyFamilyName(family: string): string {
+  const f = String(family || '').toLowerCase();
+  if (f === 'gemini-4-carbon') return 'Gemini 4 Carbon';
+  if (f === 'gemini-4-neon') return 'Gemini 4 Neon';
+  if (f === 'gemini-4-hydrogen') return 'Gemini 4 Hydrogen';
+  if (f === 'gemini-4-argon') return 'Gemini 4 Argon';
+  if (f === 'gemini-3.8-flash') return 'Gemini 3.8 Flash';
+  if (f === 'claude-opus-5-5') return 'Claude Opus';
+  if (f === 'claude-sonnet-5-5') return 'Claude Sonnet';
+  if (f === 'gpt-oss') return 'GPT-OSS';
+  return family;
+}
+
+const DISPLAY_TIER_RE = /\((xhigh|high|medium|low|minimal)\)\s*$/i;
+const ID_TIER_SUFFIX_RE = /-(xhigh|high|medium|low|minimal)$/i;
+
+export function formatModelTag(
+  modelId: string | undefined,
+  modelDisplay: string | undefined,
+  model: string | undefined,
+): string {
+  const rawId = String(modelId || '').trim();
+  const disp = String(modelDisplay || '').trim();
+  const fallback = String(model || '').trim();
+  const idCandidate = rawId || (fallback && !/\s/.test(fallback) ? fallback : '');
+  if (idCandidate) {
+    if (!ID_TIER_SUFFIX_RE.test(idCandidate)) {
+      const m = DISPLAY_TIER_RE.exec(disp);
+      if (m) {
+        return `${idCandidate}-${m[1].toLowerCase()}`;
+      }
+    }
+    return idCandidate;
+  }
+  return disp || fallback;
 }
 
 export function fmtDurationShort(totalSec: number | null | undefined): string {

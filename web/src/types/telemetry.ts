@@ -1,13 +1,28 @@
 export type Lang = 'en' | 'zh';
 export type HudTab = 'live' | 'calls' | 'account';
-export type ChartMetric = 'tps' | 'ttft' | 'out' | 'cache' | 'ctx';
+export type ChartMetric = 'tps' | 'ttft' | 'out' | 'cache' | 'ctx' | 'quota';
 export type ConvMode = 'auto' | 'latest' | 'custom';
 export type SessionKind = 'main' | 'side_question' | 'subagent';
+
+export interface PoolQuotaUsageItem {
+  pct5h: number;
+  pct7d: number | null;
+  active5hPct?: number | null;
+  active7dPct?: number | null;
+  isFitted?: boolean;
+}
+
+export interface SessionQuotaUsage {
+  gemini?: PoolQuotaUsageItem;
+  claude_gpt?: PoolQuotaUsageItem;
+}
 
 export interface ToolCallItem {
   name: string;
   args: string;
 }
+
+export type QuotaFitSource = 'fitted' | 'provisional' | 'prior';
 
 export interface Invocation {
   idx: number;
@@ -42,6 +57,12 @@ export interface Invocation {
   pricingKey: string;
   costUSD: number;
   cacheSavedUSD: number;
+  quotaPool?: string;
+  quotaPct5h?: number;
+  quotaPct5hErr?: number;
+  quotaPct7d?: number | null;
+  quotaMultiplierK?: number;
+  quotaFitSource?: QuotaFitSource;
   thinkSec: number;
   toolGenSec: number;
   stepToolCount: number;
@@ -77,6 +98,12 @@ export interface Compaction {
   pricingKey?: string;
   costUSD?: number;
   cacheSavedUSD?: number;
+  quotaPool?: string;
+  quotaPct5h?: number;
+  quotaPct5hErr?: number;
+  quotaPct7d?: number | null;
+  quotaMultiplierK?: number;
+  quotaFitSource?: QuotaFitSource;
   hasSummary?: boolean;
   summaryPreview?: string;
 }
@@ -93,6 +120,10 @@ export interface TurnSummary {
   callCount: number;
   outputTokens: number;
   totalSec: number;
+  quotaPool?: string;
+  quotaPct5h?: number;
+  quotaPct7d?: number | null;
+  quotaFitSource?: QuotaFitSource;
 }
 
 export interface ActiveStep {
@@ -177,6 +208,7 @@ export interface TelemetrySummary {
   pricedCount: number;
   unpricedCount: number;
   latestCallMs: number;
+  sessionQuota?: SessionQuotaUsage | null;
 }
 
 export interface ConversationItem {
@@ -184,9 +216,11 @@ export interface ConversationItem {
   updatedMs: number;
   title: string;
   kind: SessionKind;
+  source?: string;
   parentId?: string;
   childCount?: number;
   costUSD?: number;
+  quotaUsage?: SessionQuotaUsage | null;
 }
 
 export interface ChildSessionItem {
@@ -202,6 +236,7 @@ export interface ChildSessionItem {
   unpricedCount: number;
   updatedMs: number;
   latestTsMs: number;
+  quotaUsage?: SessionQuotaUsage | null;
 }
 
 export interface ParentSessionItem {
@@ -210,6 +245,7 @@ export interface ParentSessionItem {
   calls: number;
   outputTokens: number;
   costUSD: number;
+  quotaUsage?: SessionQuotaUsage | null;
 }
 
 export interface SessionInfo {
@@ -217,8 +253,19 @@ export interface SessionInfo {
   title: string;
   kind: SessionKind;
   subagentType: string;
+  quotaUsage?: SessionQuotaUsage | null;
   parentSession: ParentSessionItem | null;
   childSessions: ChildSessionItem[];
+}
+
+export interface QuotaWindowRunway {
+  status: 'exhausted' | 'warning' | 'safe';
+  burnPctPerHour: number;
+  exhaustInSec: number;
+  exhaustAtMs: number;
+  willExhaustBeforeReset: boolean;
+  projectedRemAtResetPct: number;
+  basis?: string;
 }
 
 export interface QuotaWindow {
@@ -231,11 +278,51 @@ export interface QuotaWindow {
   resetAtMs: number;
   disabled?: boolean;
   estSpentUSD?: number;
+  estEffectiveSpentUSD?: number;
+  estRemoteUSD?: number;
+  estRemoteUSDPlusMinus?: number;
+  estRemotePct?: number;
+  estRemotePctPlusMinus?: number;
+  estPredLocalPct?: number;
+  estResidualPct?: number;
+  estBandPct?: number;
+  estTotalUSD?: number;
   estFullUSD?: number | null;
   estConfidence?: 'high' | 'prior' | 'low' | null;
   estMinSamplePct?: number;
   estPricedCalls?: number;
   estUnpricedCalls?: number;
+  runway?: QuotaWindowRunway | null;
+}
+
+export interface QuotaPoolFitModel {
+  family: string;
+  k: number;
+  beta: number;
+  betaPlusMinus: number;
+  source?: string;
+  mode?: string;
+  baseRates?: number[];
+  priorBeta?: number;
+  priorRelDiffPct?: number;
+  priorZScore?: number;
+  tokenWeights?: number[];
+  obsCalls: number;
+}
+
+export interface QuotaPoolFitSummary {
+  quality: string;
+  driftWarning?: boolean;
+  driftReasons?: string[];
+  full5hUSD: number | null;
+  full7dUSD: number | null;
+  gamma: number | null;
+  sampleCount: number;
+  shortCleanCount: number;
+  holdoutCount: number;
+  oosRelErrPct: number | null;
+  relErrPct: number;
+  models: QuotaPoolFitModel[];
 }
 
 export interface QuotaPool {
@@ -247,6 +334,15 @@ export interface QuotaPool {
   modelCount?: number;
   heldByWeekly: boolean;
   windows: QuotaWindow[];
+  fitSummary?: QuotaPoolFitSummary | null;
+}
+
+export interface RemoteQuotaEstimate {
+  activeWindowUSD: number;
+  activeWindowPlusMinusUSD?: number;
+  window5hUSD: number;
+  window7dUSD: number;
+  snapshotAtMs: number;
 }
 
 export interface AccountQuota {
@@ -260,15 +356,37 @@ export interface AccountQuota {
   teamsTier?: string;
   availableCredits?: number | null;
   pools?: QuotaPool[];
+  remoteEstimate?: RemoteQuotaEstimate;
   source?: string;
   ttlMs?: number;
   fetchedAtMs?: number;
 }
 
+export interface DailyHeatmapDay {
+  date: string;
+  calls: number;
+  appCalls: number;
+  cliCalls: number;
+  costUSD: number;
+  outputTokens: number;
+}
+
+export interface DailyHeatmapSummary {
+  weeks: number;
+  activeDays: number;
+  streakDays: number;
+  peakCostUSD: number;
+  peakDate: string;
+  days: DailyHeatmapDay[];
+}
+
 export interface AccountHistory {
   dbCount: number;
+  dbCountBySource?: Record<string, number>;
   indexedCount: number;
   indexing: boolean;
+  callsBySource?: Record<string, number>;
+  costBySource?: Record<string, number>;
   totalCalls: number;
   totalOutput: number;
   totalCostUSD: number;
@@ -281,6 +399,7 @@ export interface AccountHistory {
   monthCalls: number;
   monthCostUSD: number;
   monthSavedUSD: number;
+  dailyHeatmap?: DailyHeatmapSummary;
 }
 
 export interface StatsSnapshot {

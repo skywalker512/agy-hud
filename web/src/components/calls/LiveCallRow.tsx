@@ -1,6 +1,6 @@
 import type { Translations } from '../../i18n';
 import type { ActiveStep } from '../../types/telemetry';
-import { formatLiveStage } from '../../utils/format';
+import { formatLiveStage, formatModelTag } from '../../utils/format';
 import { ContentBlocks } from './ContentBlocks';
 
 interface LiveCallRowProps {
@@ -26,7 +26,7 @@ export function LiveCallRow({
 
   const isCompact = activeStep.stepType === 23;
   const idxLabel = isCompact ? t.compactBadge : `#${invCount + 1}`;
-  const modelTag = activeStep.modelId || activeStep.modelDisplay || activeStep.model || 'Pending';
+  const modelTag = formatModelTag(activeStep.modelId, activeStep.modelDisplay, activeStep.model) || 'Pending';
   const st = formatLiveStage(activeStep, serverTimeMs, nowMs, t, latestContext);
   const pillCls = st.isCompact ? 'compact' : st.isStreaming ? 'stream' : 'wait';
 

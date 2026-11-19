@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import type { ConvMode, ConversationItem, Lang, StatsSnapshot } from '../../types/telemetry';
 import { copyText } from '../../utils/clipboard';
-import { fmtClock, shortTitleLabel } from '../../utils/format';
+import { fmtClock, formatSessionQuotaCompact, shortTitleLabel } from '../../utils/format';
 import { ModelBar } from './ModelBar';
 import { SessionRelBar } from './SessionRelBar';
 
@@ -140,12 +140,15 @@ export function TopBar({
       });
     }
     return list.map((c) => {
-      const tag = c.kind === 'side_question' ? '[SQ] ' : c.kind === 'subagent' ? '[Sub] ' : '';
+      const srcTag = c.source === 'cli' ? '[CLI] ' : '';
+      const kindTag = c.kind === 'side_question' ? '[SQ] ' : c.kind === 'subagent' ? '[Sub] ' : '';
       const name = c.title ? shortTitleLabel(c.title, c.id) : `${c.id.slice(0, 8)}…`;
+      const qTag = c.quotaUsage ? formatSessionQuotaCompact(c.quotaUsage, true) : '';
+      const qPart = qTag ? ` [${qTag}]` : '';
       const tm = c.updatedMs ? ` (${fmtClock(c.updatedMs)})` : '';
       return {
         value: `conv:${c.id}`,
-        label: `${tag}${name}${tm}`,
+        label: `${srcTag}${kindTag}${name}${qPart}${tm}`,
       };
     });
   }, [snap?.conversations, snap?.conversationId, snap?.sessionInfo?.title, snap?.sessionInfo?.kind, mode, selectedConv]);
