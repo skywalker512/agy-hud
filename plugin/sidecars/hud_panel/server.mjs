@@ -303,6 +303,20 @@ async function startServer() {
             statusName: lsStep.statusName,
           };
         }
+      } else if (liveOverlay?.available) {
+        telemetry.activeStep = null;
+        if (telemetry.currentModel?.isActive) {
+          telemetry.currentModel = telemetry.latest
+            ? {
+                model: telemetry.latest.model,
+                modelId: telemetry.latest.modelId,
+                modelDisplay: telemetry.latest.modelDisplay,
+                isActive: false,
+                stepType: null,
+                toolName: '',
+              }
+            : null;
+        }
       }
       return {
         found: true,

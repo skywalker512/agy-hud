@@ -961,3 +961,31 @@ test('attachQuotaBudgetEstimates supports low-sample cold start, Bayesian prior 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('extractLiveStepFromTrajectory preserves model from tail steps on syntheticFallback and resolves M461 placeholder', () => {
+  const m461 = resolveLsGeneratorModel('MODEL_PLACEHOLDER_M461');
+  assert.equal(m461.modelId, 'gemini-4-hydrogen-high');
+  assert.equal(m461.modelDisplay, 'Gemini 4 Hydrogen (High)');
+
+  const res = extractLiveStepFromTrajectory({
+    stepCount: 3,
+    runStatus: 'CASCADE_RUN_STATUS_RUNNING',
+    lastModifiedTime: '2026-11-15T03:46:38.000Z',
+    offset: 0,
+    steps: [
+      {
+        type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE',
+        status: 'CORTEX_STEP_STATUS_DONE',
+        metadata: { generatorModel: 'MODEL_PLACEHOLDER_M461' },
+      },
+      {
+        type: 'CORTEX_STEP_TYPE_RUN_COMMAND',
+        status: 'CORTEX_STEP_STATUS_DONE',
+        metadata: { generatorModel: 'MODEL_PLACEHOLDER_M461' },
+      },
+    ],
+  });
+  assert.equal(res.liveStep.syntheticFallback, true);
+  assert.equal(res.liveStep.modelId, 'gemini-4-hydrogen-high');
+  assert.equal(res.liveStep.modelDisplay, 'Gemini 4 Hydrogen (High)');
+});

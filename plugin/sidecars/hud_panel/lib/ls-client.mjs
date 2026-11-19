@@ -395,6 +395,7 @@ export function extractLiveStepFromTrajectory({
     : offset;
 
   let sawUserInputBarrier = false;
+  let lastKnownModel = null;
 
   for (let i = tailSlice.length - 1; i >= 0; i--) {
     const st = tailSlice[i];
@@ -404,6 +405,9 @@ export function extractLiveStepFromTrajectory({
     const createdAtMs = parseIsoMs(meta.createdAt);
     const startedAtMs = parseIsoMs(meta.startedAt);
     const mInfo = resolveLsGeneratorModel(meta.generatorModel);
+    if (!lastKnownModel && (mInfo.modelDisplay || mInfo.model)) {
+      lastKnownModel = mInfo;
+    }
 
     const activeInfo = LS_ACTIVE_STEP_STATUSES.get(st.status)
       || (st.status && st.status !== 'CORTEX_STEP_STATUS_UNSPECIFIED' && !LS_TERMINAL_STEP_STATUSES.has(st.status)
@@ -543,9 +547,10 @@ export function extractLiveStepFromTrajectory({
 
   const fallbackTs = parseIsoMs(lastModifiedTime) || nowMs;
   const isCompactRun = /COMPACT|CHECKPOINT/i.test(runStatus);
+  const fbModel = lastKnownModel || { model: '', modelId: '', modelDisplay: '' };
   return {
     available: true,
-    sig: `run:${runStatus}:${stepCount}`,
+    sig: `run:${runStatus}:${stepCount}:${fbModel.modelId || fbModel.model || ''}`,
     liveStep: {
       idx: Math.max(0, stepCount),
       stepType: isCompactRun ? 23 : 15,
@@ -554,9 +559,9 @@ export function extractLiveStepFromTrajectory({
       createdAtMs: fallbackTs,
       streamStartMs: 0,
       modelEnum: null,
-      model: '',
-      modelId: '',
-      modelDisplay: '',
+      model: fbModel.model,
+      modelId: fbModel.modelId,
+      modelDisplay: fbModel.modelDisplay,
       toolName: '',
       thinkingPreview: '',
       thinkingChars: 0,
