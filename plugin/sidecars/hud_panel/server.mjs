@@ -58,18 +58,20 @@ import {
   toLightTelemetryPayload,
 } from './lib/telemetry.mjs';
 import {
-  attachGraphQuotaSummaries,
-  attachQuotaBudgetEstimates,
-  attachTelemetryQuotaPredictions,
   buildAccountHistory,
   buildSessionInfo,
-  computeSummaryQuotaUsage,
   conversationEffectiveMs,
   getBgSummaryWarmSeq,
   getConversationGraph,
   pickTargetConversation,
   summarizeConversationDb,
 } from './lib/graph.mjs';
+import {
+  attachGraphQuotaSummaries,
+  attachQuotaBudgetEstimates,
+  attachTelemetryQuotaPredictions,
+  computeSummaryQuotaUsage,
+} from './lib/quota-budget.mjs';
 import {
   computeBaseReferenceUSD,
   ingestQuotaObservation,

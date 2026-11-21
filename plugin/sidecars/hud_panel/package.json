@@ -8,6 +8,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "build:ui": "npm --prefix ../../../web run build"
+    "test:all": "node --test test/*.test.mjs ../../../tools/test/*.test.mjs",
+    "build:ui": "npm --prefix ../../../web run build",
+    "check": "npm run build:ui && npm run test:all"
   }
 }
