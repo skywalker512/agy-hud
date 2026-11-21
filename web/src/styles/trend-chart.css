@@ -1,1 +1,238 @@
-/* Dedicated stylesheet for TrendChartCard (owned by @trend-viz) */
+/* Dedicated stylesheet for TrendChartCard (owned by @trend-viz)
+ * Lean custom CSS reserved for theme/contrast color-mix tokens, font-scale rules,
+ * interactive state selectors, and SVG / minimap brush geometry.
+ * Layout, spacing, flex/grid, borders, and typography use Tailwind v4 utilities in TSX.
+ */
+
+.trend-count-badge {
+  font-size: calc(10px * var(--hud-font-scale, 1));
+}
+
+.trend-seg-btn {
+  font-size: calc(9.5px * var(--hud-font-scale, 1));
+}
+.trend-seg-btn.is-active {
+  color: var(--hud-fg);
+  background: var(--hud-tab-active-bg);
+  box-shadow: inset 0 0 0 1px var(--hud-tab-active-border);
+}
+.trend-seg-btn:disabled {
+  opacity: 0.36;
+  cursor: not-allowed;
+}
+.trend-icon-btn {
+  font-size: calc(10.5px * var(--hud-font-scale, 1));
+}
+
+.trend-seg-btn:focus-visible,
+.trend-follow-btn:focus-visible,
+.trend-minimap-svg:focus-visible {
+  outline: 1.5px solid var(--hud-accent);
+  outline-offset: 1px;
+}
+
+/* Conditional Historical / Paused Follow-Live Banner */
+.trend-live-banner {
+  font-size: calc(10px * var(--hud-font-scale, 1));
+  border-color: color-mix(in srgb, var(--hud-accent) 34%, var(--hud-border));
+  background: color-mix(in srgb, var(--hud-accent) 9%, var(--hud-card));
+}
+
+.trend-follow-btn {
+  font-size: calc(9.5px * var(--hud-font-scale, 1));
+  border-color: color-mix(in srgb, var(--hud-accent) 52%, var(--hud-border));
+  background: color-mix(in srgb, var(--hud-accent) 16%, var(--hud-card));
+}
+.trend-follow-btn:hover {
+  border-color: var(--hud-accent);
+  background: color-mix(in srgb, var(--hud-accent) 26%, var(--hud-card));
+  color: var(--hud-fg);
+}
+
+/* 4-Cell Inset Stat Strip */
+.trend-stat-cell {
+  background: color-mix(in srgb, var(--hud-fg) 3.2%, var(--hud-card));
+}
+:root[data-theme="dark"] .trend-stat-cell {
+  background: color-mix(in srgb, var(--hud-fg) 4.8%, var(--hud-card));
+}
+
+.trend-stat-label {
+  font-size: calc(9px * var(--hud-font-scale, 1));
+}
+.trend-stat-val {
+  font-size: calc(12px * var(--hud-font-scale, 1));
+}
+.trend-stat-delta {
+  font-size: calc(9px * var(--hud-font-scale, 1));
+}
+.trend-stat-delta.is-good {
+  color: var(--hud-ok);
+  background: color-mix(in srgb, var(--hud-ok) 14%, transparent);
+}
+.trend-stat-delta.is-bad {
+  color: var(--hud-bad);
+  background: color-mix(in srgb, var(--hud-bad) 14%, transparent);
+}
+.trend-stat-delta.is-neutral {
+  color: var(--hud-muted);
+  background: var(--hud-fill);
+}
+.trend-stat-buf-tag {
+  font-size: calc(8.5px * var(--hud-font-scale, 1));
+}
+
+/* Main SVG Canvas & Overlays */
+.trend-main-svg {
+  touch-action: pan-y;
+  cursor: crosshair;
+}
+.trend-main-svg.is-selecting {
+  cursor: col-resize;
+}
+
+.trend-axis-label {
+  font-family: var(--hud-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums lining-nums;
+  fill: var(--hud-muted);
+  pointer-events: none;
+}
+
+.trend-ref-label {
+  font-family: var(--hud-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums lining-nums;
+  pointer-events: none;
+}
+
+.trend-y-pill-bg {
+  fill: color-mix(in srgb, var(--hud-card) 84%, transparent);
+}
+
+.trend-crosshair-line {
+  stroke: color-mix(in srgb, var(--hud-fg) 42%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  pointer-events: none;
+}
+
+.trend-crosshair-guide {
+  stroke: color-mix(in srgb, var(--hud-fg) 24%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  pointer-events: none;
+}
+
+.trend-hover-col {
+  fill: color-mix(in srgb, var(--hud-fg) 6%, transparent);
+  pointer-events: none;
+}
+
+.trend-zoom-marquee {
+  fill: color-mix(in srgb, var(--hud-accent) 16%, transparent);
+  stroke: var(--hud-accent);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.trend-zoom-badge-bg {
+  fill: var(--hud-card);
+  stroke: var(--hud-accent);
+  stroke-width: 1;
+}
+
+.trend-zoom-badge-text {
+  font-family: var(--hud-mono);
+  font-size: 9px;
+  font-weight: 700;
+  fill: var(--hud-accent-ink);
+  font-variant-numeric: tabular-nums lining-nums;
+  pointer-events: none;
+}
+
+/* Zero-lag Structured Floating Popover */
+.trend-popover {
+  background: color-mix(in srgb, var(--hud-card) 96%, var(--hud-bg));
+  border-color: color-mix(in srgb, var(--hud-fg) 18%, var(--hud-border));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(8px);
+}
+.trend-pop-head {
+  font-size: calc(9.5px * var(--hud-font-scale, 1));
+}
+.trend-pop-val {
+  font-size: calc(14px * var(--hud-font-scale, 1));
+}
+.trend-pop-k,
+.trend-pop-foot,
+.trend-pop-badge {
+  font-size: calc(8.5px * var(--hud-font-scale, 1));
+}
+.trend-pop-v {
+  font-size: calc(10.5px * var(--hud-font-scale, 1));
+}
+.trend-pop-badge.is-stall {
+  color: var(--hud-warn);
+  background: color-mix(in srgb, var(--hud-warn) 16%, transparent);
+  border-color: color-mix(in srgb, var(--hud-warn) 38%, transparent);
+}
+
+/* Interactive Minimap Brush / Scrubber SVG */
+.trend-minimap-svg {
+  touch-action: none;
+  cursor: pointer;
+}
+.trend-minimap-track {
+  fill: color-mix(in srgb, var(--hud-fg) 3.5%, var(--hud-card));
+  stroke: var(--hud-border);
+  stroke-width: 1;
+}
+:root[data-theme="dark"] .trend-minimap-track {
+  fill: color-mix(in srgb, var(--hud-fg) 5.5%, var(--hud-card));
+}
+.trend-minimap-dim {
+  fill: color-mix(in srgb, var(--hud-bg) 68%, transparent);
+  pointer-events: none;
+}
+.trend-minimap-window {
+  fill: color-mix(in srgb, var(--hud-accent) 13%, transparent);
+  stroke: color-mix(in srgb, var(--hud-accent) 76%, var(--hud-border));
+  stroke-width: 1.25;
+  cursor: grab;
+}
+.trend-minimap-window.is-dragging {
+  cursor: grabbing;
+  fill: color-mix(in srgb, var(--hud-accent) 20%, transparent);
+  stroke: var(--hud-accent);
+}
+.trend-minimap-handle {
+  fill: color-mix(in srgb, var(--hud-accent) 88%, var(--hud-card));
+  cursor: ew-resize;
+}
+.trend-minimap-handle-hit {
+  fill: transparent;
+  cursor: ew-resize;
+}
+.trend-minimap-grip {
+  stroke: var(--hud-accent-fg);
+  stroke-width: 1;
+  stroke-linecap: round;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+/* Host Strong-Contrast Parity */
+:root[data-contrast="strong"] .trend-stat-cell,
+:root[data-contrast="strong"] .trend-seg-group,
+:root[data-contrast="strong"] .trend-popover {
+  border-color: color-mix(in srgb, var(--hud-border) 68%, var(--hud-fg) 32%);
+}
+:root[data-contrast="strong"] .trend-minimap-window {
+  stroke: var(--hud-accent);
+  stroke-width: 1.5;
+}
+:root[data-contrast="strong"] .trend-axis-label {
+  fill: color-mix(in srgb, var(--hud-muted) 45%, var(--hud-fg));
+}
