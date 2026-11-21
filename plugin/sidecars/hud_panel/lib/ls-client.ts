@@ -10,12 +10,12 @@ import {
   LS_TERMINAL_STEP_STATUSES,
   parseIsoMs,
   QUOTA_TTL_MS,
-} from './constants.mjs';
-import { isCompactPromptText } from './protobuf.mjs';
+} from './constants.ts';
+import { isCompactPromptText } from './protobuf.ts';
 
-export const lsModelCatalog = new Map();
+export const lsModelCatalog = new Map<string, { model: string; modelId: string; modelDisplay: string }>();
 let lsModelCatalogVersion = 0;
-let lsCatalogWarmInFlight = null;
+let lsCatalogWarmInFlight: Promise<void> | null = null;
 let lsCatalogWarmAtMs = 0;
 let workingLsBaseUrl = '';
 
@@ -23,7 +23,13 @@ export function getLsModelCatalogVersion() {
   return lsModelCatalogVersion;
 }
 
-export const quotaCache = {
+export const quotaCache: {
+  data: any;
+  fetchedAtMs: number;
+  updatedSeq: number;
+  inFlight: Promise<any> | null;
+  inFlightForce: boolean;
+} = {
   data: { available: false, reason: 'init' },
   fetchedAtMs: 0,
   updatedSeq: 0,
@@ -73,12 +79,13 @@ function postConnectJson(urlStr, headers, payload, timeoutMs = 1500) {
         ...headers,
       },
     }, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8');
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          reject(new Error(`HTTP ${res.statusCode}`));
+        const code = res.statusCode ?? 0;
+        if (code < 200 || code >= 300) {
+          reject(new Error(`HTTP ${code}`));
           return;
         }
         try {
@@ -96,7 +103,7 @@ function postConnectJson(urlStr, headers, payload, timeoutMs = 1500) {
   });
 }
 
-export async function postLsRpc(method, payload, timeoutMs = 1500) {
+export async function postLsRpc(method: string, payload: any, timeoutMs = 1500): Promise<any> {
   const rawAddr = process.env.ANTIGRAVITY_LS_ADDRESS || '';
   const csrf = process.env.ANTIGRAVITY_CSRF_TOKEN || '';
   if (!rawAddr || !csrf) throw new Error('no_ls_env');
@@ -116,7 +123,7 @@ export async function postLsRpc(method, payload, timeoutMs = 1500) {
     candidates.push(baseUrl.replace(/^https:/, 'http:'));
   }
 
-  let lastErr = null;
+  let lastErr: unknown = null;
   for (const candidate of candidates) {
     try {
       const json = await postConnectJson(`${candidate}${path}`, headers, payload, timeoutMs);
@@ -154,12 +161,12 @@ function classifyWindowSpan(bucket) {
   return bucket?.window || bucket?.displayName || '5h';
 }
 
-export function normalizeQuotaSummary(raw) {
+export function normalizeQuotaSummary(raw: any): any[] {
   const summary = raw?.response || raw?.summary || raw?.quotaSummary || raw;
   const groups = Array.isArray(summary?.groups) ? summary.groups : [];
   if (!groups.length) return [];
 
-  const pools = [];
+  const pools: any[] = [];
   for (const g of groups) {
     const buckets = Array.isArray(g?.buckets) ? g.buckets : [];
     const bySpan = new Map();
@@ -305,8 +312,11 @@ export function ensureLsModelCatalogWarm() {
     .finally(() => { lsCatalogWarmInFlight = null; });
 }
 
-export function resolveLsGeneratorModel(genModel, fallbackModel = null) {
-  if (genModel && lsModelCatalog.has(genModel)) return lsModelCatalog.get(genModel);
+export function resolveLsGeneratorModel(
+  genModel: string | undefined,
+  fallbackModel: { model?: string; modelId?: string; modelDisplay?: string } | null = null,
+): { model: string; modelId: string; modelDisplay: string } {
+  if (genModel && lsModelCatalog.has(genModel)) return lsModelCatalog.get(genModel)!;
   if (genModel) {
     ensureLsModelCatalogWarm();
     const tierMatch = /^(.+)-(xhigh|high|medium|low|minimal)$/i.exec(genModel);
@@ -333,15 +343,22 @@ export function resolveLsGeneratorModel(genModel, fallbackModel = null) {
       }
     }
     if (KNOWN_LS_PLACEHOLDERS.has(genModel)) {
-      return KNOWN_LS_PLACEHOLDERS.get(genModel);
+      return KNOWN_LS_PLACEHOLDERS.get(genModel)!;
     }
     if (/^MODEL_PLACEHOLDER_/i.test(genModel)) {
-      return fallbackModel || { model: '', modelId: '', modelDisplay: '' };
+      return {
+        model: fallbackModel?.model || '',
+        modelId: fallbackModel?.modelId || '',
+        modelDisplay: fallbackModel?.modelDisplay || '',
+      };
     }
     return { model: genModel, modelId: genModel, modelDisplay: genModel };
   }
-  if (fallbackModel) return fallbackModel;
-  return { model: '', modelId: '', modelDisplay: '' };
+  return {
+    model: fallbackModel?.model || '',
+    modelId: fallbackModel?.modelId || '',
+    modelDisplay: fallbackModel?.modelDisplay || '',
+  };
 }
 
 export function isCascadeStatusActive(status) {
@@ -386,7 +403,14 @@ export function extractLiveStepFromTrajectory({
   steps = [],
   offset = 0,
   nowMs = Date.now(),
-}) {
+}: {
+  stepCount?: number;
+  runStatus?: string;
+  lastModifiedTime?: string;
+  steps?: any[];
+  offset?: number;
+  nowMs?: number;
+}): { available: boolean; sig: string; liveStep: any } {
   const isCascadeActive = isCascadeStatusActive(runStatus);
   if (!isCascadeActive) {
     return { available: true, sig: `idle:${stepCount}`, liveStep: null };
@@ -398,7 +422,7 @@ export function extractLiveStepFromTrajectory({
     : offset;
 
   let sawUserInputBarrier = false;
-  let lastKnownModel = null;
+  let lastKnownModel: { model: string; modelId: string; modelDisplay: string } | null = null;
 
   for (let i = tailSlice.length - 1; i >= 0; i--) {
     const st = tailSlice[i];
@@ -576,7 +600,11 @@ export function extractLiveStepFromTrajectory({
   };
 }
 
-const trajectoriesCache = {
+const trajectoriesCache: {
+  summaries: Record<string, any> | null;
+  fetchedAtMs: number;
+  inFlight: Promise<Record<string, any> | null> | null;
+} = {
   summaries: null,
   fetchedAtMs: 0,
   inFlight: null,
@@ -609,7 +637,10 @@ export async function getCascadeSummariesCached(ttlMs = 600) {
 
 const liveStepCache = new Map();
 
-export async function fetchLiveActiveStep(cascadeId, preloadedSummaries = undefined) {
+export async function fetchLiveActiveStep(
+  cascadeId: string,
+  preloadedSummaries: Record<string, any> | undefined = undefined,
+) {
   if (!cascadeId || !process.env.ANTIGRAVITY_LS_ADDRESS || !process.env.ANTIGRAVITY_CSRF_TOKEN) {
     return null;
   }
@@ -712,7 +743,7 @@ async function refreshUserStatus(forceRefresh = false) {
       return quotaCache.data;
     }
 
-    const base = statusNorm.available
+    const base: any = statusNorm.available
       ? statusNorm
       : {
           available: true,
@@ -758,7 +789,7 @@ async function refreshUserStatus(forceRefresh = false) {
     quotaCache.fetchedAtMs = fetchedAtMs;
     quotaCache.updatedSeq += 1;
     return merged;
-  } catch (err) {
+  } catch (err: any) {
     quotaCache.data = {
       ...(quotaCache.data?.available ? quotaCache.data : { available: false }),
       stale: !!quotaCache.data?.available,
@@ -794,9 +825,9 @@ export async function getUserStatusCached(waitIfCold = true, force = false) {
 
 let lastEventCallSig = '';
 let lastEventSampleAtMs = 0;
-let pendingEventSampleTimer = null;
+let pendingEventSampleTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function schedulePostCallQuotaSample(callSig, delayMs = 4500, minCooldownMs = 15_000) {
+export function schedulePostCallQuotaSample(callSig: string, delayMs = 4500, minCooldownMs = 15_000) {
   if (!callSig || callSig === lastEventCallSig) return;
   if (!process.env.ANTIGRAVITY_LS_ADDRESS || !process.env.ANTIGRAVITY_CSRF_TOKEN) return;
   const isFirstInit = lastEventCallSig === '';
@@ -812,5 +843,5 @@ export function schedulePostCallQuotaSample(callSig, delayMs = 4500, minCooldown
     lastEventSampleAtMs = now;
     void getUserStatusCached(false, true).catch(() => {});
   }, delayMs);
-  pendingEventSampleTimer.unref?.();
+  pendingEventSampleTimer?.unref?.();
 }

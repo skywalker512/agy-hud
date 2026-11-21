@@ -26,17 +26,17 @@ import {
   STEP_STATUS_NAMES,
   TERMINAL_STEP_STATUSES,
   UUID_RE,
-} from '../../plugin/sidecars/hud_panel/lib/constants.mjs';
+} from '../../plugin/sidecars/hud_panel/lib/constants.ts';
 import {
   getConversationGraph,
   pickTargetConversation,
-} from '../../plugin/sidecars/hud_panel/lib/graph.mjs';
+} from '../../plugin/sidecars/hud_panel/lib/graph.ts';
 import {
   extractLiveStepFromTrajectory,
   isCascadeStatusActive,
   isLoopbackHost,
   normalizeLsBaseUrl,
-} from '../../plugin/sidecars/hud_panel/lib/ls-client.mjs';
+} from '../../plugin/sidecars/hud_panel/lib/ls-client.ts';
 import {
   iterFields,
   parseCompactPayload,
@@ -44,12 +44,12 @@ import {
   parsePlannerPayload,
   parseStepMetadata,
   parseUserPromptPayload,
-} from '../../plugin/sidecars/hud_panel/lib/protobuf.mjs';
+} from '../../plugin/sidecars/hud_panel/lib/protobuf.ts';
 import {
   listConversations,
   readTelemetry,
   toLightTelemetryPayload,
-} from '../../plugin/sidecars/hud_panel/lib/telemetry.mjs';
+} from '../../plugin/sidecars/hud_panel/lib/telemetry.ts';
 
 export const TRACE_SCHEMA_VERSION = 1;
 

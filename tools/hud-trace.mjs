@@ -11,7 +11,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import {
   listConversations,
-} from '../plugin/sidecars/hud_panel/lib/telemetry.mjs';
+} from '../plugin/sidecars/hud_panel/lib/telemetry.ts';
 import {
   buildTimelineFromDb,
   buildTimelineFromTrace,

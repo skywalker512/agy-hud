@@ -100,7 +100,7 @@ npm run dev        # rebuild on change (pair with `node plugin/install.mjs --lin
 Run the tests:
 
 ```bash
-node --test plugin/sidecars/hud_panel/test/*.test.mjs
+node --test plugin/sidecars/hud_panel/test/*.test.ts
 node --test tools/test/trace.test.mjs
 ```
 

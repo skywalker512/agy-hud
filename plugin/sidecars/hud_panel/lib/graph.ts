@@ -13,17 +13,18 @@ import {
   SYNC_GRAPH_WARM_LIMIT,
   TERMINAL_STEP_STATUSES,
   UUID_RE,
-} from './constants.mjs';
-import { isCascadeStatusActive } from './ls-client.mjs';
-import { computeCallCost } from './pricing.mjs';
-import { computeBaseReferenceUSD } from './quota-solver.mjs';
+} from './constants.ts';
+import { isCascadeStatusActive } from './ls-client.ts';
+import { computeCallCost } from './pricing.ts';
+import { computeBaseReferenceUSD } from './quota-solver.ts';
 import {
   iterFields,
   parseAnnotationPbtxt,
   parseGenRow,
   parseStepMetadata,
   parseUserPromptPayload,
-} from './protobuf.mjs';
+} from './protobuf.ts';
+import type { UsageSubmsg } from './protobuf.ts';
 
 export {
   attachGraphQuotaSummaries,
@@ -31,7 +32,7 @@ export {
   attachTelemetryQuotaPredictions,
   computeSummaryQuotaUsage,
   extractActivePoolWindows,
-} from './quota-budget.mjs';
+} from './quota-budget.ts';
 
 const convSummaryCache = new Map();
 const pendingBgSummaries = new Map();
@@ -59,10 +60,10 @@ export function summarizeConversationDb(conv) {
   let unpricedCount = 0;
   let stepLatestTsMs = 0;
   let latestTsMs = 0;
-  const dayBuckets = Object.create(null);
-  const familyUsage = Object.create(null);
+  const dayBuckets: Record<string, any> = Object.create(null);
+  const familyUsage: Record<string, any> = Object.create(null);
   const recentCutoffMs = Date.now() - 8 * 86_400_000;
-  const recentCalls = [];
+  const recentCalls: any[] = [];
 
   let db;
   try {
@@ -90,19 +91,19 @@ export function summarizeConversationDb(conv) {
       }
     } catch { /* table missing */ }
 
-    const stepTimeByGmIdx = new Map();
-    const stepTimeByBotId = new Map();
-    const stepTimeByIdx = new Map();
-    const firstToolCreatedByGmIdx = new Map();
-    const compactionMetas = [];
+    const stepTimeByGmIdx = new Map<number, number>();
+    const stepTimeByBotId = new Map<string, number>();
+    const stepTimeByIdx = new Map<number, number>();
+    const firstToolCreatedByGmIdx = new Map<number, number>();
+    const compactionMetas: { ts: number; usage: UsageSubmsg }[] = [];
     try {
-      const firstPromptRow = db.prepare('SELECT step_payload FROM steps WHERE step_type = 14 AND step_payload IS NOT NULL ORDER BY idx ASC LIMIT 1').get();
+      const firstPromptRow: any = db.prepare('SELECT step_payload FROM steps WHERE step_type = 14 AND step_payload IS NOT NULL ORDER BY idx ASC LIMIT 1').get();
       if (firstPromptRow?.step_payload) {
         const prompt = parseUserPromptPayload(firstPromptRow.step_payload);
         if (prompt?.preview) fallbackTitle = prompt.preview;
       }
-      const stRows = db.prepare('SELECT idx, step_type, status, metadata FROM steps WHERE step_type IN (14, 15, 23, 132) AND metadata IS NOT NULL ORDER BY idx ASC').all();
-      let lastPlannerGmIdx = null;
+      const stRows: any[] = db.prepare('SELECT idx, step_type, status, metadata FROM steps WHERE step_type IN (14, 15, 23, 132) AND metadata IS NOT NULL ORDER BY idx ASC').all();
+      let lastPlannerGmIdx: number | null = null;
       for (const s of stRows) {
         const meta = parseStepMetadata(s.metadata);
         if (s.step_type === 132) {
@@ -232,7 +233,8 @@ export function summarizeConversationDb(conv) {
         const stepIdx = parsed.lastStepIndex !== null ? parsed.lastStepIndex + 1 : null;
         const stepTs = stepTimeByGmIdx.get(row.idx)
           || (parsed.botId ? stepTimeByBotId.get(parsed.botId) : 0)
-          || (stepIdx !== null ? stepTimeByIdx.get(stepIdx) : 0);
+          || (stepIdx !== null ? stepTimeByIdx.get(stepIdx) : 0)
+          || 0;
         if (stepTs > stepLatestTsMs) stepLatestTsMs = stepTs;
         const completedTs = stepTs || conv.dbMtimeMs || conv.updatedMs || 0;
         if (completedTs > latestTsMs) latestTsMs = completedTs;
@@ -334,16 +336,20 @@ function scheduleBgSummaryWarm() {
   step.unref?.();
 }
 
-export function getConversationGraph(conversations, optsOrRequiredId = '', syncAllArg = false) {
+export function getConversationGraph(
+  conversations: any[],
+  optsOrRequiredId: string | { requiredConvId?: string; syncAll?: boolean } = '',
+  syncAllArg = false,
+) {
   const requiredConvId = typeof optsOrRequiredId === 'object' && optsOrRequiredId !== null
     ? String(optsOrRequiredId.requiredConvId || '')
     : String(optsOrRequiredId || '');
   const syncAll = typeof optsOrRequiredId === 'object' && optsOrRequiredId !== null
     ? Boolean(optsOrRequiredId.syncAll)
     : Boolean(syncAllArg);
-  const summaries = [];
-  const byId = new Map();
-  const convById = new Map(conversations.map((c) => [c.id, c]));
+  const summaries: any[] = [];
+  const byId = new Map<string, any>();
+  const convById = new Map<string, any>(conversations.map((c) => [c.id, c]));
 
   const ensureSynced = (conv) => {
     const cacheKey = `${conv.key}|${conv.annoKey}`;
@@ -484,6 +490,14 @@ export function pickTargetConversation({
   lsSummaries = null,
   prevAutoTargetId = '',
   nowMs = Date.now(),
+}: {
+  mode?: string;
+  explicitConvId?: string;
+  conversations?: any[];
+  graph?: any;
+  lsSummaries?: Record<string, any> | null;
+  prevAutoTargetId?: string;
+  nowMs?: number;
 }) {
   if (!conversations.length) return null;
 
@@ -595,7 +609,7 @@ export function buildAccountHistory(graph, nowMs = Date.now()) {
     totalSavedUSD += s.savedUSD;
     pricedCount += s.pricedCount;
     unpricedCount += s.unpricedCount;
-    for (const [dk, b] of Object.entries(s.dayBuckets || {})) {
+    for (const [dk, b] of Object.entries(s.dayBuckets || {}) as [string, any][]) {
       if (dk === todayKey) {
         todayCalls += b.calls;
         todayCostUSD += b.costUSD;
@@ -623,7 +637,7 @@ export function buildAccountHistory(graph, nowMs = Date.now()) {
   const dowMon0 = (todayNoon.getDay() + 6) % 7; // 0 = Mon .. 6 = Sun
   const totalGridDays = (HEATMAP_WEEKS - 1) * 7 + dowMon0 + 1;
   const startNoon = new Date(ty, tm - 1, td - (totalGridDays - 1), 12, 0, 0);
-  const heatmapDays = [];
+  const heatmapDays: { date: string; calls: number; appCalls: number; cliCalls: number; costUSD: number; outputTokens: number }[] = [];
   let activeDays = 0;
   let peakCostUSD = 0;
   let peakDate = '';

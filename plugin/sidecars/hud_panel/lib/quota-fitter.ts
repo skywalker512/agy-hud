@@ -7,8 +7,8 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { resolveQuotaFitPath } from './constants.mjs';
-import { getCurrentPricingSig, poolKeyForGroupLabel, resolveModelPricing } from './pricing.mjs';
+import { resolveQuotaFitPath } from './constants.ts';
+import { getCurrentPricingSig, poolKeyForGroupLabel, resolveModelPricing } from './pricing.ts';
 import {
   FAMILY_CLASSIFIER_VERSION,
   FIT_SCHEMA_VERSION,
@@ -25,8 +25,10 @@ import {
   median,
   resolveModelFamily,
   solvePoolFitModel,
-} from './quota-solver.mjs';
+} from './quota-solver.ts';
+import type { QuotaFitStore, QuotaPoolState, QuotaSample } from './quota-solver.ts';
 
+export type { QuotaFitStore, QuotaModelFitEntry, QuotaPoolFit, QuotaPoolState, QuotaSample } from './quota-solver.ts';
 export {
   FAMILY_CLASSIFIER_VERSION,
   computeBaseReferenceUSD,
@@ -37,18 +39,18 @@ export {
   hasPoolPrior,
   resolveModelFamily,
   solvePoolFitModel,
-} from './quota-solver.mjs';
+} from './quota-solver.ts';
 
 const MAX_SAMPLES_PER_POOL = 200;
 const BOUNDARY_GEN_PAD_MS = 1500;
-const fitStoreMemCache = new Map();
+const fitStoreMemCache = new Map<string, QuotaFitStore>();
 
-export function loadQuotaFitStore(fitPath = resolveQuotaFitPath()) {
+export function loadQuotaFitStore(fitPath = resolveQuotaFitPath()): QuotaFitStore {
   if (!fitPath) return { version: FIT_STORE_VERSION, pools: {} };
   const cached = fitStoreMemCache.get(fitPath);
   if (cached) return cached;
 
-  let store = null;
+  let store: QuotaFitStore | null = null;
   try {
     if (existsSync(fitPath)) {
       const raw = JSON.parse(readFileSync(fitPath, 'utf-8'));
@@ -69,7 +71,7 @@ export function loadQuotaFitStore(fitPath = resolveQuotaFitPath()) {
   return store;
 }
 
-function reconcileStoreOnLoad(fitPath, store) {
+function reconcileStoreOnLoad(fitPath: string, store: QuotaFitStore) {
   const currentSig = getCurrentPricingSig();
   let reconciledOnLoad = false;
   for (const [poolKey, ps] of Object.entries(store.pools)) {
@@ -131,7 +133,7 @@ function isSnapshotBoundaryClean(calls, poolKey, reqStartedAtMs, fetchedAtMs) {
 function aggregateCallsInInterval(calls, poolKey, t0, t1) {
   const byModel = Object.create(null);
   const byModelTokens = Object.create(null);
-  const nominalFamilies = new Set();
+  const nominalFamilies = new Set<string>();
   let callCount = 0;
   let totalBaseUSD = 0;
 
@@ -159,16 +161,31 @@ function aggregateCallsInInterval(calls, poolKey, t0, t1) {
   return { byModel, byModelTokens, callCount, totalBaseUSD, nominalFamilies: [...nominalFamilies] };
 }
 
-export function reconcilePoolSamplesPricing(ps, {
+export interface ReconcileSamplesOptions {
+  currentSig?: string;
+  rateFn?: (family: string) => [number, number, number];
+  allCalls?: any[];
+  earliestCallTs?: number;
+  poolKey?: string;
+}
+
+export interface IngestQuotaOptions {
+  fitPath?: string;
+  pricingSig?: string;
+  rateFn?: (family: string) => [number, number, number];
+  nowMs?: number;
+}
+
+export function reconcilePoolSamplesPricing(ps: QuotaPoolState, {
   currentSig = getCurrentPricingSig(),
   rateFn = getFamilyBaseRates,
   allCalls = [],
   earliestCallTs = Infinity,
   poolKey = 'gemini',
-} = {}) {
+}: ReconcileSamplesOptions = {}): boolean {
   if (!Array.isArray(ps?.samples)) return false;
   let changed = false;
-  const nextSamples = [];
+  const nextSamples: QuotaSample[] = [];
 
   for (const s of ps.samples) {
     const needsUpgrade = !s.byModelTokens || s.tsMode !== 'completed_v2';
@@ -220,7 +237,7 @@ export function reconcilePoolSamplesPricing(ps, {
         nextSamples.push(s);
         continue;
       }
-      const nextByModel = Object.create(null);
+      const nextByModel: Record<string, number> = Object.create(null);
       let nextTotalUSD = 0;
       for (const [fam, tok] of Object.entries(s.byModelTokens)) {
         const rates = rateFn(fam);
@@ -256,7 +273,7 @@ export function reconcilePoolSamplesPricing(ps, {
   }
 
   // Structural cleanup of degraded 1-window GetUserStatus ('user_status') samples on 2-window pools.
-  const hasWeeklyWindow = Boolean((ps.gamma && ps.gamma > 0) || (ps.lastSnap?.w7ResetAtMs > 0));
+  const hasWeeklyWindow = Boolean((ps.gamma && ps.gamma > 0) || ((ps.lastSnap?.w7ResetAtMs ?? 0) > 0));
   if (hasWeeklyWindow && nextSamples.some((s) => s.source === '5h_delta' && (s.du7 === null || s.du7 === undefined))) {
     ps.samples = nextSamples.filter((s) => !(s.source === '5h_delta' && (s.du7 === null || s.du7 === undefined)));
     if (ps.pricingSig !== currentSig) ps.pricingSig = currentSig;
@@ -271,7 +288,7 @@ export function reconcilePoolSamplesPricing(ps, {
   return changed;
 }
 
-export function ingestQuotaObservation(accountQuota, graph, opts = {}) {
+export function ingestQuotaObservation(accountQuota: any, graph: any, opts: IngestQuotaOptions = {}): QuotaFitStore {
   const fitPath = opts.fitPath ?? resolveQuotaFitPath();
   const currentSig = opts.pricingSig || getCurrentPricingSig();
   const rateFn = opts.rateFn || getFamilyBaseRates;
@@ -290,7 +307,7 @@ export function ingestQuotaObservation(accountQuota, graph, opts = {}) {
     .join(':')
     .toLowerCase() || 'default';
 
-  const allCalls = [];
+  const allCalls: any[] = [];
   let earliestCallTs = Infinity;
   for (const s of graph?.summaries || []) {
     for (const c of s.recentCalls || []) {
@@ -322,7 +339,7 @@ export function ingestQuotaObservation(accountQuota, graph, opts = {}) {
     const w7 = (p.windows || []).find((w) => w.spanKey === '7d' && w.resetAtMs > fetchedAtMs);
     if (!w5 && !w7) continue;
     // Never let a degraded 1-window user_status fallback overwrite a 2-window summary baseline.
-    if (ps.lastSnap?.w7ResetAtMs > 0 && !w7 && accountQuota.source === 'user_status') {
+    if ((ps.lastSnap?.w7ResetAtMs ?? 0) > 0 && !w7 && accountQuota.source === 'user_status') {
       continue;
     }
 
@@ -387,13 +404,13 @@ export function ingestQuotaObservation(accountQuota, graph, opts = {}) {
           }
         }
       } else {
-        if (!same5h && same7d && du7 !== null && du7 >= 0.0002 && ps.gamma > 0) {
+        if (!same5h && same7d && du7 !== null && du7 >= 0.0002 && (ps.gamma ?? 0) > 0) {
           const agg = aggregateCallsInInterval(allCalls, pk, prev.fetchedAtMs, fetchedAtMs);
           pushSample({
             t0: prev.fetchedAtMs,
             t1: fetchedAtMs,
             dtSec,
-            du5: Math.max(0, du7) * ps.gamma,
+            du5: Math.max(0, du7) * ps.gamma!,
             du7: Math.max(0, du7),
             source: '7d_scaled',
             boundaryClean: Boolean(prev.boundaryClean && currClean),
@@ -612,8 +629,8 @@ export function evaluatePoolWindowResidual({
   const gamma = spanKey === '7d' ? (fit.gamma || poolState?.gamma || getPoolPriorGamma(poolKind) || null) : 1;
   if (spanKey === '7d' && !(gamma > 0)) return null;
 
-  const usdByFam = Object.create(null);
-  const tokByFam = Object.create(null);
+  const usdByFam: Record<string, number> = Object.create(null);
+  const tokByFam: Record<string, [number, number, number]> = Object.create(null);
   let callCount = 0;
   let totalSnapUSD = 0;
   let unmodeledNominalUSD = 0;

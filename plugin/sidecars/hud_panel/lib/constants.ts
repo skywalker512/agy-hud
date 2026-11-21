@@ -12,7 +12,26 @@ export const DETAIL_PROMPT_MAX = 4_000;
 export const SYNC_GRAPH_WARM_LIMIT = 30;
 export const QUOTA_TTL_MS = 300_000;
 
-export const MODEL_LIMIT_FALLBACKS = [
+export interface AppDataRoot {
+  appDataDir: string;
+  conversationsDir: string;
+  annotationsDir: string;
+  source: string;
+}
+
+export interface DiscoveredRootEntry {
+  appDataDir: string;
+  source: string;
+}
+
+export interface ResolveAppDataOptions {
+  discoverExternal?: boolean;
+  homeDir?: string;
+  discoveredRootsPath?: string;
+  processCommands?: string;
+}
+
+export const MODEL_LIMIT_FALLBACKS: readonly [RegExp, number][] = [
   [/gemini-4/i, 512_000],
   [/gemini-pro-orchestrator/i, 512_000],
   [/gemini-flash-worker/i, 512_000],
@@ -232,7 +251,7 @@ const KNOWN_SIBLING_APP_DIRS = [
 ];
 
 const PROCESS_SCAN_TTL_MS = process.platform === 'win32' ? 10_000 : 5_000;
-let processScanCache = { atMs: 0, entries: [] };
+let processScanCache: { atMs: number; entries: DiscoveredRootEntry[] } = { atMs: 0, entries: [] };
 
 function isPathAbsolute(p) {
   return Boolean(p) && (isAbsolute(p) || /^[a-zA-Z]:[\\/]/.test(p));
@@ -254,10 +273,10 @@ function extractCliFlag(line, flagPattern) {
   return (m[1] ?? m[2] ?? m[3] ?? '').trim();
 }
 
-export function parseProcessCommandLines(stdout, homeDir = homedir()) {
+export function parseProcessCommandLines(stdout: string, homeDir = homedir()): DiscoveredRootEntry[] {
   if (!stdout) return [];
-  const results = [];
-  const seen = new Set();
+  const results: DiscoveredRootEntry[] = [];
+  const seen = new Set<string>();
   for (const rawLine of String(stdout).split(/\r?\n/)) {
     let line = rawLine.trim();
     if (!line) continue;
@@ -290,9 +309,9 @@ export function parseProcessCommandLines(stdout, homeDir = homedir()) {
   return results;
 }
 
-function readLinuxProcCommandLines() {
-  const lines = [];
-  let pids;
+function readLinuxProcCommandLines(): string | null {
+  const lines: string[] = [];
+  let pids: string[];
   try {
     pids = readdirSync('/proc');
   } catch {
@@ -402,10 +421,13 @@ export function inferAppDataSource(appDataDir) {
   return 'app';
 }
 
-export function resolveAllAppDataDirs(primaryDir = resolveAppDataDir(), options = {}) {
-  const out = [];
-  const seen = new Set();
-  const pushDir = (dirPath, explicitSource = '') => {
+export function resolveAllAppDataDirs(
+  primaryDir = resolveAppDataDir(),
+  options: ResolveAppDataOptions = {},
+): AppDataRoot[] {
+  const out: AppDataRoot[] = [];
+  const seen = new Set<string>();
+  const pushDir = (dirPath: string, explicitSource = '') => {
     if (!dirPath) return;
     const convDir = join(dirPath, 'conversations');
     if (dirPath !== primaryDir && !existsSync(convDir)) return;
@@ -504,7 +526,11 @@ export function resolveQuotaFitPath(appDataDir = resolveAppDataDir()) {
   return join(appDataDir, 'sidecar_data', 'agy-hud', 'hud_panel', 'quota-model-fit.json');
 }
 
-export function resolveTranscriptPaths(appDataDir, convId, allAppDirs = null) {
+export function resolveTranscriptPaths(
+  appDataDir: string,
+  convId: string,
+  allAppDirs: (string | AppDataRoot)[] | null = null,
+) {
   const buildFor = (rootDir) => {
     const logsDir = join(rootDir, 'brain', convId, '.system_generated', 'logs');
     const jsonlPath = join(logsDir, 'transcript.jsonl');

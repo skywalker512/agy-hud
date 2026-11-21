@@ -9,7 +9,7 @@ import {
   attachQuotaBudgetEstimates,
   attachTelemetryQuotaPredictions,
   buildAccountHistory,
-} from '../server.mjs';
+} from '../server.ts';
 
 test('attachQuotaBudgetEstimates supports low-sample cold start, Bayesian prior smoothing across resets, and unpriced pollution guard', () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-hud-quota-cal-'));
@@ -97,7 +97,7 @@ test('attachQuotaBudgetEstimates supports low-sample cold start, Bayesian prior 
     );
     const saved = JSON.parse(readFileSync(calPath, 'utf-8'));
     assert.equal(saved.version, 2);
-    const savedEntry = Object.values(saved.entries)[0];
+    const savedEntry: any = Object.values(saved.entries)[0];
     assert.ok(savedEntry);
     assert.ok(Math.abs(savedEntry.fullUSD - 22) < 1e-6);
 
@@ -142,7 +142,7 @@ test('attachQuotaBudgetEstimates supports low-sample cold start, Bayesian prior 
     assert.ok(Math.abs(remoteWin.estRemoteUSD - 10) < 0.5);
     assert.ok(Math.abs(remoteRes.remoteEstimate.activeWindowUSD - 10) < 0.5);
     const savedAfterRemote = JSON.parse(readFileSync(calPath, 'utf-8'));
-    const entryAfterRemote = Object.values(savedAfterRemote.entries)[0];
+    const entryAfterRemote: any = Object.values(savedAfterRemote.entries)[0];
     assert.ok(Math.abs(entryAfterRemote.fullUSD - 22) < 0.5);
 
     // 7. Subsequent clean local work in the same remote-contaminated window still works cleanly without corrupting fullUSD
@@ -179,7 +179,7 @@ test('attachQuotaBudgetEstimates supports low-sample cold start, Bayesian prior 
       { calibrationPath: calPath, nowMs: idxNow },
     );
     const savedWhileIndexing = JSON.parse(readFileSync(calPath, 'utf-8'));
-    const entryAfterIdx = Object.values(savedWhileIndexing.entries)[0];
+    const entryAfterIdx: any = Object.values(savedWhileIndexing.entries)[0];
     assert.ok(Math.abs(entryAfterIdx.fullUSD - 22) < 0.5);
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -4,8 +4,8 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { resolveQuotaCalibrationPath, resolveQuotaFitPath } from './constants.mjs';
-import { poolKeyForGroupLabel, poolKeyForModel } from './pricing.mjs';
+import { resolveQuotaCalibrationPath, resolveQuotaFitPath } from './constants.ts';
+import { poolKeyForGroupLabel, poolKeyForModel } from './pricing.ts';
 import {
   evaluatePoolWindowResidual,
   getFamilyBaseRates,
@@ -15,8 +15,38 @@ import {
   predictCallQuota,
   predictFamilyAggregateQuota,
   resolveActiveTierPrefix,
-} from './quota-fitter.mjs';
+} from './quota-fitter.ts';
+import type { QuotaFitStore, QuotaModelFitEntry, QuotaPoolState } from './quota-fitter.ts';
 
+interface CalibrationEntry {
+  fullUSD: number;
+  samples: number;
+  lastResetAtMs: number;
+  lastUsedPct: number;
+  lastLocalUSD: number;
+  updatedAtMs: number;
+}
+
+interface CalibrationStore {
+  version: number;
+  entries: Record<string, CalibrationEntry>;
+}
+
+export interface AttachQuotaBudgetOptions {
+  nowMs?: number;
+  calibrationPath?: string;
+  fitPath?: string;
+}
+
+export interface QuotaAttachOptions {
+  fitPath?: string;
+  nowMs?: number;
+}
+
+export interface ActivePoolWindowBounds {
+  start5hMs: number | null;
+  start7dMs: number | null;
+}
 
 const QUOTA_CAL_VERSION = 2;
 const PRIOR_U0 = 0.02;
@@ -25,14 +55,14 @@ const DELTA_MIN_U = 0.015;
 const COLD_PRIOR_MATCH_LO = 0.65;
 const COLD_PRIOR_MATCH_HI = 1.25;
 
-const quotaCalibrationMemCache = new Map();
+const quotaCalibrationMemCache = new Map<string, CalibrationStore>();
 
-function loadQuotaCalibration(calPath) {
+function loadQuotaCalibration(calPath: string): CalibrationStore {
   if (!calPath) return { version: QUOTA_CAL_VERSION, entries: {} };
   const cached = quotaCalibrationMemCache.get(calPath);
   if (cached) return cached;
 
-  let parsed = null;
+  let parsed: CalibrationStore | null = null;
   try {
     if (existsSync(calPath)) {
       const raw = JSON.parse(readFileSync(calPath, 'utf-8'));
@@ -92,8 +122,8 @@ function sumPoolWindowSpend(summaries, poolKey, startMs, endMs) {
   return { estSpentUSD, estPricedCalls, estUnpricedCalls };
 }
 
-function collectPoolWindowCalls(summaries, poolKey, startMs, endMs) {
-  const out = [];
+function collectPoolWindowCalls(summaries: any[], poolKey: string, startMs: number, endMs: number): any[] {
+  const out: any[] = [];
   for (const s of summaries) {
     if (s.latestTsMs && s.latestTsMs < startMs) continue;
     for (const c of (s.recentCalls || [])) {
@@ -208,9 +238,15 @@ function updateCalibrationEntry(store, calKey, { rawFull, usedPct, localAtSnapUS
   return true;
 }
 
-function findRatio5hTo7d(pools, storeEntries, tierKey, targetPoolKey = '', fitStore = null) {
-  const validRatio = (r) => Number.isFinite(r) && r >= 0.02 && r <= 0.9;
-  const collectMedian = (ratios) => {
+function findRatio5hTo7d(
+  pools: any[],
+  storeEntries: Record<string, CalibrationEntry>,
+  tierKey: string,
+  targetPoolKey = '',
+  fitStore: QuotaFitStore | null = null,
+): number | null {
+  const validRatio = (r: number) => Number.isFinite(r) && r >= 0.02 && r <= 0.9;
+  const collectMedian = (ratios: number[]) => {
     if (!ratios.length) return null;
     const sorted = [...ratios].sort((a, b) => a - b);
     return sorted[Math.floor(sorted.length / 2)];
@@ -218,12 +254,12 @@ function findRatio5hTo7d(pools, storeEntries, tierKey, targetPoolKey = '', fitSt
 
   if (targetPoolKey && fitStore?.pools) {
     const ps = fitStore.pools[`${tierKey}|${targetPoolKey}`];
-    const gamma = ps?.gamma || ps?.fit?.gamma;
+    const gamma = ps?.gamma || ps?.fit?.gamma || 0;
     if (gamma > 0 && validRatio(1 / gamma)) return 1 / gamma;
   }
 
   const prefix = `${tierKey}|`;
-  const byPool = new Map();
+  const byPool = new Map<string, { '5h'?: number; '7d'?: number }>();
   for (const [k, entry] of Object.entries(storeEntries || {})) {
     if (!k.startsWith(prefix) || !(entry?.fullUSD > 0)) continue;
     const rest = k.slice(prefix.length);
@@ -233,18 +269,18 @@ function findRatio5hTo7d(pools, storeEntries, tierKey, targetPoolKey = '', fitSt
     const span = rest.slice(sep + 1);
     if (span !== '5h' && span !== '7d') continue;
     if (!byPool.has(pool)) byPool.set(pool, {});
-    byPool.get(pool)[span] = entry.fullUSD;
+    byPool.get(pool)![span] = entry.fullUSD;
   }
 
   if (targetPoolKey && byPool.has(targetPoolKey)) {
-    const pair = byPool.get(targetPoolKey);
-    if (pair['5h'] > 0 && pair['7d'] > 0 && validRatio(pair['5h'] / pair['7d'])) {
-      return pair['5h'] / pair['7d'];
+    const pair = byPool.get(targetPoolKey)!;
+    if ((pair['5h'] ?? 0) > 0 && (pair['7d'] ?? 0) > 0 && validRatio(pair['5h']! / pair['7d']!)) {
+      return pair['5h']! / pair['7d']!;
     }
   }
 
-  const strongRatios = [];
-  const allLiveRatios = [];
+  const strongRatios: number[] = [];
+  const allLiveRatios: number[] = [];
   for (const p of pools) {
     const w5 = p.windows?.find((w) => w.spanKey === '5h' && w.estFullUSD > 0);
     const w7 = p.windows?.find((w) => w.spanKey === '7d' && w.estFullUSD > 0);
@@ -259,10 +295,10 @@ function findRatio5hTo7d(pools, storeEntries, tierKey, targetPoolKey = '', fitSt
   const livePick = collectMedian(strongRatios) ?? collectMedian(allLiveRatios);
   if (livePick) return livePick;
 
-  const calRatios = [];
+  const calRatios: number[] = [];
   for (const pair of byPool.values()) {
-    if (pair['5h'] > 0 && pair['7d'] > 0) {
-      const r = pair['5h'] / pair['7d'];
+    if ((pair['5h'] ?? 0) > 0 && (pair['7d'] ?? 0) > 0) {
+      const r = pair['5h']! / pair['7d']!;
       if (validRatio(r)) calRatios.push(r);
     }
   }
@@ -283,11 +319,11 @@ function computeWindowRemoteEst(win, snapMeta) {
   return gapUSD >= minGapUSD ? gapUSD : 0;
 }
 
-function buildPoolFitSummary(ps, calPoolKey) {
+function buildPoolFitSummary(ps: QuotaPoolState | undefined, calPoolKey: string) {
   const fit = ps?.fit;
   if (!fit) return null;
 
-  const fitModelsList = Object.entries(fit.models || {}).map(([family, m]) => ({
+  const fitModelsList: any[] = Object.entries(fit.models || {}).map(([family, m]: [string, QuotaModelFitEntry]) => ({
     family,
     k: m.k,
     beta: m.beta,
@@ -489,7 +525,7 @@ function applyFitterWindowEstimate({ w, ps, calPoolKey, snapMeta, fitEval, legac
   return { rem: legacyRem, remErr: legacyRemErr };
 }
 
-export function attachQuotaBudgetEstimates(accountQuota, graph, opts = {}) {
+export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: AttachQuotaBudgetOptions = {}) {
   if (!accountQuota?.available || !Array.isArray(accountQuota.pools) || !accountQuota.pools.length) {
     return accountQuota;
   }
@@ -563,17 +599,17 @@ export function attachQuotaBudgetEstimates(accountQuota, graph, opts = {}) {
       const effectivePrior = store.entries[calKey]?.fullUSD > 0 ? store.entries[calKey].fullUSD : priorBefore;
       const rawMatchesPrior = !priorBefore || !(u > 0) || (rawFull >= priorBefore * REMOTE_GAP_RATIO_THRESHOLD);
 
-      let estFullUSD = null;
-      let estConfidence = null;
-      if (priorBefore && !rawMatchesPrior) {
+      let estFullUSD: number | null = null;
+      let estConfidence: string | null = null;
+      if (priorBefore !== null && !rawMatchesPrior) {
         estFullUSD = effectivePrior;
         estConfidence = 'prior';
       } else if (usedPct >= 3 && localAtSnapUSD > 0) {
-        estFullUSD = (priorBefore > 0 && usedPct < 10 && snapPricedRatio >= 0.85)
+        estFullUSD = (priorBefore !== null && priorBefore > 0 && usedPct < 10 && snapPricedRatio >= 0.85)
           ? blendPriorWithSpend(priorBefore, localAtSnapUSD, u, snapPricedRatio)
           : rawFull;
         estConfidence = 'high';
-      } else if (priorBefore > 0) {
+      } else if (priorBefore !== null && priorBefore > 0) {
         estFullUSD = rawMatchesPrior
           ? blendPriorWithSpend(priorBefore, localAtSnapUSD, u, snapPricedRatio)
           : effectivePrior;
@@ -614,7 +650,7 @@ export function attachQuotaBudgetEstimates(accountQuota, graph, opts = {}) {
   for (const p of pools) {
     const calPoolKey = poolCalKeyMap.get(p) || '';
     const ratio5hTo7d = findRatio5hTo7d(pools, store.entries, tierKey, calPoolKey, fitStore);
-    if (!(ratio5hTo7d > 0)) continue;
+    if (ratio5hTo7d === null || !(ratio5hTo7d > 0)) continue;
     const w5 = p.windows?.find((w) => w.spanKey === '5h');
     const w7 = p.windows?.find((w) => w.spanKey === '7d');
     if (w5 && w5.estFullUSD === null && w7?.estFullUSD > 0) {
@@ -654,7 +690,7 @@ export function attachQuotaBudgetEstimates(accountQuota, graph, opts = {}) {
       const snapMeta = metaByWin.get(w);
       let rem = computeWindowRemoteEst(w, snapMeta);
       let remErr = rem > 0 ? rem * 0.15 : 0;
-      let callsInNow = null;
+      let callsInNow: any[] | null = null;
 
       if (ps?.fit && snapMeta) {
         const callsInSnap = collectPoolWindowCalls(summaries, snapMeta.pk, snapMeta.startMs, quotaSnapMs);
@@ -737,8 +773,13 @@ export function attachQuotaBudgetEstimates(accountQuota, graph, opts = {}) {
   };
 }
 
-export function extractActivePoolWindows(accountQuota, nowMs = Date.now(), fitStore = null, tierPrefix = 'default|') {
-  const out = Object.create(null);
+export function extractActivePoolWindows(
+  accountQuota: any,
+  nowMs = Date.now(),
+  fitStore: QuotaFitStore | null = null,
+  tierPrefix = 'default|',
+): Record<string, ActivePoolWindowBounds> | null {
+  const out: Record<string, ActivePoolWindowBounds> = Object.create(null);
   let any = false;
   if (accountQuota?.available && Array.isArray(accountQuota.pools)) {
     for (const p of accountQuota.pools) {
@@ -802,15 +843,20 @@ function finalizePoolQuotaMap(acc) {
   return hasAny ? out : null;
 }
 
-export function computeSummaryQuotaUsage(summary, fitStore, tierPrefix = 'default|', activePoolWindows = null) {
+export function computeSummaryQuotaUsage(
+  summary: any,
+  fitStore: QuotaFitStore | null,
+  tierPrefix = 'default|',
+  activePoolWindows: Record<string, ActivePoolWindowBounds> | null = null,
+) {
   if (!summary) return null;
-  const acc = Object.create(null);
-  const ensurePool = (pk) => {
+  const acc: Record<string, any> = Object.create(null);
+  const ensurePool = (pk: string) => {
     if (!acc[pk]) acc[pk] = createPoolQuotaAccumulator(activePoolWindows, pk);
     return acc[pk];
   };
 
-  const addPred = (pred) => {
+  const addPred = (pred: any) => {
     if (!pred || !(pred.quotaPct5h > 0)) return;
     const b = ensurePool(pred.quotaPool);
     b.pct5h += pred.quotaPct5h;
@@ -821,7 +867,7 @@ export function computeSummaryQuotaUsage(summary, fitStore, tierPrefix = 'defaul
     }
   };
 
-  const famEntries = summary.familyUsage ? Object.entries(summary.familyUsage) : [];
+  const famEntries = summary.familyUsage ? (Object.entries(summary.familyUsage) as [string, any][]) : [];
   if (famEntries.length > 0) {
     for (const [family, fu] of famEntries) {
       addPred(predictFamilyAggregateQuota(
@@ -892,6 +938,12 @@ export function attachGraphQuotaSummaries({
   graph = null,
   accountQuota = null,
   opts = {},
+}: {
+  conversations?: any[];
+  sessionInfo?: any;
+  graph?: any;
+  accountQuota?: any;
+  opts?: QuotaAttachOptions;
 }) {
   const fitPath = opts.fitPath ?? resolveQuotaFitPath();
   const nowMs = opts.nowMs || Date.now();
@@ -935,7 +987,7 @@ export function attachGraphQuotaSummaries({
   return { conversations: nextConversations, sessionInfo: nextSessionInfo };
 }
 
-export function attachTelemetryQuotaPredictions(telemetry, accountQuota, opts = {}) {
+export function attachTelemetryQuotaPredictions(telemetry: any, accountQuota: any, opts: QuotaAttachOptions = {}) {
   if (!telemetry) return telemetry;
   const fitPath = opts.fitPath ?? resolveQuotaFitPath();
   const nowMs = opts.nowMs || Date.now();

@@ -3,9 +3,9 @@
  */
 import { DatabaseSync } from 'node:sqlite';
 
-export function encodeVarint(value) {
+export function encodeVarint(value: number | bigint): Buffer {
   let n = BigInt(value);
-  const bytes = [];
+  const bytes: number[] = [];
   while (n >= 0x80n) {
     bytes.push(Number((n & 0x7fn) | 0x80n));
     n >>= 7n;
@@ -14,19 +14,19 @@ export function encodeVarint(value) {
   return Buffer.from(bytes);
 }
 
-export function vField(fieldNum, value) {
+export function vField(fieldNum: number, value: number | bigint): Buffer {
   return Buffer.concat([encodeVarint((fieldNum << 3) | 0), encodeVarint(value)]);
 }
 
-export function bField(fieldNum, payload) {
+export function bField(fieldNum: number, payload: Buffer | Uint8Array | string): Buffer {
   const buf = Buffer.isBuffer(payload) ? payload : Buffer.from(String(payload), 'utf8');
   return Buffer.concat([encodeVarint((fieldNum << 3) | 2), encodeVarint(buf.length), buf]);
 }
 
-export function durationMsg(secFloat) {
+export function durationMsg(secFloat: number): Buffer {
   const sec = Math.floor(secFloat);
   const nanos = Math.round((secFloat - sec) * 1e9);
-  const parts = [];
+  const parts: Buffer[] = [];
   if (sec > 0) parts.push(vField(1, sec));
   if (nanos > 0) parts.push(vField(2, nanos));
   return Buffer.concat(parts);
@@ -45,7 +45,20 @@ export function buildGenMetadataBlob({
   ctxLimit = 256_000,
   ttftSec = 2.0,
   genSec = 4.0,
-} = {}) {
+}: {
+  modelId?: string;
+  modelDisplay?: string;
+  modelEnum?: number;
+  cached?: number;
+  newIn?: number;
+  output?: number;
+  thinking?: number;
+  candidate?: number;
+  reportedCtx?: number;
+  ctxLimit?: number;
+  ttftSec?: number;
+  genSec?: number;
+} = {}): Buffer {
   const usage = Buffer.concat([
     vField(2, newIn),
     vField(3, output),
@@ -75,8 +88,16 @@ export function buildStepMetadata({
   modelEnum = null,
   toolName = '',
   gmIdx = null,
-} = {}) {
-  const parts = [];
+}: {
+  createdSec?: number;
+  streamStartSec?: number;
+  completedSec?: number;
+  endSec?: number;
+  modelEnum?: number | null;
+  toolName?: string;
+  gmIdx?: number | null;
+} = {}): Buffer {
+  const parts: Buffer[] = [];
   if (createdSec > 0) parts.push(bField(1, durationMsg(createdSec)));
   if (toolName) parts.push(bField(4, bField(2, toolName)));
   if (streamStartSec > 0) parts.push(bField(6, durationMsg(streamStartSec)));
@@ -87,8 +108,16 @@ export function buildStepMetadata({
   return Buffer.concat(parts);
 }
 
-export function buildPlannerStepPayload({ thinking = '', reply = '', toolCalls = [] } = {}) {
-  const parts = [];
+export function buildPlannerStepPayload({
+  thinking = '',
+  reply = '',
+  toolCalls = [],
+}: {
+  thinking?: string;
+  reply?: string;
+  toolCalls?: { name: string; args?: string }[];
+} = {}): Buffer {
+  const parts: Buffer[] = [];
   if (reply) parts.push(bField(1, reply));
   if (thinking) parts.push(bField(3, thinking));
   for (const tc of toolCalls) {
@@ -97,7 +126,7 @@ export function buildPlannerStepPayload({ thinking = '', reply = '', toolCalls =
   return bField(20, Buffer.concat(parts));
 }
 
-export function createSchema(dbPath) {
+export function createSchema(dbPath: string): DatabaseSync {
   const db = new DatabaseSync(dbPath);
   db.exec(`
     CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB);

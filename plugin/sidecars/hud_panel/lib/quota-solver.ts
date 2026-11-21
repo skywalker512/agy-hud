@@ -11,7 +11,7 @@
  * - Cold-start guard: single-sample and discordant 2-sample startups are shielded against external
  *   burn / cache-flush spikes via a prior anchor, while 2+ agreeing samples on any tier adapt immediately.
  */
-import { getCurrentPricingSig, poolKeyForModel, resolveModelPricing } from './pricing.mjs';
+import { getCurrentPricingSig, poolKeyForModel, resolveModelPricing } from './pricing.ts';
 
 export const FIT_STORE_VERSION = 1;
 export const FIT_SCHEMA_VERSION = 3;
@@ -99,7 +99,7 @@ export function resolveModelFamily(modelId, modelDisplay, model) {
   return raw.replace(/-(high|medium|low|minimal|xhigh|tiered-[a-z]+)$/i, '') || 'other';
 }
 
-export function getFamilyBaseRates(family) {
+export function getFamilyBaseRates(family: string): [number, number, number] {
   const priced = resolveModelPricing(family, family, family, 0);
   if (priced) return [priced.input, priced.cached, priced.output];
   if (family === 'gpt-oss') {
@@ -195,7 +195,114 @@ const SINGLE_SAMPLE_PRIOR_LO = 0.5;
 const SINGLE_SAMPLE_PRIOR_HI = 2.0;
 const TWO_SAMPLE_DISCORD_RATIO = 1.8;
 
-export function predictSamplePct(sample, models, refBeta) {
+export interface QuotaSample {
+  t0: number;
+  t1: number;
+  dtSec: number;
+  du5: number;
+  du7?: number | null;
+  source?: string;
+  boundaryClean: boolean;
+  isShort: boolean;
+  byModel: Record<string, number>;
+  byModelTokens?: Record<string, number[]>;
+  callCount: number;
+  totalBaseUSD: number;
+  nominalFamilies?: string[];
+  tsMode?: string;
+  pricingSig?: string;
+  familyVersion?: number;
+}
+
+export interface QuotaModelFitEntry {
+  beta: number;
+  betaPlusMinus: number;
+  k: number;
+  source: string;
+  mode: 'scalar' | 'per_token';
+  priorBeta?: number;
+  priorRelDiffPct?: number;
+  priorZScore?: number;
+  tokenWeights?: number[];
+  tokenWeightsPlusMinus?: number[];
+  obsCalls: number;
+  obsWindows: number;
+  obsBaseUSD: number;
+}
+
+export interface QuotaPoolFit {
+  schemaVersion: number;
+  pricingSig: string;
+  quality: 'high' | 'provisional';
+  driftWarning: boolean;
+  driftReasons?: string[];
+  refBeta: number;
+  full5hUSD: number | null;
+  full7dUSD: number | null;
+  gamma: number | null;
+  sampleCount: number;
+  shortCleanCount: number;
+  inlierCount: number;
+  holdoutCount: number;
+  oosRelErrPct: number | null;
+  relErrPct: number;
+  anomalySpikeCount: number;
+  anomalySpikeExcessPct: number;
+  models: Record<string, QuotaModelFitEntry>;
+  updatedAtMs: number;
+}
+
+export interface QuotaPoolState {
+  gamma?: number | null;
+  gammaHistory?: number[];
+  lastSnap?: {
+    fetchedAtMs: number;
+    boundaryClean: boolean;
+    w5ResetAtMs: number;
+    w5UsedPct: number | null;
+    w5CumBaseUSD?: number;
+    w7ResetAtMs: number;
+    w7UsedPct: number | null;
+  } | null;
+  samples: QuotaSample[];
+  fit?: QuotaPoolFit | null;
+  pricingSig?: string;
+}
+
+export interface QuotaFitStore {
+  version: number;
+  pools: Record<string, QuotaPoolState>;
+}
+
+interface WeightedPair {
+  val: number;
+  weight: number;
+}
+
+interface FittedFamilyStat {
+  fam: string;
+  m: number;
+  wins: number;
+  beta: number;
+  se: number;
+  relSE: number;
+  kPrior: number;
+  priorBeta?: number;
+  priorRelDiffPct?: number;
+  priorZScore?: number;
+}
+
+interface TokenModelFit {
+  wVec: number[];
+  invDiag: number[];
+  paramCount: number;
+}
+
+export function predictSamplePct(
+  sample: QuotaSample,
+  models: Record<string, { beta: number; tokenWeights?: number[] }>,
+  refBeta: number,
+): number {
   let pred = 0;
   for (const [fam, usd] of Object.entries(sample.byModel || {})) {
     if (!(usd > 0)) continue;
@@ -212,8 +319,8 @@ export function predictSamplePct(sample, models, refBeta) {
   return pred;
 }
 
-export function coalesceZeroDeltaSamples(rawSamples) {
-  const out = [];
+export function coalesceZeroDeltaSamples(rawSamples: QuotaSample[]): QuotaSample[] {
+  const out: QuotaSample[] = [];
   for (let i = 0; i < rawSamples.length; i++) {
     const cur = rawSamples[i];
     if (
@@ -223,11 +330,11 @@ export function coalesceZeroDeltaSamples(rawSamples) {
       && Math.abs(rawSamples[i + 1].t0 - cur.t1) <= 2000
     ) {
       const nxt = rawSamples[i + 1];
-      const mergedByModel = { ...(cur.byModel || {}) };
+      const mergedByModel: Record<string, number> = { ...(cur.byModel || {}) };
       for (const [f, v] of Object.entries(nxt.byModel || {})) {
         mergedByModel[f] = (mergedByModel[f] || 0) + v;
       }
-      const mergedTokens = {};
+      const mergedTokens: Record<string, [number, number, number]> = {};
       for (const src of [cur.byModelTokens, nxt.byModelTokens]) {
         if (!src) continue;
         for (const [f, arr] of Object.entries(src)) {
@@ -244,7 +351,7 @@ export function coalesceZeroDeltaSamples(rawSamples) {
         t0: cur.t0,
         dtSec,
         du5: (cur.du5 || 0) + (nxt.du5 || 0),
-        du7: cur.du7 !== null && nxt.du7 !== null ? cur.du7 + nxt.du7 : nxt.du7,
+        du7: cur.du7 != null && nxt.du7 != null ? cur.du7 + nxt.du7 : (nxt.du7 ?? null),
         boundaryClean: Boolean(cur.boundaryClean && nxt.boundaryClean),
         isShort: dtSec <= SHORT_WINDOW_MAX_SEC,
         byModel: mergedByModel,
@@ -260,11 +367,11 @@ export function coalesceZeroDeltaSamples(rawSamples) {
   return out;
 }
 
-function collectFamilyInventory(allSamples) {
-  const allFamiliesSet = new Set();
-  const famTotalCallsAll = new Map();
-  const famTotalBaseAll = new Map();
-  const nominalSet = new Set();
+function collectFamilyInventory(allSamples: QuotaSample[]) {
+  const allFamiliesSet = new Set<string>();
+  const famTotalCallsAll = new Map<string, number>();
+  const famTotalBaseAll = new Map<string, number>();
+  const nominalSet = new Set<string>();
 
   for (const s of allSamples) {
     for (const nf of s.nominalFamilies || []) nominalSet.add(nf);
@@ -280,14 +387,20 @@ function collectFamilyInventory(allSamples) {
   return { allFamiliesSet, famTotalCallsAll, famTotalBaseAll, nominalSet };
 }
 
-function buildColdStartPriorFit(poolState, poolKind, priorRefBeta, allSamples, inventory) {
+function buildColdStartPriorFit(
+  poolState: QuotaPoolState,
+  poolKind: string,
+  priorRefBeta: number,
+  allSamples: QuotaSample[],
+  inventory: ReturnType<typeof collectFamilyInventory>,
+): QuotaPoolFit | null {
   const { allFamiliesSet, famTotalCallsAll, famTotalBaseAll } = inventory;
   if (!allFamiliesSet.size) return null;
 
   const refBeta = priorRefBeta;
   const full5hUSD = 100 / refBeta;
-  const gamma = poolState.gamma > 0 ? poolState.gamma : null;
-  const models = Object.create(null);
+  const gamma = (poolState.gamma ?? 0) > 0 ? poolState.gamma! : null;
+  const models: Record<string, QuotaModelFitEntry> = Object.create(null);
 
   for (const fam of allFamiliesSet) {
     const kP = getFamilyPriorK(fam);
@@ -312,7 +425,7 @@ function buildColdStartPriorFit(poolState, poolKind, priorRefBeta, allSamples, i
     driftWarning: false,
     refBeta,
     full5hUSD,
-    full7dUSD: gamma > 0 ? full5hUSD * gamma : null,
+    full7dUSD: gamma !== null && gamma > 0 ? full5hUSD * gamma : null,
     gamma,
     sampleCount: allSamples.length,
     shortCleanCount: 0,
@@ -327,10 +440,10 @@ function buildColdStartPriorFit(poolState, poolKind, priorRefBeta, allSamples, i
   };
 }
 
-function splitTrainHoldout(primarySet) {
+function splitTrainHoldout(primarySet: QuotaSample[]) {
   const useHoldout = primarySet.length >= 6;
-  const trainSet = [];
-  const holdoutSet = [];
+  const trainSet: QuotaSample[] = [];
+  const holdoutSet: QuotaSample[] = [];
   for (let i = 0; i < primarySet.length; i++) {
     if (useHoldout && i % 4 === 3) holdoutSet.push(primarySet[i]);
     else trainSet.push(primarySet[i]);
@@ -338,7 +451,7 @@ function splitTrainHoldout(primarySet) {
   return { trainSet, holdoutSet };
 }
 
-function isWithinSingleSamplePriorBand(val, priorBeta) {
+function isWithinSingleSamplePriorBand(val: number, priorBeta: number) {
   return val >= priorBeta * SINGLE_SAMPLE_PRIOR_LO && val <= priorBeta * SINGLE_SAMPLE_PRIOR_HI;
 }
 
@@ -346,8 +459,8 @@ function isWithinSingleSamplePriorBand(val, priorBeta) {
  * Estimate initial 1x pool reference rate (refBeta) from short training windows.
  * Guards 1-sample and discordant 2-sample cold starts against external-burn / cache-flush spikes.
  */
-function estimateInitialRefBeta(trainSet, priorRefBeta, poolKind) {
-  const refRatePairs = [];
+function estimateInitialRefBeta(trainSet: QuotaSample[], priorRefBeta: number, poolKind: string) {
+  const refRatePairs: WeightedPair[] = [];
   for (const s of trainSet) {
     let priorWeightedUSD = 0;
     for (const [fam, usd] of Object.entries(s.byModel || {})) {
@@ -393,9 +506,9 @@ function estimateInitialRefBeta(trainSet, priorRefBeta, poolKind) {
   return weightedQuantile(refRatePairs, 0.5);
 }
 
-function initializeFamilyBetas(fittedFamilies, trainSet, refBetaCurr) {
+function initializeFamilyBetas(fittedFamilies: string[], trainSet: QuotaSample[], refBetaCurr: number) {
   return fittedFamilies.map((fam) => {
-    const purePairs = [];
+    const purePairs: WeightedPair[] = [];
     for (const s of trainSet) {
       const keys = Object.keys(s.byModel || {}).filter((k) => (s.byModel[k] || 0) > 0);
       if (keys.length === 1 && keys[0] === fam) {
@@ -416,17 +529,24 @@ function initializeFamilyBetas(fittedFamilies, trainSet, refBetaCurr) {
   });
 }
 
-function runScalarIrls(fittedFamilies, trainSet, famShortTrainWins, initialBeta, initialRefBeta, hasPerTokenInTrain) {
+function runScalarIrls(
+  fittedFamilies: string[],
+  trainSet: QuotaSample[],
+  famShortTrainWins: Map<string, number>,
+  initialBeta: number[],
+  initialRefBeta: number,
+  hasPerTokenInTrain: boolean,
+) {
   const M = fittedFamilies.length;
   const beta = [...initialBeta];
-  const omegas = new Array(trainSet.length).fill(1);
+  const omegas = new Array<number>(trainSet.length).fill(1);
   let refBetaCurr = initialRefBeta;
 
   for (let round = 0; round < 4; round++) {
     let hardCut = 0.5;
     let softCut = 0.15;
-    const preds = new Array(trainSet.length).fill(0);
-    const relResids = [];
+    const preds = new Array<number>(trainSet.length).fill(0);
+    const relResids: number[] = [];
 
     for (let i = 0; i < trainSet.length; i++) {
       const s = trainSet[i];
@@ -519,8 +639,15 @@ function runScalarIrls(fittedFamilies, trainSet, famShortTrainWins, initialBeta,
  * Scalar beta[m] stays defined as the WLS projection onto pricing.json list-price USD so
  * F = 100 / refBeta remains strictly unified as "list-price equivalent pool capacity".
  */
-function fitPerTokenModels(fittedFamilies, trainSet, famShortTrainWins, omegas, beta, refBetaCurr) {
-  const tokenModels = new Map();
+function fitPerTokenModels(
+  fittedFamilies: string[],
+  trainSet: QuotaSample[],
+  famShortTrainWins: Map<string, number>,
+  omegas: number[],
+  beta: number[],
+  refBetaCurr: number,
+) {
+  const tokenModels = new Map<string, TokenModelFit>();
   let usesPerTokenFit = false;
 
   for (let m = 0; m < fittedFamilies.length; m++) {
@@ -529,7 +656,7 @@ function fitPerTokenModels(fittedFamilies, trainSet, famShortTrainWins, omegas, 
     const wins = famShortTrainWins.get(fam) || 0;
     if (wins < MIN_SHORT_WINS_FOR_TOKEN_VEC) continue;
 
-    const tokSamples = [];
+    const tokSamples: { tok: number[]; usd: number; target: number; w: number }[] = [];
     for (let i = 0; i < trainSet.length; i++) {
       if (!(omegas[i] > 0)) continue;
       const s = trainSet[i];
@@ -614,7 +741,7 @@ function evaluateResidualsAndQuality({
 
   let weightedSqSum = 0;
   let inlierCount = 0;
-  const inlierRelErrors = [];
+  const inlierRelErrors: number[] = [];
   for (let i = 0; i < trainSet.length; i++) {
     if (!(omegas[i] > 0)) continue;
     const s = trainSet[i];
@@ -628,7 +755,7 @@ function evaluateResidualsAndQuality({
   const dof = Math.max(1, rawDof);
   const s2 = rawDof > 0 ? weightedSqSum / dof : 0;
 
-  const oosRelErrors = [];
+  const oosRelErrors: number[] = [];
   for (const s of holdoutSet) {
     const pred = predictSamplePct(s, tempModels, refBetaCurr);
     if (pred > 0 && s.du5 <= pred * 1.8) {
@@ -643,7 +770,7 @@ function evaluateResidualsAndQuality({
       : 0.08);
   const relErrFloor = Math.max(0.005, empiricalRelErr);
 
-  const fittedStats = [];
+  const fittedStats: FittedFamilyStat[] = [];
   for (let m = 0; m < fittedFamilies.length; m++) {
     const fam = fittedFamilies[m];
     const wins = famShortTrainWins.get(fam) || 2;
@@ -670,7 +797,7 @@ function evaluateResidualsAndQuality({
     refBeta = direct1x ? direct1x.beta : (best.beta / best.kPrior);
   }
 
-  let quality = 'provisional';
+  let quality: 'high' | 'provisional' = 'provisional';
   if (usesPerTokenFit) {
     if (shortCleanCount >= 20 && oosRelErrors.length >= 5 && median(oosRelErrors) <= 0.02) {
       quality = 'high';
@@ -680,7 +807,7 @@ function evaluateResidualsAndQuality({
   }
 
   const oosMedianPct = oosRelErrors.length > 0 ? median(oosRelErrors) * 100 : null;
-  const driftReasons = [];
+  const driftReasons: string[] = [];
   if (poolKind === 'gemini' && oosMedianPct !== null && oosMedianPct > GEMINI_OOS_MAX_PCT) {
     driftReasons.push(`oos_exceeded(${oosMedianPct.toFixed(2)}%>${GEMINI_OOS_MAX_PCT}%)`);
   }
@@ -745,7 +872,7 @@ function buildModelsMap({
   for (const st of fittedStats) {
     const tm = tokenModels.get(st.fam);
     const ci90 = 1.645 * st.se;
-    const entry = {
+    const entry: QuotaModelFitEntry = {
       beta: st.beta,
       betaPlusMinus: ci90,
       k: refBeta > 0 ? st.beta / refBeta : st.kPrior,
@@ -809,7 +936,7 @@ function buildModelsMap({
   return models;
 }
 
-export function solvePoolFitModel(poolState, explicitPoolKind = '') {
+export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = ''): QuotaPoolFit | null {
   const rawSamples = Array.isArray(poolState?.samples) ? poolState.samples : [];
   if (!rawSamples.length) {
     poolState.fit = null;
@@ -832,7 +959,7 @@ export function solvePoolFitModel(poolState, explicitPoolKind = '') {
   }
 
   const { trainSet, holdoutSet } = splitTrainHoldout(primarySet);
-  const famShortTrainWins = new Map();
+  const famShortTrainWins = new Map<string, number>();
   for (const s of trainSet) {
     for (const [fam, usd] of Object.entries(s.byModel || {})) {
       if (usd > 0) famShortTrainWins.set(fam, (famShortTrainWins.get(fam) || 0) + 1);
@@ -906,8 +1033,8 @@ export function solvePoolFitModel(poolState, explicitPoolKind = '') {
   }
 
   const full5hUSD = stats.refBeta > 0 ? 100 / stats.refBeta : null;
-  const gamma = poolState.gamma > 0 ? poolState.gamma : null;
-  const full7dUSD = full5hUSD > 0 && gamma > 0 ? full5hUSD * gamma : null;
+  const gamma = (poolState.gamma ?? 0) > 0 ? poolState.gamma! : null;
+  const full7dUSD = full5hUSD !== null && full5hUSD > 0 && gamma !== null && gamma > 0 ? full5hUSD * gamma : null;
 
   const fit = {
     schemaVersion: FIT_SCHEMA_VERSION,

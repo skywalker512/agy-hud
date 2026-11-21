@@ -10,9 +10,9 @@ import {
   STEP_STATUS_NAMES,
   TERMINAL_STEP_STATUSES,
   UUID_RE,
-} from './constants.mjs';
-import { getLsModelCatalogVersion } from './ls-client.mjs';
-import { computeCallCost } from './pricing.mjs';
+} from './constants.ts';
+import { getLsModelCatalogVersion } from './ls-client.ts';
+import { computeCallCost } from './pricing.ts';
 import {
   parseCompactPayload,
   parseContextBreakdown,
@@ -20,11 +20,11 @@ import {
   parsePlannerPayload,
   parseStepMetadata,
   parseUserPromptPayload,
-} from './protobuf.mjs';
+} from './protobuf.ts';
 
-const globalModelEnumCache = new Map();
+const globalModelEnumCache = new Map<number, { model: string; modelId: string; modelDisplay: string }>();
 let lastCatalogScanMs = 0;
-let listConvCache = { sig: '', atMs: 0, items: [] };
+let listConvCache: { sig: string; atMs: number; items: any[] } = { sig: '', atMs: 0, items: [] };
 
 export function listConversations(dirOrRoots, annotationsDir = '', maxAgeMs = 180) {
   const roots = Array.isArray(dirOrRoots)
@@ -169,28 +169,28 @@ function resolveEnumModel(modelEnum, localEnumMap, conversations) {
   };
 }
 
-export function readTelemetry(dbPath, conversations = [], fallbackTsMs = 0) {
-  let db;
+export function readTelemetry(dbPath: string, conversations: any[] = [], fallbackTsMs = 0) {
+  let db: DatabaseSync | undefined;
   try {
     db = new DatabaseSync(dbPath, { readOnly: true });
-    const gmRows = db.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx ASC').all();
-    const stepRows = db.prepare(
+    const gmRows: any[] = db.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx ASC').all();
+    const stepRows: any[] = db.prepare(
       'SELECT idx, step_type, status, metadata, CASE WHEN step_type IN (14, 15, 23) OR status IN (1, 2) THEN step_payload ELSE NULL END AS step_payload FROM steps ORDER BY idx ASC'
     ).all();
 
-    const plannerByStepIdx = new Map();
-    const plannerByGmIdx = new Map();
-    const plannerByBotId = new Map();
-    const toolStepsByGmIdx = new Map();
-    const rawToolSteps = [];
-    const compactionRows = [];
-    const turns = [];
-    const stepMetaList = [];
-    const toolIntervals = [];
+    const plannerByStepIdx = new Map<number, any>();
+    const plannerByGmIdx = new Map<number, any>();
+    const plannerByBotId = new Map<string, any>();
+    const toolStepsByGmIdx = new Map<number, any[]>();
+    const rawToolSteps: any[] = [];
+    const compactionRows: any[] = [];
+    const turns: any[] = [];
+    const stepMetaList: any[] = [];
+    const toolIntervals: [number, number][] = [];
     let userTurns = 0;
     let toolStepCount = 0;
-    let lastPlannerEntry = null;
-    let pendingCompactRaw = null;
+    let lastPlannerEntry: any = null;
+    let pendingCompactRaw: { idx: number; createdAtMs: number; startedAtMs: number } | null = null;
 
     for (const s of stepRows) {
       const meta = s.metadata ? parseStepMetadata(s.metadata) : {
@@ -261,7 +261,7 @@ export function readTelemetry(dbPath, conversations = [], fallbackTsMs = 0) {
         rawToolSteps.push(toolEntry);
         if (resolvedGmIdx !== null) {
           if (!toolStepsByGmIdx.has(resolvedGmIdx)) toolStepsByGmIdx.set(resolvedGmIdx, []);
-          toolStepsByGmIdx.get(resolvedGmIdx).push(toolEntry);
+          toolStepsByGmIdx.get(resolvedGmIdx)!.push(toolEntry);
         }
       }
     }
@@ -278,7 +278,7 @@ export function readTelemetry(dbPath, conversations = [], fallbackTsMs = 0) {
       }
     }
 
-    let activeStepRaw = null;
+    let activeStepRaw: any = null;
     for (let i = stepMetaList.length - 1; i >= 0; i--) {
       const { s, meta } = stepMetaList[i];
       const isCheckpointRunning = s.step_type === 23
@@ -315,8 +315,8 @@ export function readTelemetry(dbPath, conversations = [], fallbackTsMs = 0) {
       }
     }
 
-    const invocations = [];
-    const localEnumMap = new Map();
+    const invocations: any[] = [];
+    const localEnumMap = new Map<number, { model: string; modelId: string; modelDisplay: string }>();
     for (const row of gmRows) {
       const parsed = parseGenRow(row.idx, row.data);
       if (!parsed) continue;
@@ -406,18 +406,18 @@ export function readTelemetry(dbPath, conversations = [], fallbackTsMs = 0) {
       });
     }
 
-    let contextBreakdown = null;
+    let contextBreakdown: ReturnType<typeof parseContextBreakdown> = null;
     for (let i = gmRows.length - 1; i >= 0; i--) {
       contextBreakdown = parseContextBreakdown(gmRows[i].data);
       if (contextBreakdown) break;
     }
 
-    const gmDataByIdx = new Map(gmRows.map((r) => [r.idx, r.data]));
-    const invByIdx = new Map(invocations.map((inv) => [inv.idx, inv]));
+    const gmDataByIdx = new Map<number, Uint8Array>(gmRows.map((r) => [r.idx, r.data]));
+    const invByIdx = new Map<number, any>(invocations.map((inv) => [inv.idx, inv]));
     const firstInv = invocations.length ? invocations[0] : null;
     let lastVerifiedBaseOverhead = 0;
 
-    const compactions = [];
+    const compactions: any[] = [];
     for (const c of compactionRows) {
       const { meta, stepIdx, summaryPreview } = c;
       const resolved = resolveEnumModel(meta.modelEnum, localEnumMap, conversations);
@@ -524,7 +524,7 @@ export function readTelemetry(dbPath, conversations = [], fallbackTsMs = 0) {
       });
     }
 
-    let activeStep = null;
+    let activeStep: any = null;
     if (activeStepRaw) {
       const resolved = resolveEnumModel(activeStepRaw.modelEnum, localEnumMap, conversations);
       const turn = findTurnForStep(turns, activeStepRaw.idx) || (turns.length ? turns[turns.length - 1] : null);
@@ -552,7 +552,7 @@ export function readTelemetry(dbPath, conversations = [], fallbackTsMs = 0) {
     let unpricedCount = 0;
     let latestCallMs = 0;
     let peakGenTps = 0;
-    let latestSustained = null;
+    let latestSustained: any = null;
 
     for (const inv of invocations) {
       totalOutput += inv.outputTokens;

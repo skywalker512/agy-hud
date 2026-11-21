@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
-import { parseProcessCommandLines } from '../lib/constants.mjs';
-import { poolKeyForModel } from '../lib/pricing.mjs';
-import { resolveModelFamily } from '../lib/quota-solver.mjs';
+import { parseProcessCommandLines } from '../lib/constants.ts';
+import { poolKeyForModel } from '../lib/pricing.ts';
+import { resolveModelFamily } from '../lib/quota-solver.ts';
 import {
   buildAccountHistory,
   computeBaseReferenceUSD,
@@ -17,7 +17,7 @@ import {
   pickTargetConversation,
   resolveAllAppDataDirs,
   summarizeConversationDb,
-} from '../server.mjs';
+} from '../server.ts';
 import {
   bField,
   buildGenMetadataBlob,
@@ -26,7 +26,7 @@ import {
   createSchema,
   durationMsg,
   vField,
-} from './helpers/fixtures.mjs';
+} from './helpers/fixtures.ts';
 
 test('pickTargetConversation prevents Calls 3 <-> 6 oscillation from idle WAL checkpoints or subagents', () => {
   const root = mkdtempSync(join(tmpdir(), 'agy-hud-target-'));

@@ -8,12 +8,26 @@ import {
   DETAIL_TOOL_ARGS_MAX,
   LIVE_STREAM_PREVIEW_MAX,
   UUID_RE,
-} from './constants.mjs';
-import { resolveLimitFallback } from './pricing.mjs';
+} from './constants.ts';
+import { resolveLimitFallback } from './pricing.ts';
 
-export function unescapePbtxtString(raw) {
+export type ProtoField =
+  | [fieldNum: number, wireType: 0, val: bigint]
+  | [fieldNum: number, wireType: 1 | 2 | 5, val: Uint8Array];
+
+export interface UsageSubmsg {
+  modelEnum: number | null;
+  newInput: number;
+  cachedInput: number;
+  outputTokens: number;
+  thinkingTokens: number;
+  candidateTokens: number;
+  botId: string;
+}
+
+export function unescapePbtxtString(raw: string): string {
   if (!raw || !raw.includes('\\')) return raw || '';
-  const bytes = [];
+  const bytes: number[] = [];
   for (let i = 0; i < raw.length; i++) {
     const ch = raw[i];
     if (ch !== '\\' || i + 1 >= raw.length) {
@@ -46,33 +60,33 @@ export function unescapePbtxtString(raw) {
   return Buffer.from(bytes).toString('utf8');
 }
 
-function extractPbtxtField(text, fieldName) {
+function extractPbtxtField(text: string, fieldName: string): string[] {
   const re = new RegExp(`(?:^|\\s)${fieldName}:\\s*"((?:[^"\\\\]|\\\\.)*)"`, 'g');
-  const out = [];
-  let m;
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) out.push(unescapePbtxtString(m[1]));
   return out;
 }
 
-export function parseAnnotationPbtxt(annoPath) {
+export function parseAnnotationPbtxt(annoPath: string) {
   try {
     const raw = readFileSync(annoPath, 'utf8');
     const title = extractPbtxtField(raw, 'title')[0] || '';
     const sideQuestionIds = extractPbtxtField(raw, 'side_question_cascade_ids').filter((id) => UUID_RE.test(id));
-    const sideQuestionTitles = {};
+    const sideQuestionTitles: Record<string, string> = {};
     const mapRe = /side_question_titles:\s*\{\s*key:\s*"((?:[^"\\]|\\.)*)"\s*value:\s*"((?:[^"\\]|\\.)*)"\s*\}/g;
-    let m;
+    let m: RegExpExecArray | null;
     while ((m = mapRe.exec(raw)) !== null) {
       const k = unescapePbtxtString(m[1]);
       if (UUID_RE.test(k)) sideQuestionTitles[k] = unescapePbtxtString(m[2]);
     }
     return { title, sideQuestionIds, sideQuestionTitles };
   } catch {
-    return { title: '', sideQuestionIds: [], sideQuestionTitles: {} };
+    return { title: '', sideQuestionIds: [] as string[], sideQuestionTitles: {} as Record<string, string> };
   }
 }
 
-export function readVarint(buf, pos) {
+export function readVarint(buf: Uint8Array, pos: number): [bigint, number] {
   let val = 0n;
   let shift = 0n;
   while (pos < buf.length) {
@@ -84,8 +98,8 @@ export function readVarint(buf, pos) {
   return [val, pos];
 }
 
-export function iterFields(buf) {
-  const fields = [];
+export function iterFields(buf: Uint8Array): ProtoField[] {
+  const fields: ProtoField[] = [];
   let pos = 0;
   while (pos < buf.length) {
     const [key, p1] = readVarint(buf, pos);
@@ -118,7 +132,7 @@ export function iterFields(buf) {
   return fields;
 }
 
-export function readDurationSec(buf) {
+export function readDurationSec(buf: Uint8Array): number {
   let sec = 0;
   let nanos = 0;
   for (const [fn, wt, val] of iterFields(buf)) {
@@ -129,8 +143,8 @@ export function readDurationSec(buf) {
   return sec + nanos / 1e9;
 }
 
-export function parseUsageSubmsg(buf) {
-  const out = {
+export function parseUsageSubmsg(buf: Uint8Array): UsageSubmsg {
+  const out: UsageSubmsg = {
     modelEnum: null,
     newInput: 0,
     cachedInput: 0,
@@ -156,21 +170,21 @@ export function parseUsageSubmsg(buf) {
   return out;
 }
 
-export function parseGenRow(idx, raw) {
-  const f1 = iterFields(raw).find(([fn, wt]) => fn === 1 && wt === 2);
+export function parseGenRow(idx: number, raw: Uint8Array) {
+  const f1 = iterFields(raw).find((f): f is [number, 2, Uint8Array] => f[0] === 1 && f[1] === 2);
   if (!f1) return null;
 
-  let modelEnum = null;
+  let modelEnum: number | null = null;
   let modelId = '';
   let modelDisplay = '';
   let modelEnumName = '';
-  let primaryUsage = null;
-  let legacyUsage = null;
+  let primaryUsage: UsageSubmsg | null = null;
+  let legacyUsage: UsageSubmsg | null = null;
   let ttftSec = 0;
   let genSec = 0;
   let contextReported = 0;
   let contextLimit = 0;
-  let lastStepIndex = null;
+  let lastStepIndex: number | null = null;
   let parentCascadeId = '';
   let subagentType = '';
 
@@ -196,7 +210,7 @@ export function parseGenRow(idx, raw) {
         }
       }
     } else if (fn === 17) {
-      const f2 = iterFields(val).find(([sf, sw]) => sf === 2 && sw === 2);
+      const f2 = iterFields(val).find((f): f is [number, 2, Uint8Array] => f[0] === 2 && f[1] === 2);
       if (f2) legacyUsage = parseUsageSubmsg(f2[2]);
     } else if (fn === 20) {
       let k = '';
@@ -265,25 +279,25 @@ export function parseGenRow(idx, raw) {
   };
 }
 
-function addTokenCount(map, key, tokens) {
+function addTokenCount(map: Map<string, number>, key: string, tokens: number) {
   if (!key || !(tokens > 0)) return;
   map.set(key, (map.get(key) || 0) + tokens);
 }
 
-function mapToSortedList(map) {
+function mapToSortedList(map: Map<string, number>) {
   return Array.from(map.entries())
     .map(([name, tokens]) => ({ name, tokens }))
     .sort((a, b) => b.tokens - a.tokens);
 }
 
-export function parseContextBreakdown(raw) {
-  const f1 = iterFields(raw).find(([fn, wt]) => fn === 1 && wt === 2);
+export function parseContextBreakdown(raw: Uint8Array) {
+  const f1 = iterFields(raw).find((f): f is [number, 2, Uint8Array] => f[0] === 1 && f[1] === 2);
   if (!f1) return null;
 
-  let treeBuf = null;
+  let treeBuf: Uint8Array | null = null;
   let contextReported = 0;
   let contextLimit = 0;
-  const msgBufs = [];
+  const msgBufs: Uint8Array[] = [];
 
   for (const [fn, wt, val] of iterFields(f1[2])) {
     if (wt !== 2) continue;
@@ -315,8 +329,8 @@ export function parseContextBreakdown(raw) {
   let sysMsg = 0;
   let otherChat = 0;
 
-  const sysPromptMap = new Map();
-  const toolSchemaMap = new Map();
+  const sysPromptMap = new Map<string, number>();
+  const toolSchemaMap = new Map<string, number>();
 
   for (const [tf, tw, tv] of iterFields(treeBuf)) {
     if (tw === 0 && tf === 2) {
@@ -327,7 +341,7 @@ export function parseContextBreakdown(raw) {
 
     let secName = '';
     let secTok = 0;
-    const items = [];
+    const items: { name: string; tokens: number }[] = [];
     for (const [sf, sw, sv] of iterFields(tv)) {
       if (sw === 2 && sf === 1) secName = Buffer.from(sv).toString('utf8');
       else if (sw === 0 && sf === 4) secTok = Number(sv);
@@ -361,8 +375,8 @@ export function parseContextBreakdown(raw) {
     }
   }
 
-  const callToTool = new Map();
-  const toolMsgs = [];
+  const callToTool = new Map<string, string>();
+  const toolMsgs: { callId: string; tok: number }[] = [];
   for (const mb of msgBufs) {
     let role = 0;
     let tok = 0;
@@ -387,7 +401,7 @@ export function parseContextBreakdown(raw) {
     }
   }
 
-  const toolResultsMap = new Map();
+  const toolResultsMap = new Map<string, number>();
   let toolMsgSum = 0;
   for (const tm of toolMsgs) {
     toolMsgSum += tm.tok;
@@ -418,17 +432,17 @@ export function parseContextBreakdown(raw) {
   };
 }
 
-export function parseStepMetadata(metaBuf) {
+export function parseStepMetadata(metaBuf: Uint8Array) {
   let createdAtMs = 0;
   let startedAtMs = 0;
   let streamStartMs = 0;
   let completedAtMs = 0;
   let endAtMs = 0;
-  let modelEnum = null;
+  let modelEnum: number | null = null;
   let toolName = '';
-  let gmIdx = null;
+  let gmIdx: number | null = null;
   let botId = '';
-  let usage = null;
+  let usage: UsageSubmsg | null = null;
 
   for (const [fn, wt, val] of iterFields(metaBuf)) {
     if (wt === 0 && fn === 11) {
@@ -481,9 +495,9 @@ export function isCompactPromptText(text) {
   return /^\s*\/compact(?:\s|$)/i.test(String(text || ''));
 }
 
-export function parseUserPromptPayload(payloadBuf) {
+export function parseUserPromptPayload(payloadBuf: Uint8Array | null | undefined) {
   if (!payloadBuf) return { preview: '', full: '', isCompact: false };
-  const f19 = iterFields(payloadBuf).find(([fn, wt]) => fn === 19 && wt === 2);
+  const f19 = iterFields(payloadBuf).find((f): f is [number, 2, Uint8Array] => f[0] === 19 && f[1] === 2);
   if (!f19) return { preview: '', full: '', isCompact: false };
   let text = '';
   let itemText = '';
@@ -518,15 +532,15 @@ export function parseUserPromptPayload(payloadBuf) {
   };
 }
 
-export function parsePlannerPayload(payloadBuf, liveMode = false) {
+export function parsePlannerPayload(payloadBuf: Uint8Array | null | undefined, liveMode = false) {
   if (!payloadBuf) return null;
-  const f20 = iterFields(payloadBuf).find(([fn, wt]) => fn === 20 && wt === 2);
+  const f20 = iterFields(payloadBuf).find((f): f is [number, 2, Uint8Array] => f[0] === 20 && f[1] === 2);
   if (!f20) return null;
 
   let thinking = '';
   let reply = '';
   let replyAlt = '';
-  const toolCalls = [];
+  const toolCalls: { name: string; args: string }[] = [];
 
   for (const [fn, wt, val] of iterFields(f20[2])) {
     if (wt !== 2) continue;
@@ -571,11 +585,11 @@ export function parsePlannerPayload(payloadBuf, liveMode = false) {
   };
 }
 
-export function parseCompactPayload(payloadBuf) {
+export function parseCompactPayload(payloadBuf: Uint8Array | null | undefined): string {
   if (!payloadBuf) return '';
-  const f30 = iterFields(payloadBuf).find(([fn, wt]) => fn === 30 && wt === 2);
+  const f30 = iterFields(payloadBuf).find((f): f is [number, 2, Uint8Array] => f[0] === 30 && f[1] === 2);
   if (!f30) return '';
-  const f5 = iterFields(f30[2]).find(([fn, wt]) => fn === 5 && wt === 2);
+  const f5 = iterFields(f30[2]).find((f): f is [number, 2, Uint8Array] => f[0] === 5 && f[1] === 2);
   if (!f5) return '';
   return clipText(Buffer.from(f5[2]).toString('utf8'), DETAIL_COMPACT_MAX);
 }

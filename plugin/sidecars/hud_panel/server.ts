@@ -17,12 +17,12 @@ import {
   resolveAppDataDir,
   resolveTranscriptPaths,
   statSafe,
-} from './lib/constants.mjs';
+} from './lib/constants.ts';
 import {
   computeCallCost,
   getPricingVectorSig,
   resolveModelPricing,
-} from './lib/pricing.mjs';
+} from './lib/pricing.ts';
 import {
   isCompactPromptText,
   iterFields,
@@ -35,7 +35,7 @@ import {
   readDurationSec,
   readVarint,
   unescapePbtxtString,
-} from './lib/protobuf.mjs';
+} from './lib/protobuf.ts';
 import {
   ensureLsModelCatalogWarm,
   extractLiveStepFromTrajectory,
@@ -50,13 +50,13 @@ import {
   quotaCache,
   resolveLsGeneratorModel,
   schedulePostCallQuotaSample,
-} from './lib/ls-client.mjs';
+} from './lib/ls-client.ts';
 import {
   getTelemetryCached,
   listConversations,
   readTelemetry,
   toLightTelemetryPayload,
-} from './lib/telemetry.mjs';
+} from './lib/telemetry.ts';
 import {
   buildAccountHistory,
   buildSessionInfo,
@@ -65,20 +65,20 @@ import {
   getConversationGraph,
   pickTargetConversation,
   summarizeConversationDb,
-} from './lib/graph.mjs';
+} from './lib/graph.ts';
 import {
   attachGraphQuotaSummaries,
   attachQuotaBudgetEstimates,
   attachTelemetryQuotaPredictions,
   computeSummaryQuotaUsage,
-} from './lib/quota-budget.mjs';
+} from './lib/quota-budget.ts';
 import {
   computeBaseReferenceUSD,
   ingestQuotaObservation,
   predictCallQuota,
   reconcilePoolSamplesPricing,
   solvePoolFitModel,
-} from './lib/quota-fitter.mjs';
+} from './lib/quota-fitter.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -119,7 +119,7 @@ function startSelfWatch() {
   try {
     const realDir = dirname(realpathSync(__filename));
     const libDir = join(realDir, 'lib');
-    const rootFiles = ['server.mjs', 'pricing.json'];
+    const rootFiles = ['server.ts', 'pricing.json'];
 
     const snapshotSig = () => {
       const parts = rootFiles.map((n) => {
@@ -127,7 +127,7 @@ function startSelfWatch() {
         return `${n}:${s.mtimeMs}:${s.size}`;
       });
       if (existsSync(libDir)) {
-        const libFiles = readdirSync(libDir).filter((n) => n.endsWith('.mjs')).sort();
+        const libFiles = readdirSync(libDir).filter((n) => n.endsWith('.ts')).sort();
         for (const lf of libFiles) {
           const s = statSafe(join(libDir, lf));
           parts.push(`lib/${lf}:${s.mtimeMs}:${s.size}`);
@@ -137,11 +137,11 @@ function startSelfWatch() {
     };
 
     const bootSig = snapshotSig();
-    let timer = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const triggerRestartCheck = () => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        const serverStat = statSafe(join(realDir, 'server.mjs'));
+        const serverStat = statSafe(join(realDir, 'server.ts'));
         if (serverStat.size > 100 && snapshotSig() !== bootSig) {
           process.exit(0);
         }
@@ -156,7 +156,7 @@ function startSelfWatch() {
 
     if (existsSync(libDir)) {
       const libWatcher = watch(libDir, (_evt, filename) => {
-        if (filename && !String(filename).endsWith('.mjs')) return;
+        if (filename && !String(filename).endsWith('.ts')) return;
         triggerRestartCheck();
       });
       libWatcher.unref?.();
@@ -200,7 +200,7 @@ async function startServer() {
     const mode = data.mode === 'latest' ? 'latest' : 'auto';
     const rawConvId = typeof data.conversationId === 'string' && UUID_RE.test(data.conversationId)
       ? data.conversationId
-      : (mode === 'auto' && UUID_RE.test(app.config?.conversationId || '') ? app.config.conversationId : '');
+      : (mode === 'auto' && UUID_RE.test(app.config?.conversationId || '') ? String(app.config?.conversationId || '') : '');
     const explicitConvId = rawConvId;
     const assetKey = getAssetKey();
 
@@ -235,11 +235,14 @@ async function startServer() {
       lsSummaries,
       prevAutoTargetId: lastAutoTargetId,
     });
-    if (!explicitConvId && target?.id) {
+    if (!target) {
+      return { found: false, bootId: BOOT_ID, assetKey, conversations: [], accountQuota, serverTimeMs: Date.now() };
+    }
+    if (!explicitConvId && target.id) {
       lastAutoTargetId = target.id;
     }
 
-    const liveOverlay = await fetchLiveActiveStep(target.id, lsSummaries);
+    const liveOverlay = await fetchLiveActiveStep(target.id, lsSummaries ?? undefined);
     const sessionInfoFull = buildSessionInfo(target.id, graph);
     const { childKeys, ...sessionInfo } = sessionInfoFull;
     const accountHistory = buildAccountHistory(graph);
@@ -360,12 +363,12 @@ async function startServer() {
         accountQuota: fittedQuota,
         ...decoratedTelemetry,
       };
-    } catch (err) {
+    } catch (err: any) {
       return {
         found: false,
         bootId: BOOT_ID,
         assetKey,
-        error: err.message,
+        error: err?.message || String(err),
         conversationId: target.id,
         dbPath: target.dbPath,
         ...paths,
@@ -400,7 +403,7 @@ async function startServer() {
         return { found: false, reason: 'missing_item' };
       }
       return { found: true, conversationId: convId, kind, id: idNum, detail };
-    } catch (err) {
+    } catch (err: any) {
       return { found: false, reason: err?.message || 'read_error' };
     }
   }, 'GET');

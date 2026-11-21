@@ -100,7 +100,7 @@ npm run dev        # 监听改动自动重建（配合 `node plugin/install.mjs 
 运行测试：
 
 ```bash
-node --test plugin/sidecars/hud_panel/test/*.test.mjs
+node --test plugin/sidecars/hud_panel/test/*.test.ts
 node --test tools/test/trace.test.mjs
 ```
 

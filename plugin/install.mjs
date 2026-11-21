@@ -22,8 +22,8 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PLUGIN_NAME = 'agy-hud';
-const MIN_NODE = [22, 5];
-const SKIP_NAMES = new Set(['install.mjs', 'test', 'node_modules', '.DS_Store']);
+const MIN_NODE = [22, 18];
+const SKIP_NAMES = new Set(['install.mjs', 'test', 'node_modules', '.DS_Store', 'tsconfig.json']);
 
 const sourceDir = dirname(realpathSync(fileURLToPath(import.meta.url)));
 const targetDir = join(homedir(), '.gemini', 'config', 'plugins', PLUGIN_NAME);

@@ -16,7 +16,7 @@ import {
   readTelemetry,
   readVarint,
   resolveLsGeneratorModel,
-} from '../server.mjs';
+} from '../server.ts';
 import {
   bField,
   buildGenMetadataBlob,
@@ -26,7 +26,7 @@ import {
   durationMsg,
   encodeVarint,
   vField,
-} from './helpers/fixtures.mjs';
+} from './helpers/fixtures.ts';
 
 test('protobuf varint and duration decoders round-trip cleanly', () => {
   const msg = durationMsg(27.944);
@@ -173,6 +173,7 @@ test('readTelemetry excludes buffered turns from avgGenTps and detects #8-style 
     db.close();
 
     const parsed1 = parseGenRow(1, buildGenMetadataBlob({ output: 300, ttftSec: 6.0, genSec: 0.002 }));
+    assert.ok(parsed1);
     assert.equal(parsed1.isBuffered, true);
 
     const tel = readTelemetry(dbPath);
@@ -204,11 +205,13 @@ test('parsePlannerPayload and clipLiveStreamText preserve full detail and slidin
   const payload = buildPlannerStepPayload({ thinking: longThinking, reply: 'Done.' });
 
   const detail = parsePlannerPayload(payload, false);
+  assert.ok(detail);
   assert.equal(detail.thinkingChars, longThinking.length);
   assert.equal(detail.thinking, longThinking);
   assert.ok(detail.thinking.endsWith('TAIL_MARKER_25848'));
 
   const live = parsePlannerPayload(payload, true);
+  assert.ok(live);
   assert.equal(live.thinkingChars, longThinking.length);
   assert.equal(live.thinkingTruncated, true);
   assert.equal(live.thinking.length, 24_000);

@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { computeCallCost, getCurrentPricingSig, poolKeyForModel } from '../lib/pricing.mjs';
-import { attachQuotaBudgetEstimates, attachTelemetryQuotaPredictions } from '../lib/quota-budget.mjs';
+import { computeCallCost, getCurrentPricingSig, poolKeyForModel } from '../lib/pricing.ts';
+import { attachQuotaBudgetEstimates, attachTelemetryQuotaPredictions } from '../lib/quota-budget.ts';
 import {
   FAMILY_CLASSIFIER_VERSION,
   computeBaseReferenceUSD,
@@ -14,7 +14,7 @@ import {
   reconcilePoolSamplesPricing,
   resolveModelFamily,
   solvePoolFitModel,
-} from '../lib/quota-fitter.mjs';
+} from '../lib/quota-fitter.ts';
 
 function makeGeminiCall(ts, modelId, newIn, cached, out) {
   const c = computeCallCost(modelId, modelId, modelId, newIn, cached, out, 0);
@@ -248,7 +248,7 @@ test('non-Ultra tier ($30 Gemini 5h cap) avoids false $150 anchor and converges 
 
     // Sanity check persisted fit file reflects true $30 tier
     const savedFit = JSON.parse(readFileSync(fitPath, 'utf-8'));
-    const ps = Object.values(savedFit.pools)[0];
+    const ps: any = Object.values(savedFit.pools)[0];
     assert.ok(Math.abs(ps.fit.full5hUSD - 30) < 0.5);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -267,8 +267,8 @@ test('k-multiplier quota fitter recovers Hydrogen 1x & Carbon 3x, resists long-w
     // Ground truth:
     // Gemini pool: F_5h = $150, gamma = 4.0 (F_7d = $600), Hydrogen k = 1.0, Carbon k = 3.0
     // Claude & GPT pool: F_5h = $12, gamma = 2.0 (F_7d = $24), Sonnet k = 1.0
-    const allGemCalls = [];
-    const allClaudeCalls = [];
+    const allGemCalls: any[] = [];
+    const allClaudeCalls: any[] = [];
     let gemU5 = 0;
     let gemU7 = 0;
     let claudeU5 = 0;
@@ -496,7 +496,7 @@ test('P0-P3 regression: Carbon-only short windows anchor F=$150/k=3 without Hydr
     const reset5h = w5Start + 5 * 3_600_000;
     const reset7d = w5Start + 4 * 24 * 3_600_000;
 
-    const calls = [];
+    const calls: any[] = [];
     let gemU5 = 0;
     let gemU7 = 0;
     let claudeU5 = 0;
@@ -699,7 +699,7 @@ test('discordant 2-sample startup rejects high-weight spike and locks onto clean
   };
 
   const fit = solvePoolFitModel(poolState, 'gemini');
-  assert.ok(fit);
+  assert.ok(fit && fit.full5hUSD !== null);
   assert.ok(Math.abs(fit.full5hUSD - 150) < 2.0, `expected F_5h ~150 despite high-weight spike, got ${fit.full5hUSD}`);
   assert.equal(fit.anomalySpikeCount, 1);
 });
@@ -731,30 +731,30 @@ test('drift guardrails & pricing invariants: Hydrogen 0.6667 prior check, +20% >
   });
 
   const cleanHydro = makeHydroState(2 / 3);
-  const fitOk = solvePoolFitModel(cleanHydro, 'gemini');
+  const fitOk = solvePoolFitModel(cleanHydro, 'gemini')!;
   assert.equal(fitOk.quality, 'high');
   assert.equal(fitOk.driftWarning, false);
   const hmOk = fitOk.models['gemini-4-hydrogen'];
   assert.ok(Math.abs(hmOk.beta - 2 / 3) < 0.002);
-  assert.ok(Math.abs(hmOk.priorBeta - 2 / 3) < 1e-6);
-  assert.ok(Math.abs(hmOk.priorRelDiffPct) < 0.3);
-  assert.ok(hmOk.priorZScore < 0.5);
+  assert.ok(Math.abs((hmOk.priorBeta ?? 0) - 2 / 3) < 1e-6);
+  assert.ok(Math.abs(hmOk.priorRelDiffPct ?? 999) < 0.3);
+  assert.ok((hmOk.priorZScore ?? 999) < 0.5);
 
   // +20% shift in beta_H (0.800 vs prior 0.6667 -> >3σ) must downgrade to provisional and flag driftWarning!
   const driftedHydro = makeHydroState(0.8);
-  const fitDrift = solvePoolFitModel(driftedHydro, 'gemini');
+  const fitDrift = solvePoolFitModel(driftedHydro, 'gemini')!;
   assert.equal(fitDrift.quality, 'provisional');
   assert.equal(fitDrift.driftWarning, true);
-  assert.ok(fitDrift.driftReasons.some((r) => r.includes('gemini-4-hydrogen:prior_3sigma')));
-  assert.ok(Math.abs(fitDrift.models['gemini-4-hydrogen'].priorRelDiffPct - 20) < 0.5);
-  assert.ok(fitDrift.models['gemini-4-hydrogen'].priorZScore > 3.0);
+  assert.ok((fitDrift.driftReasons ?? []).some((r) => r.includes('gemini-4-hydrogen:prior_3sigma')));
+  assert.ok(Math.abs((fitDrift.models['gemini-4-hydrogen'].priorRelDiffPct ?? 0) - 20) < 0.5);
+  assert.ok((fitDrift.models['gemini-4-hydrogen'].priorZScore ?? 0) > 3.0);
 
   // Rolling OOS median error > 0.5% on Gemini must also downgrade to provisional!
   const noisyOosState = makeHydroState(2 / 3, 0.012); // 1.2% OOS error (> 0.5%)
-  const fitOosWarn = solvePoolFitModel(noisyOosState, 'gemini');
+  const fitOosWarn = solvePoolFitModel(noisyOosState, 'gemini')!;
   assert.equal(fitOosWarn.quality, 'provisional');
   assert.equal(fitOosWarn.driftWarning, true);
-  assert.ok(fitOosWarn.driftReasons.some((r) => r.includes('oos_exceeded')));
+  assert.ok((fitOosWarn.driftReasons ?? []).some((r) => r.includes('oos_exceeded')));
 
   // 2) (a) pricingSig change recomputes token-backed samples and discards token-less stale samples
   const psStale = {
@@ -856,9 +856,9 @@ test('drift guardrails & pricing invariants: Hydrogen 0.6667 prior check, +20% >
     const healedPool = healedStore.pools['pro:google ai ultra:teams_tier_pro|gemini'];
     assert.equal(healedPool.pricingSig, getCurrentPricingSig());
     assert.ok(Math.abs(healedPool.samples[0].totalBaseUSD - 0.24) < 1e-9);
-    assert.equal(healedPool.fit.quality, 'high');
-    assert.equal(healedPool.fit.driftWarning, false);
-    assert.ok(Math.abs(healedPool.fit.full5hUSD - 150) < 0.5);
+    assert.equal(healedPool.fit?.quality, 'high');
+    assert.equal(healedPool.fit?.driftWarning, false);
+    assert.ok(Math.abs((healedPool.fit?.full5hUSD ?? 0) - 150) < 0.5);
     const persisted = JSON.parse(readFileSync(autoFitPath, 'utf8'));
     assert.equal(persisted.pools['pro:google ai ultra:teams_tier_pro|gemini'].fit.quality, 'high');
   } finally {
@@ -868,7 +868,7 @@ test('drift guardrails & pricing invariants: Hydrogen 0.6667 prior check, +20% >
 
 test('adaptive MAD 6σ outlier rejection (<0.01% bias on 30+1 +54% spike) and GetUserStatus stale-cache rewind guard', () => {
   // 1) 30 exact Carbon short windows + 1 (+54%) window + 1 (+310%) spike -> beta bias < 0.01%!
-  const samples = [];
+  const samples: any[] = [];
   for (let i = 0; i < 30; i++) {
     const usd = 0.04 + (i % 7) * 0.025;
     samples.push({
@@ -923,10 +923,10 @@ test('adaptive MAD 6σ outlier rejection (<0.01% bias on 30+1 +54% spike) and Ge
   });
 
   const ps = { gamma: 4.0, samples };
-  const fit = solvePoolFitModel(ps, 'gemini');
+  const fit = solvePoolFitModel(ps, 'gemini')!;
   const relBias = Math.abs(fit.models['gemini-4-carbon'].beta - 2.0) / 2.0;
   assert.ok(relBias < 0.0001, `expected beta relative bias < 0.01% (0.0001), got ${relBias}`);
-  assert.ok(Math.abs(fit.full5hUSD - 150) < 0.015);
+  assert.ok(Math.abs((fit.full5hUSD ?? 0) - 150) < 0.015);
   assert.equal(fit.quality, 'high');
   assert.equal(fit.anomalySpikeCount, 1);
 
@@ -1031,8 +1031,8 @@ test('adaptive MAD 6σ outlier rejection (<0.01% bias on 30+1 +54% spike) and Ge
 test('reconcilePoolSamplesPricing and FAMILY_CLASSIFIER_VERSION heal misfiled Orchestrator (Neon) samples and Neon nominal flags', () => {
   const sigNow = getCurrentPricingSig();
   const baseTs = 1_840_000_000_000;
-  const allCalls = [];
-  const samples = [];
+  const allCalls: any[] = [];
+  const samples: any[] = [];
 
   for (let i = 0; i < 6; i++) {
     const t0 = baseTs + i * 60_000;
@@ -1173,10 +1173,10 @@ test('reconcilePoolSamplesPricing and FAMILY_CLASSIFIER_VERSION heal misfiled Or
     false,
   );
 
-  const fit = solvePoolFitModel(ps, 'gemini');
+  const fit = solvePoolFitModel(ps, 'gemini')!;
   assert.equal(fit.quality, 'high');
   assert.equal(fit.driftWarning, false);
-  assert.ok(Math.abs(fit.full5hUSD - 150) < 0.5, `expected full5hUSD ~150, got ${fit.full5hUSD}`);
+  assert.ok(Math.abs((fit.full5hUSD ?? 0) - 150) < 0.5, `expected full5hUSD ~150, got ${fit.full5hUSD}`);
   assert.ok(Math.abs(fit.models['gemini-4-neon'].k - 1.0) < 0.01);
   assert.equal(fit.models['gemini-4-carbon'], undefined);
 });
