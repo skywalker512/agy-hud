@@ -79,6 +79,7 @@ import {
   reconcilePoolSamplesPricing,
   solvePoolFitModel,
 } from './lib/quota-fitter.ts';
+import { detectLocale } from './lib/locale.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -406,6 +407,11 @@ async function startServer() {
     } catch (err: any) {
       return { found: false, reason: err?.message || 'read_error' };
     }
+  }, 'GET');
+
+  app.api('/api/locale', (data) => {
+    const forceRefresh = data?.refresh === '1';
+    return detectLocale({ appDataDir, forceRefresh });
   }, 'GET');
 
   app.run();

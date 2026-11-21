@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { getTranslations, type Translations } from '../i18n';
+import {
+  getTranslations,
+  hasUserLangPreference,
+  refineLocaleFromServer,
+  resolveInitialLang,
+  saveUserLangPreference,
+  shouldRefineLocaleFromServer,
+  type Translations,
+} from '../i18n';
 import type {
   CallDetailPayload,
   CallDetailResponse,
@@ -66,7 +74,7 @@ export interface HudStore {
 }
 
 export function useHudStore(): HudStore {
-  const [lang, setLang] = useState<Lang>(() => readStorage('agy_hud_lang', ['en', 'zh'] as const, 'en'));
+  const [lang, setLang] = useState<Lang>(() => resolveInitialLang());
   const [tab, setTabState] = useState<HudTab>(() => readStorage('agy_hud_tab', ['live', 'calls', 'account'] as const, 'live'));
   const [metric, setMetricState] = useState<ChartMetric>(() =>
     readStorage('agy_hud_metric', ['tps', 'ttft', 'out', 'cache', 'ctx', 'quota'] as const, 'tps'),
@@ -114,6 +122,19 @@ export function useHudStore(): HudStore {
   useEffect(() => {
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
   }, [lang]);
+
+  useEffect(() => {
+    if (!shouldRefineLocaleFromServer()) return;
+    const ac = typeof AbortController === 'function' ? new AbortController() : null;
+    void refineLocaleFromServer(getSidecarFetch(), ac?.signal).then((refined) => {
+      if (refined && !hasUserLangPreference()) {
+        setLang((prev) => (prev === refined ? prev : refined));
+      }
+    });
+    return () => {
+      ac?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     document.body.classList.toggle('calls-log-open', tab === 'calls');
@@ -328,11 +349,7 @@ export function useHudStore(): HudStore {
   const toggleLang = useCallback(() => {
     setLang((prev) => {
       const next = prev === 'en' ? 'zh' : 'en';
-      try {
-        localStorage.setItem('agy_hud_lang', next);
-      } catch {
-        /* ignore */
-      }
+      saveUserLangPreference(next);
       return next;
     });
   }, []);
