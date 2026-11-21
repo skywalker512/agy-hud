@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import type {
   ActiveStep,
@@ -5,12 +6,16 @@ import type {
   ChartMetric,
   Compaction,
   Invocation,
+  Lang,
+  StatsSnapshot,
   TurnSummary,
 } from '../../types/telemetry';
-import { CallLogCard } from './CallLogCard';
+import { CallLogCard, type JumpRequest } from './CallLogCard';
 import { TrendChartCard } from './TrendChartCard';
 
 interface CallsTabProps {
+  snap: StatsSnapshot | null;
+  lang: Lang;
   invocations: Invocation[];
   compactions: Compaction[];
   turns: TurnSummary[];
@@ -30,14 +35,20 @@ interface CallsTabProps {
   t: Translations;
   onSelectMetric: (m: ChartMetric) => void;
   onToggleCompactOnly: () => void;
+  onSetCompactOnly: (val: boolean) => void;
   onToggleFoldAllTurns: () => void;
   onToggleShowAllHistory: () => void;
+  onEnsureShowAllHistory: () => void;
   onToggleTurnCollapsed: (turnIdx: number) => void;
+  onUnfoldTurn: (turnIdx: number) => void;
   onToggleInvocation: (idx: number, hasDetail: boolean) => void;
+  onEnsureInvocationExpanded: (idx: number, hasDetail: boolean) => void;
   onToggleCompact: (stepIdx: number, hasDetail: boolean) => void;
 }
 
 export function CallsTab({
+  snap,
+  lang,
   invocations,
   compactions,
   turns,
@@ -57,12 +68,38 @@ export function CallsTab({
   t,
   onSelectMetric,
   onToggleCompactOnly,
+  onSetCompactOnly,
   onToggleFoldAllTurns,
   onToggleShowAllHistory,
+  onEnsureShowAllHistory,
   onToggleTurnCollapsed,
+  onUnfoldTurn,
   onToggleInvocation,
+  onEnsureInvocationExpanded,
   onToggleCompact,
 }: CallsTabProps) {
+  const [selectedModel, setSelectedModel] = useState<string>('all');
+  const [jumpRequest, setJumpRequest] = useState<JumpRequest | null>(null);
+  const jumpNonceRef = useRef(0);
+
+  useEffect(() => {
+    setSelectedModel('all');
+    setJumpRequest(null);
+  }, [convId]);
+
+  const handleSelectModel = useCallback((modelKey: string) => {
+    setSelectedModel(modelKey || 'all');
+  }, []);
+
+  const handleInspectCall = useCallback((invIdx: number) => {
+    jumpNonceRef.current += 1;
+    setJumpRequest({ invIdx, nonce: jumpNonceRef.current });
+  }, []);
+
+  const handleClearModel = useCallback(() => {
+    setSelectedModel('all');
+  }, []);
+
   return (
     <section id="tab-calls" className="flex flex-col gap-2.5 min-w-0">
       <TrendChartCard
@@ -70,10 +107,16 @@ export function CallsTab({
         compactions={compactions}
         convId={convId}
         metric={metric}
+        lang={lang}
         t={t}
         onSelectMetric={onSelectMetric}
+        onInspectCall={handleInspectCall}
+        selectedModel={selectedModel}
+        onSelectModel={handleSelectModel}
       />
       <CallLogCard
+        snap={snap}
+        lang={lang}
         invocations={invocations}
         compactions={compactions}
         turns={turns}
@@ -90,11 +133,18 @@ export function CallsTab({
         detailCache={detailCache}
         detailLoading={detailLoading}
         t={t}
+        selectedModel={selectedModel}
+        onClearModel={handleClearModel}
+        jumpRequest={jumpRequest}
         onToggleCompactOnly={onToggleCompactOnly}
+        onSetCompactOnly={onSetCompactOnly}
         onToggleFoldAllTurns={onToggleFoldAllTurns}
         onToggleShowAllHistory={onToggleShowAllHistory}
+        onEnsureShowAllHistory={onEnsureShowAllHistory}
         onToggleTurnCollapsed={onToggleTurnCollapsed}
+        onUnfoldTurn={onUnfoldTurn}
         onToggleInvocation={onToggleInvocation}
+        onEnsureInvocationExpanded={onEnsureInvocationExpanded}
         onToggleCompact={onToggleCompact}
       />
     </section>

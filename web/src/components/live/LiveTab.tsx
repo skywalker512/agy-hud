@@ -1,5 +1,7 @@
+import { useMemo, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
-import type { CallDetailPayload, Lang, StatsSnapshot } from '../../types/telemetry';
+import type { CallDetailPayload, Invocation, Lang, StatsSnapshot } from '../../types/telemetry';
+import { fmtCachePct, fmtQuotaPct, fmtSec, fmtTps, fmtUsd, formatModelTag } from '../../utils/format';
 import { ContextWindowCard } from './ContextWindowCard';
 import { HeroSpeedCards } from './HeroSpeedCards';
 import { KpiGrid } from './KpiGrid';
@@ -28,6 +30,84 @@ interface LiveTabProps {
   onToggleCompact: (stepIdx: number, hasDetail: boolean) => void;
 }
 
+interface ModelMixRow {
+  model: string;
+  calls: number;
+  avgGenTps: number;
+  avgTtftSec: number;
+  cachePct: number | null;
+  costUSD: number;
+  quotaPct5h: number;
+  dotClass: string;
+}
+
+function modelDotClass(model: string): string {
+  const m = model.toLowerCase();
+  if (m.includes('flash') || m.includes('hydrogen')) return 'bg-seg-cache';
+  if (m.includes('neon') || m.includes('sonnet')) return 'bg-seg-input';
+  if (m.includes('carbon') || m.includes('argon') || m.includes('opus') || m.includes('orchestrator')) {
+    return 'bg-seg-think';
+  }
+  return 'bg-seg-out';
+}
+
+function buildModelMix(invocations: Invocation[]): ModelMixRow[] {
+  const map = new Map<
+    string,
+    {
+      calls: number;
+      sustTok: number;
+      sustSec: number;
+      ttftSum: number;
+      cached: number;
+      newIn: number;
+      costUSD: number;
+      quotaPct5h: number;
+    }
+  >();
+
+  for (const r of invocations) {
+    const model = formatModelTag(r.modelId, r.modelDisplay, r.model) || 'unknown';
+    const cur = map.get(model) || {
+      calls: 0,
+      sustTok: 0,
+      sustSec: 0,
+      ttftSum: 0,
+      cached: 0,
+      newIn: 0,
+      costUSD: 0,
+      quotaPct5h: 0,
+    };
+    cur.calls += 1;
+    if (!r.isBuffered && r.genSec > 0) {
+      cur.sustTok += r.outputTokens;
+      cur.sustSec += r.genSec;
+    }
+    cur.ttftSum += r.ttftSec || 0;
+    cur.cached += r.cachedInput || 0;
+    cur.newIn += r.newInput || 0;
+    if (r.priced) cur.costUSD += r.costUSD || 0;
+    cur.quotaPct5h += r.quotaPct5h || 0;
+    map.set(model, cur);
+  }
+
+  return [...map.entries()]
+    .sort((a, b) => b[1].calls - a[1].calls)
+    .map(([model, st]) => {
+      const promptTot = st.cached + st.newIn;
+      return {
+        model,
+        calls: st.calls,
+        avgGenTps: st.sustSec > 0 ? st.sustTok / st.sustSec : 0,
+        avgTtftSec: st.calls > 0 ? st.ttftSum / st.calls : 0,
+        cachePct: promptTot > 0 ? (st.cached / promptTot) * 100 : null,
+        costUSD: st.costUSD,
+        quotaPct5h: st.quotaPct5h,
+        dotClass: modelDotClass(model),
+      };
+    });
+}
+
 export function LiveTab({
   snap,
   nowMs,
@@ -49,12 +129,16 @@ export function LiveTab({
   onToggleInvocation,
   onToggleCompact,
 }: LiveTabProps) {
+  const [mixOpen, setMixOpen] = useState(false);
+
   const found = Boolean(snap?.found);
   const latest = found ? snap?.latest || null : null;
   const invocations = found ? snap?.invocations || [] : [];
   const compactions = found ? snap?.compactions || [] : [];
   const turns = found ? snap?.turns || [] : [];
   const children = found ? snap?.sessionInfo?.childSessions || [] : [];
+
+  const modelMix = useMemo(() => buildModelMix(invocations), [invocations]);
 
   return (
     <section id="tab-live" className="flex flex-col gap-2.5 min-w-0">
@@ -63,6 +147,8 @@ export function LiveTab({
         latest={latest}
         latestSustained={snap?.latestSustained}
         activeStep={found ? snap?.activeStep : null}
+        invocations={invocations}
+        avgGenTps={found ? snap?.summary?.avgGenTps : undefined}
         t={t}
       />
 
@@ -74,6 +160,78 @@ export function LiveTab({
         summary={found ? snap?.summary : undefined}
         t={t}
       />
+
+      {/* Conditional Compact Collapsible Session Model Mix (>= 2 routed models) */}
+      {found && modelMix.length >= 2 && (
+        <section className="hud-card">
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 cursor-pointer select-none min-w-0"
+            onClick={() => setMixOpen((p) => !p)}
+          >
+            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+              <span className="card-k">{t.modelMixTitle}</span>
+              <span className="micro-badge">{modelMix.length}</span>
+              {!mixOpen && (
+                <div className="flex flex-wrap items-center gap-1 min-w-0">
+                  {modelMix.slice(0, 3).map((row) => (
+                    <span
+                      key={row.model}
+                      className="inline-flex items-center gap-1 px-1.5 py-[0.5px] rounded-full bg-hud-surface-2 border border-hud-border font-hud-mono text-[9.5px] text-hud-muted tabular-nums max-w-[140px] truncate"
+                    >
+                      <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${row.dotClass}`} />
+                      <span className="truncate text-hud-fg">{row.model}</span>
+                      <span>{t.modelMixCalls(row.calls)}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="collapse-btn shrink-0"
+              aria-expanded={mixOpen}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMixOpen((p) => !p);
+              }}
+            >
+              {mixOpen ? '▾' : '▸'}
+            </button>
+          </div>
+
+          {mixOpen && (
+            <div className="mt-2 rounded-md border border-hud-border bg-hud-surface-2 px-2 py-1.5 flex flex-col gap-1 min-w-0">
+              <div className="model-mix-grid text-[9px] uppercase tracking-[0.04em] text-hud-muted pb-1 border-b border-hud-border/70">
+                <span>{t.modelMixColModel}</span>
+                <span className="text-right">{t.modelMixColCalls}</span>
+                <span className="text-right">{t.modelMixColGen}</span>
+                <span className="text-right model-mix-hide-xs">{t.modelMixColTtft}</span>
+                <span className="text-right model-mix-hide-xs">{t.modelMixColCache}</span>
+                <span className="text-right">{t.modelMixColCost}</span>
+              </div>
+              {modelMix.map((row) => {
+                const qStr = fmtQuotaPct(row.quotaPct5h);
+                return (
+                  <div key={row.model} className="model-mix-grid text-hud-fg py-[1px]">
+                    <span className="inline-flex items-center gap-1.5 min-w-0 truncate">
+                      <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${row.dotClass}`} />
+                      <span className="truncate font-medium">{row.model}</span>
+                    </span>
+                    <span className="text-right text-hud-muted">{row.calls}</span>
+                    <span className="text-right font-semibold">{fmtTps(row.avgGenTps)}</span>
+                    <span className="text-right text-hud-muted model-mix-hide-xs">{fmtSec(row.avgTtftSec)}</span>
+                    <span className="text-right text-hud-muted model-mix-hide-xs">{fmtCachePct(row.cachePct)}</span>
+                    <span className="text-right text-hud-muted whitespace-nowrap">
+                      {fmtUsd(row.costUSD)}
+                      {qStr ? ` · -${qStr}` : ''}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
 
       <RecentCallsCard
         invocations={invocations}

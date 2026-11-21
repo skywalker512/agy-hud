@@ -94,13 +94,13 @@ export function PulseBar({ snap, nowMs, t }: PulseBarProps) {
   const quotaTip = quotaStr ? formatSessionQuotaTip(sessionQuota, t) : undefined;
 
   return (
-    <div ref={barRef} className="pulse-bar">
+    <div ref={barRef} className="pulse-bar tabular-nums">
       <span className={genCls}>{genText}</span>
-      <span className="text-hud-muted opacity-70">·</span>
+      <span className="text-hud-muted opacity-55" aria-hidden="true">·</span>
       <span className={ctxCls}>{ctxText}</span>
       {ageChip && (
         <>
-          <span className="text-hud-muted opacity-70">·</span>
+          <span className="text-hud-muted opacity-55" aria-hidden="true">·</span>
           <span className={ageChip.cls} data-tip={ageChip.tip}>
             {ageChip.text}
           </span>
@@ -108,13 +108,13 @@ export function PulseBar({ snap, nowMs, t }: PulseBarProps) {
       )}
       {showCost && (
         <>
-          <span className="text-hud-muted opacity-70">·</span>
+          <span className="text-hud-muted opacity-55" aria-hidden="true">·</span>
           <span className="pulse-chip">{fmtUsd(s?.totalCostUSD || 0)}</span>
         </>
       )}
       {quotaStr && (
         <>
-          <span className="text-hud-muted opacity-70">·</span>
+          <span className="text-hud-muted opacity-55" aria-hidden="true">·</span>
           <span className="pulse-chip text-hud-accent-ink font-semibold cursor-help" data-tip={quotaTip}>
             {t.sessionQuotaPill(quotaStr)}
           </span>
