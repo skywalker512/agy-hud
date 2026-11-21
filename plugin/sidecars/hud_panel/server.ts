@@ -80,6 +80,10 @@ import {
   solvePoolFitModel,
 } from './lib/quota-fitter.ts';
 import { detectLocale } from './lib/locale.ts';
+import {
+  applySelfUpdate,
+  checkForUpdates,
+} from './lib/updater.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -414,6 +418,20 @@ async function startServer() {
     return detectLocale({ appDataDir, forceRefresh });
   }, 'GET');
 
+  app.api('/api/update-status', async (data) => {
+    const force = data?.force === '1' || data?.force === 'true' || data?.force === true;
+    return checkForUpdates({ appDataDir, force });
+  }, 'GET');
+
+  app.api('/api/update-apply', async (data) => {
+    const force = data?.force === '1' || data?.force === 'true' || data?.force === true;
+    const result = await applySelfUpdate({ appDataDir, force });
+    if (result.ok && result.restartRequired && process.env.ANTIGRAVITY_SIDECAR_WEB_PORT) {
+      const timer = setTimeout(() => process.exit(0), 750);
+      timer.unref?.();
+    }
+    return result;
+  }, 'POST');
   app.run();
   startSelfWatch();
 }
