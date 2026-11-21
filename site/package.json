@@ -1,0 +1,23 @@
+{
+  "name": "agy-hud-site",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "description": "AGY-HUD commercial launch website and interactive documentation hub",
+  "scripts": {
+    "dev": "vite",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build"
+  },
+  "dependencies": {
+    "preact": "^10.26.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.3",
+    "@types/node": "^24.19.2",
+    "tailwindcss": "^4.1.3",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.5"
+  }
+}
