@@ -165,10 +165,10 @@ export function LiveTab({
       {found && modelMix.length >= 2 && (
         <section className="hud-card">
           <div
-            className="flex flex-wrap items-center justify-between gap-2 cursor-pointer select-none min-w-0"
+            className="flex flex-nowrap items-center justify-between gap-2 cursor-pointer select-none min-w-0"
             onClick={() => setMixOpen((p) => !p)}
           >
-            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
               <span className="card-k">{t.modelMixTitle}</span>
               <span className="micro-badge">{modelMix.length}</span>
               {!mixOpen && (
