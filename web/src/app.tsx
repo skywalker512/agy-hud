@@ -56,6 +56,7 @@ export function App() {
         <LiveTab
           snap={snap}
           nowMs={store.nowMs}
+          lang={store.lang}
           recentOpen={store.recentOpen}
           expandedRows={store.expandedRows}
           expandedCompacts={store.expandedCompacts}

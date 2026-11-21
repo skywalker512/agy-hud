@@ -265,6 +265,7 @@ export function TopBar({
       <ModelBar snap={snap} t={t} />
       <SessionRelBar
         snap={snap}
+        lang={lang}
         t={t}
         onJumpConversation={onJumpConversation}
         onInspectChildren={onInspectChildren}

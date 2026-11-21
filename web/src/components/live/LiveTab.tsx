@@ -1,5 +1,5 @@
 import type { Translations } from '../../i18n';
-import type { CallDetailPayload, StatsSnapshot } from '../../types/telemetry';
+import type { CallDetailPayload, Lang, StatsSnapshot } from '../../types/telemetry';
 import { ContextWindowCard } from './ContextWindowCard';
 import { HeroSpeedCards } from './HeroSpeedCards';
 import { KpiGrid } from './KpiGrid';
@@ -9,6 +9,7 @@ import { SubagentsCard } from './SubagentsCard';
 interface LiveTabProps {
   snap: StatsSnapshot | null;
   nowMs: number;
+  lang?: Lang;
   recentOpen: boolean;
   expandedRows: Set<number>;
   expandedCompacts: Set<number>;
@@ -30,6 +31,7 @@ interface LiveTabProps {
 export function LiveTab({
   snap,
   nowMs,
+  lang,
   recentOpen,
   expandedRows,
   expandedCompacts,
@@ -102,6 +104,9 @@ export function LiveTab({
       <SubagentsCard
         found={found}
         children={children}
+        sessionInfo={found ? snap?.sessionInfo || null : null}
+        summary={found ? snap?.summary || null : null}
+        lang={lang}
         t={t}
         onJumpConversation={onJumpConversation}
       />

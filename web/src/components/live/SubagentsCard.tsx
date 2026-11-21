@@ -1,5 +1,11 @@
 import type { Translations } from '../../i18n';
-import type { ChildSessionItem, SessionQuotaUsage } from '../../types/telemetry';
+import type {
+  ChildSessionItem,
+  Lang,
+  SessionInfo,
+  SessionQuotaUsage,
+  TelemetrySummary,
+} from '../../types/telemetry';
 import {
   fmtClock,
   fmtNum,
@@ -10,9 +16,12 @@ import {
   kindBadgeText,
 } from '../../utils/format';
 
-interface SubagentsCardProps {
+export interface SubagentsCardProps {
   found: boolean;
   children: ChildSessionItem[];
+  sessionInfo?: SessionInfo | null;
+  summary?: TelemetrySummary | null;
+  lang?: Lang;
   t: Translations;
   onJumpConversation: (convId: string) => void;
 }

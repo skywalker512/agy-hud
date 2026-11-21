@@ -211,6 +211,80 @@ export interface TelemetrySummary {
   sessionQuota?: SessionQuotaUsage | null;
 }
 
+export type SwarmMemberState = 'working' | 'waiting' | 'stopped' | 'killed';
+
+export interface SwarmMemberMeta {
+  rosterName: string;
+  swarmRole: 'coordinator' | 'worker';
+  swarmState: SwarmMemberState;
+  taskTitle?: string;
+  threadId?: string;
+  threadTitle?: string;
+  model?: string;
+  workspaceMode?: 'inherit' | 'share' | 'branch' | string;
+  lastReadSeq?: number;
+  lastPostSeq?: number;
+  lastPostSnippet?: string;
+  lastPostTime?: string;
+}
+
+export interface SwarmThreadMeta {
+  id: string;
+  title: string;
+  goal?: string;
+  members: string[];
+}
+
+export interface SwarmOverview {
+  swarmId: string;
+  coordinatorConvId: string;
+  swarmTitle: string;
+  goalTitle?: string;
+  goalLine?: string;
+  createdAt?: string;
+  boardSeq: number;
+  memberCount: number;
+  workingCount: number;
+  waitingCount: number;
+  stoppedCount: number;
+  killedCount: number;
+  isCoordinatorView: boolean;
+  selfMember?: SwarmMemberMeta | null;
+  threads?: SwarmThreadMeta[];
+}
+
+export interface UpdateStatusResponse {
+  ok: boolean;
+  status: 'up_to_date' | 'update_available' | 'ahead' | 'offline' | 'rate_limited' | 'error';
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  canSelfUpdate: boolean;
+  blockReason: 'dev_symlink' | 'in_progress' | 'no_update' | 'no_download_url' | null;
+  isLinked: boolean;
+  installPath: string;
+  releaseUrl: string | null;
+  downloadUrl: string | null;
+  assetKind: 'tar.gz' | 'zip' | null;
+  releaseNotes: string | null;
+  publishedAt: string | null;
+  checkedAtMs: number;
+  cached: boolean;
+  updating: boolean;
+  error?: string | null;
+}
+
+export interface UpdateApplyResponse {
+  ok: boolean;
+  previousVersion: string;
+  newVersion: string | null;
+  restartRequired: boolean;
+  uiReloadOnly?: boolean;
+  rolledBack?: boolean;
+  reason?: string;
+  message: string;
+}
+
 export interface ConversationItem {
   id: string;
   updatedMs: number;
@@ -221,6 +295,8 @@ export interface ConversationItem {
   childCount?: number;
   costUSD?: number;
   quotaUsage?: SessionQuotaUsage | null;
+  swarmRosterName?: string;
+  swarmState?: SwarmMemberState;
 }
 
 export interface ChildSessionItem {
@@ -237,6 +313,7 @@ export interface ChildSessionItem {
   updatedMs: number;
   latestTsMs: number;
   quotaUsage?: SessionQuotaUsage | null;
+  swarm?: SwarmMemberMeta | null;
 }
 
 export interface ParentSessionItem {
@@ -256,6 +333,7 @@ export interface SessionInfo {
   quotaUsage?: SessionQuotaUsage | null;
   parentSession: ParentSessionItem | null;
   childSessions: ChildSessionItem[];
+  swarm?: SwarmOverview | null;
 }
 
 export interface QuotaWindowRunway {

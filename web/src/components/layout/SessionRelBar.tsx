@@ -1,5 +1,5 @@
 import type { Translations } from '../../i18n';
-import type { StatsSnapshot } from '../../types/telemetry';
+import type { Lang, StatsSnapshot } from '../../types/telemetry';
 import {
   formatSessionQuotaCompact,
   formatSessionQuotaTip,
@@ -8,8 +8,9 @@ import {
   shortTitleLabel,
 } from '../../utils/format';
 
-interface SessionRelBarProps {
+export interface SessionRelBarProps {
   snap: StatsSnapshot | null;
+  lang?: Lang;
   t: Translations;
   onJumpConversation: (convId: string) => void;
   onInspectChildren: () => void;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
-import type { ChartMetric, Compaction, Invocation } from '../../types/telemetry';
+import type { ChartMetric, Compaction, Invocation, Lang } from '../../types/telemetry';
 import {
   cacheTier,
   fmtCachePct,
@@ -13,13 +13,17 @@ import {
   ttftTier,
 } from '../../utils/format';
 
-interface TrendChartCardProps {
+export interface TrendChartCardProps {
   invocations: Invocation[];
   compactions?: Compaction[];
   convId: string;
   metric: ChartMetric;
+  lang?: Lang;
   t: Translations;
   onSelectMetric: (m: ChartMetric) => void;
+  onInspectCall?: (invIdx: number) => void;
+  selectedModel?: string;
+  onSelectModel?: (modelKey: string) => void;
 }
 
 interface Pt {
