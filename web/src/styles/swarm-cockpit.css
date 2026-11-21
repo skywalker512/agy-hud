@@ -1,1 +1,104 @@
-/* Dedicated stylesheet for Swarm & Subagents Cockpit (owned by @swarm-telemetry) */
+/* Dedicated stylesheet for Swarm & Subagents Cockpit (owned by @swarm-telemetry).
+ * Follows Tailwind-first hygiene: only semantic design tokens, host-contrast overrides,
+ * and keyframe animations live here; layout & utility styling lives in TSX via Tailwind v4. */
+
+:root {
+  --swarm-surface: color-mix(in srgb, var(--hud-fg) 3.2%, var(--hud-card));
+  --swarm-working-bg: color-mix(in srgb, var(--hud-ok) 13%, transparent);
+  --swarm-working-border: color-mix(in srgb, var(--hud-ok) 36%, var(--hud-border));
+  --swarm-stopped-bg: color-mix(in srgb, var(--hud-warn) 13%, transparent);
+  --swarm-stopped-border: color-mix(in srgb, var(--hud-warn) 38%, var(--hud-border));
+  --swarm-share-bg: color-mix(in srgb, var(--hud-accent) 12%, transparent);
+  --swarm-share-border: color-mix(in srgb, var(--hud-accent) 36%, var(--hud-border));
+  --swarm-branch-bg: color-mix(in srgb, var(--seg-think) 13%, transparent);
+  --swarm-branch-border: color-mix(in srgb, var(--seg-think) 38%, var(--hud-border));
+}
+
+:root[data-theme="dark"] {
+  --swarm-surface: color-mix(in srgb, var(--hud-fg) 4.8%, var(--hud-card));
+  --swarm-working-bg: color-mix(in srgb, var(--hud-ok) 16%, transparent);
+  --swarm-working-border: color-mix(in srgb, var(--hud-ok) 44%, var(--hud-border));
+  --swarm-share-bg: color-mix(in srgb, var(--hud-accent) 16%, transparent);
+  --swarm-share-border: color-mix(in srgb, var(--hud-accent) 44%, var(--hud-border));
+  --swarm-branch-bg: color-mix(in srgb, var(--seg-think) 17%, transparent);
+  --swarm-branch-border: color-mix(in srgb, var(--seg-think) 46%, var(--hud-border));
+}
+
+:root[data-contrast="strong"] {
+  --swarm-surface: color-mix(in srgb, var(--hud-fg) 7%, var(--hud-card));
+  --swarm-working-border: color-mix(in srgb, var(--hud-ok) 68%, var(--hud-fg) 18%);
+  --swarm-stopped-border: color-mix(in srgb, var(--hud-warn) 68%, var(--hud-fg) 18%);
+  --swarm-share-border: color-mix(in srgb, var(--hud-accent) 68%, var(--hud-fg) 18%);
+  --swarm-branch-border: color-mix(in srgb, var(--seg-think) 68%, var(--hud-fg) 18%);
+}
+
+@keyframes swarm-working-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--hud-ok) 45%, transparent);
+    opacity: 1;
+  }
+  55% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--hud-ok) 0%, transparent);
+    opacity: 0.78;
+  }
+}
+
+.swarm-dot-working {
+  background: var(--hud-ok);
+  animation: swarm-working-ring 1.7s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swarm-dot-working {
+    animation: none;
+  }
+}
+
+.swarm-pill-working {
+  color: var(--hud-ok);
+  background: var(--swarm-working-bg);
+  border-color: var(--swarm-working-border);
+}
+
+.swarm-pill-stopped {
+  color: var(--hud-warn);
+  background: var(--swarm-stopped-bg);
+  border-color: var(--swarm-stopped-border);
+}
+
+.swarm-pill-share {
+  color: var(--hud-accent-ink);
+  background: var(--swarm-share-bg);
+  border-color: var(--swarm-share-border);
+}
+
+.swarm-pill-branch {
+  color: var(--seg-think);
+  background: var(--swarm-branch-bg);
+  border-color: var(--swarm-branch-border);
+}
+
+.swarm-surface-well {
+  background: var(--swarm-surface);
+}
+
+.swarm-member-card {
+  background: var(--swarm-surface);
+}
+
+.swarm-member-card:hover:not(:disabled) {
+  border-color: var(--hud-accent);
+  background: color-mix(in srgb, var(--hud-accent) 6%, var(--swarm-surface));
+}
+
+.swarm-member-card:focus-visible,
+.swarm-interactive-pill:focus-visible {
+  outline: 1.5px solid var(--hud-accent);
+  outline-offset: 1px;
+}
+
+:root[data-contrast="strong"] .swarm-member-card,
+:root[data-contrast="strong"] .swarm-surface-well {
+  border-color: color-mix(in srgb, var(--hud-border) 70%, var(--hud-fg) 30%);
+}

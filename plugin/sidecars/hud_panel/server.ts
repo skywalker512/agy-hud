@@ -63,9 +63,19 @@ import {
   conversationEffectiveMs,
   getBgSummaryWarmSeq,
   getConversationGraph,
+  getConversationSwarmMeta,
   pickTargetConversation,
   summarizeConversationDb,
 } from './lib/graph.ts';
+import {
+  buildSwarmOverview,
+  clearSwarmCache,
+  deriveSwarmMemberState,
+  getSwarmCacheStats,
+  loadSwarmIndex,
+  parseBoardJsonl,
+  parseSwarmDirectory,
+} from './lib/swarm.ts';
 import {
   attachGraphQuotaSummaries,
   attachQuotaBudgetEstimates,
@@ -227,7 +237,7 @@ async function startServer() {
       return { found: false, bootId: BOOT_ID, assetKey, conversations: [], accountQuota, serverTimeMs: Date.now() };
     }
 
-    const graph = getConversationGraph(conversations, explicitConvId);
+    const graph = getConversationGraph(conversations, { requiredConvId: explicitConvId, appDataRoots });
     const lsSummaries = (!explicitConvId || mode === 'latest')
       ? await getCascadeSummariesCached(600)
       : undefined;
@@ -249,7 +259,7 @@ async function startServer() {
 
     const liveOverlay = await fetchLiveActiveStep(target.id, lsSummaries ?? undefined);
     const sessionInfoFull = buildSessionInfo(target.id, graph);
-    const { childKeys, ...sessionInfo } = sessionInfoFull;
+    const { childKeys, swarmSig, ...sessionInfo } = sessionInfoFull;
     const accountHistory = buildAccountHistory(graph);
     if (!graph.indexing && accountHistory.totalCalls > 0) {
       schedulePostCallQuotaSample(`${accountHistory.totalCalls}:${accountHistory.totalCostUSD.toFixed(5)}`);
@@ -266,6 +276,7 @@ async function startServer() {
       const link = graph.parentLinks.get(c.id);
       const kind = link ? link.kind : (s?.trajectoryType === 22 ? 'side_question' : 'main');
       const effMs = conversationEffectiveMs(c, graph, lsSummaries, nowMs);
+      const swarmMeta = getConversationSwarmMeta(c.id, graph);
       return {
         id: c.id,
         updatedMs: effMs || c.updatedMs,
@@ -275,6 +286,7 @@ async function startServer() {
         parentId: link?.parentId || '',
         childCount: (graph.childrenByParent.get(c.id) || []).length,
         costUSD: s?.costUSD || 0,
+        ...(swarmMeta ? { swarmRosterName: swarmMeta.swarmRosterName, swarmState: swarmMeta.swarmState } : {}),
       };
     });
 
@@ -283,7 +295,7 @@ async function startServer() {
     const quotaSig = accountQuota?.deferred
       ? `${quotaCache.updatedSeq}:d`
       : `${quotaCache.updatedSeq}:${quotaCache.fetchedAtMs}`;
-    const etag = `${mode}|${target.id}|${target.key}|${target.annoKey}|${childKeys}|${recentList[0]?.id || ''}|${quotaSig}|${histSig}|${liveSig}|${getLsModelCatalogVersion()}`;
+    const etag = `${mode}|${target.id}|${target.key}|${target.annoKey}|${childKeys}|${swarmSig || graph.swarmIndex?.sig || ''}|${recentList[0]?.id || ''}|${quotaSig}|${histSig}|${liveSig}|${getLsModelCatalogVersion()}`;
     if (data.etag && data.etag === etag) {
       return { unchanged: true, etag, bootId: BOOT_ID, assetKey, serverTimeMs: Date.now() };
     }
@@ -454,15 +466,21 @@ export {
   attachQuotaBudgetEstimates,
   attachTelemetryQuotaPredictions,
   buildAccountHistory,
+  buildSessionInfo,
+  buildSwarmOverview,
+  clearSwarmCache,
   clipLiveStreamText,
   clipText,
   computeBaseReferenceUSD,
   computeCallCost,
   computeSummaryQuotaUsage,
   conversationEffectiveMs,
+  deriveSwarmMemberState,
   extractLiveStepFromTrajectory,
   getConversationGraph,
+  getConversationSwarmMeta,
   getPricingVectorSig,
+  getSwarmCacheStats,
   ingestQuotaObservation,
   isCascadeStatusActive,
   isCompactPromptText,
@@ -470,13 +488,16 @@ export {
   isLoopbackHost,
   iterFields,
   listConversations,
+  loadSwarmIndex,
   mergeIntervalDurationSec,
   normalizeLsBaseUrl,
   parseAnnotationPbtxt,
+  parseBoardJsonl,
   parseContextBreakdown,
   parseGenRow,
   parsePlannerPayload,
   parseStepMetadata,
+  parseSwarmDirectory,
   parseUserPromptPayload,
   pickTargetConversation,
   predictCallQuota,

@@ -5,8 +5,10 @@
  * Quota budget estimation & decoration live in ./quota-budget.mjs and are re-exported
  * below for backwards compatibility.
  */
+import { basename, dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  clipText,
   KNOWN_MODEL_ENUMS,
   localDayKey,
   parseIsoMs,
@@ -14,6 +16,7 @@ import {
   TERMINAL_STEP_STATUSES,
   UUID_RE,
 } from './constants.ts';
+import type { AppDataRoot } from './constants.ts';
 import { isCascadeStatusActive } from './ls-client.ts';
 import { computeCallCost } from './pricing.ts';
 import { computeBaseReferenceUSD } from './quota-solver.ts';
@@ -25,6 +28,8 @@ import {
   parseUserPromptPayload,
 } from './protobuf.ts';
 import type { UsageSubmsg } from './protobuf.ts';
+import { buildSwarmOverview, loadSwarmIndex } from './swarm.ts';
+import type { SwarmMemberState } from './swarm.ts';
 
 export {
   attachGraphQuotaSummaries,
@@ -41,6 +46,29 @@ let bgSummaryWarmSeq = 0;
 
 export function getBgSummaryWarmSeq() {
   return bgSummaryWarmSeq;
+}
+
+export function cleanFallbackPromptTitle(raw: string, maxLen = 96): string {
+  if (!raw || typeof raw !== 'string') return '';
+  let text = raw
+    .replace(/<SYSTEM_MESSAGE>[\s\S]*?<\/SYSTEM_MESSAGE>/gi, ' ')
+    .replace(/<\/?[A-Z_]+>/g, ' ')
+    .trim();
+  if (!text) return '';
+  for (const rawLine of text.split(/\r?\n/)) {
+    let line = rawLine.trim();
+    if (!line) continue;
+    if (/^[-*_]{3,}$/.test(line)) continue;
+    line = line
+      .replace(/^#+\s+/, '')
+      .replace(/^[-*•>]\s+/, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (line) return clipText(line, maxLen);
+  }
+  return '';
 }
 
 export function summarizeConversationDb(conv) {
@@ -100,7 +128,8 @@ export function summarizeConversationDb(conv) {
       const firstPromptRow: any = db.prepare('SELECT step_payload FROM steps WHERE step_type = 14 AND step_payload IS NOT NULL ORDER BY idx ASC LIMIT 1').get();
       if (firstPromptRow?.step_payload) {
         const prompt = parseUserPromptPayload(firstPromptRow.step_payload);
-        if (prompt?.preview) fallbackTitle = prompt.preview;
+        const rawPrompt = prompt?.full || prompt?.preview || '';
+        if (rawPrompt) fallbackTitle = cleanFallbackPromptTitle(rawPrompt) || prompt.preview;
       }
       const stRows: any[] = db.prepare('SELECT idx, step_type, status, metadata FROM steps WHERE step_type IN (14, 15, 23, 132) AND metadata IS NOT NULL ORDER BY idx ASC').all();
       let lastPlannerGmIdx: number | null = null;
@@ -338,7 +367,11 @@ function scheduleBgSummaryWarm() {
 
 export function getConversationGraph(
   conversations: any[],
-  optsOrRequiredId: string | { requiredConvId?: string; syncAll?: boolean } = '',
+  optsOrRequiredId: string | {
+    requiredConvId?: string;
+    syncAll?: boolean;
+    appDataRoots?: (string | AppDataRoot)[];
+  } = '',
   syncAllArg = false,
 ) {
   const requiredConvId = typeof optsOrRequiredId === 'object' && optsOrRequiredId !== null
@@ -347,6 +380,9 @@ export function getConversationGraph(
   const syncAll = typeof optsOrRequiredId === 'object' && optsOrRequiredId !== null
     ? Boolean(optsOrRequiredId.syncAll)
     : Boolean(syncAllArg);
+  const explicitAppDataRoots = typeof optsOrRequiredId === 'object' && optsOrRequiredId !== null && Array.isArray(optsOrRequiredId.appDataRoots)
+    ? optsOrRequiredId.appDataRoots
+    : [];
   const summaries: any[] = [];
   const byId = new Map<string, any>();
   const convById = new Map<string, any>(conversations.map((c) => [c.id, c]));
@@ -394,6 +430,55 @@ export function getConversationGraph(
     }
   }
 
+  // Discover native AGY Swarms across explicit roots + conversation appDataDirs
+  const swarmRootDirs: (string | AppDataRoot)[] = [...explicitAppDataRoots];
+  for (const conv of conversations) {
+    if (conv?.appDataDir) {
+      swarmRootDirs.push(conv.appDataDir);
+    } else if (typeof conv?.dbPath === 'string' && conv.dbPath) {
+      const parentDir = dirname(conv.dbPath);
+      if (basename(parentDir) === 'conversations') {
+        swarmRootDirs.push(dirname(parentDir));
+      }
+    }
+  }
+  const swarmIndex = loadSwarmIndex(swarmRootDirs, conversations.map((c) => c.id));
+
+  // Ensure swarm coordinator & worker DBs are synced for any discovered swarm tied to requiredConvId or loaded summaries
+  const ensureSwarmRelatedSynced = (coordId: string) => {
+    const swarm = swarmIndex.swarmsByCoordinator.get(coordId);
+    if (!swarm) return;
+    if (!byId.has(coordId) && convById.has(coordId)) {
+      const coordSum = ensureSynced(convById.get(coordId));
+      summaries.push(coordSum);
+      byId.set(coordId, coordSum);
+    }
+    for (const member of swarm.members.values()) {
+      const mid = member.conversationId;
+      if (mid && !byId.has(mid) && convById.has(mid)) {
+        const mSum = ensureSynced(convById.get(mid));
+        summaries.push(mSum);
+        byId.set(mid, mSum);
+      }
+    }
+  };
+  if (requiredConvId) {
+    if (swarmIndex.swarmsByCoordinator.has(requiredConvId)) {
+      ensureSwarmRelatedSynced(requiredConvId);
+    } else {
+      const wLookup = swarmIndex.memberLookup.get(requiredConvId);
+      if (wLookup) ensureSwarmRelatedSynced(wLookup.coordinatorConvId);
+    }
+  }
+  for (const s of [...summaries]) {
+    if (swarmIndex.swarmsByCoordinator.has(s.id)) {
+      ensureSwarmRelatedSynced(s.id);
+    } else {
+      const wLookup = swarmIndex.memberLookup.get(s.id);
+      if (wLookup) ensureSwarmRelatedSynced(wLookup.coordinatorConvId);
+    }
+  }
+
   if (pendingBgSummaries.size > 0) {
     scheduleBgSummaryWarm();
   }
@@ -422,15 +507,26 @@ export function getConversationGraph(
     }
   }
 
+  // Swarm reverse-lookup: link every swarm worker to its coordinator even if SQLite parent_references is missing
+  for (const [workerConvId, lookup] of swarmIndex.memberLookup) {
+    if (!parentLinks.has(workerConvId) && workerConvId !== lookup.coordinatorConvId) {
+      parentLinks.set(workerConvId, {
+        parentId: lookup.coordinatorConvId,
+        kind: 'subagent',
+      });
+    }
+  }
+
   for (const s of summaries) {
     const link = parentLinks.get(s.id);
     if (!link) continue;
+    const swarmLookup = swarmIndex.memberLookup.get(s.id);
     if (!childrenByParent.has(link.parentId)) childrenByParent.set(link.parentId, []);
     childrenByParent.get(link.parentId).push({
       id: s.id,
       kind: link.kind,
-      subagentType: s.subagentType || '',
-      title: sqTitleOverrides.get(s.id) || s.title || '',
+      subagentType: s.subagentType || (swarmLookup ? 'worker' : ''),
+      title: sqTitleOverrides.get(s.id) || s.title || swarmLookup?.member.meta.taskTitle || '',
       calls: s.calls,
       outputTokens: s.outputTokens,
       costUSD: s.costUSD,
@@ -440,11 +536,45 @@ export function getConversationGraph(
       updatedMs: s.updatedMs,
       latestTsMs: s.latestTsMs,
       key: s.key,
+      ...(swarmLookup ? { swarm: swarmLookup.member.meta } : {}),
     });
   }
 
+  // Ensure every swarm worker in members.json appears under its coordinator (including newly spawned 0-call workers)
+  for (const swarm of swarmIndex.swarmsByCoordinator.values()) {
+    if (!childrenByParent.has(swarm.coordinatorConvId)) {
+      childrenByParent.set(swarm.coordinatorConvId, []);
+    }
+    const list = childrenByParent.get(swarm.coordinatorConvId);
+    const existingIds = new Set(list.map((c) => c.id));
+    for (const member of swarm.members.values()) {
+      if (member.role === 'coordinator' || member.conversationId === swarm.coordinatorConvId) continue;
+      const memberId = member.conversationId || `swarm:${swarm.swarmId}:${member.rosterName}`;
+      if (existingIds.has(memberId)) continue;
+      const sum = member.conversationId ? byId.get(member.conversationId) : null;
+      const fallbackMs = parseIsoMs(member.meta.lastPostTime) || parseIsoMs(swarm.createdAt) || 0;
+      list.push({
+        id: memberId,
+        kind: 'subagent',
+        subagentType: sum?.subagentType || 'worker',
+        title: (sum && (sqTitleOverrides.get(sum.id) || sum.title)) || member.meta.taskTitle || `@${member.rosterName}`,
+        calls: sum?.calls || 0,
+        outputTokens: sum?.outputTokens || 0,
+        costUSD: sum?.costUSD || 0,
+        savedUSD: sum?.savedUSD || 0,
+        pricedCount: sum?.pricedCount || 0,
+        unpricedCount: sum?.unpricedCount || 0,
+        updatedMs: sum?.updatedMs || fallbackMs,
+        latestTsMs: sum?.latestTsMs || fallbackMs,
+        key: sum?.key || `swarm:${member.rosterName}:${member.state}`,
+        swarm: member.meta,
+      });
+      existingIds.add(memberId);
+    }
+  }
+
   for (const list of childrenByParent.values()) {
-    list.sort((a, b) => b.updatedMs - a.updatedMs);
+    list.sort((a, b) => (b.updatedMs - a.updatedMs) || String(a.swarm?.rosterName || a.id).localeCompare(String(b.swarm?.rosterName || b.id)));
   }
 
   const sourceCounts = { app: 0, cli: 0, ide: 0 };
@@ -462,6 +592,7 @@ export function getConversationGraph(
     childrenByParent,
     sqTitleOverrides,
     sourceCounts,
+    swarmIndex,
     indexing: pendingBgSummaries.size > 0,
     totalDbFiles: conversations.length,
   };
@@ -549,30 +680,81 @@ export function pickTargetConversation({
   return pool[0].conv;
 }
 
+export function getConversationSwarmMeta(
+  convId: string,
+  graph: any,
+): { swarmRosterName: string; swarmState: SwarmMemberState } | null {
+  const swarmIndex = graph?.swarmIndex;
+  if (!swarmIndex || !convId) return null;
+  const workerHit = swarmIndex.memberLookup?.get(convId);
+  if (workerHit) {
+    return {
+      swarmRosterName: workerHit.rosterName,
+      swarmState: workerHit.member.state,
+    };
+  }
+  const coordSwarm = swarmIndex.swarmsByCoordinator?.get(convId);
+  if (coordSwarm) {
+    const coordMember = coordSwarm.members.get('coordinator') || coordSwarm.memberByConvId.get(convId);
+    return {
+      swarmRosterName: 'coordinator',
+      swarmState: coordMember?.state || (coordSwarm.workingCount > 0 ? 'working' : 'waiting'),
+    };
+  }
+  return null;
+}
+
 export function buildSessionInfo(targetId, graph) {
   const s = graph.byId.get(targetId);
   const link = graph.parentLinks.get(targetId);
-  const parentSum = link ? graph.byId.get(link.parentId) : null;
-  const kind = link ? link.kind : (s?.trajectoryType === 22 ? 'side_question' : 'main');
-  const title = graph.sqTitleOverrides.get(targetId) || s?.title || '';
-  const childSessions = (graph.childrenByParent.get(targetId) || []).map(({ key: _key, ...rest }) => rest);
+  const swarmIndex = graph.swarmIndex;
+  const coordSwarm = swarmIndex?.swarmsByCoordinator?.get(targetId) || null;
+  const workerLookup = !coordSwarm ? (swarmIndex?.memberLookup?.get(targetId) || null) : null;
+
+  const effectiveParentId = link?.parentId || workerLookup?.coordinatorConvId || '';
+  const parentSum = effectiveParentId ? graph.byId.get(effectiveParentId) : null;
+  const kind = link
+    ? link.kind
+    : (workerLookup ? 'subagent' : (s?.trajectoryType === 22 ? 'side_question' : 'main'));
+  const title = graph.sqTitleOverrides.get(targetId)
+    || s?.title
+    || (coordSwarm?.swarmTitle || workerLookup?.member.meta.taskTitle || '');
+  const rawChildren = graph.childrenByParent.get(targetId) || [];
+  const childSessions = rawChildren.map(({ key: _key, ...rest }) => rest);
+
+  const swarmOverview = coordSwarm
+    ? buildSwarmOverview(coordSwarm, true)
+    : (workerLookup ? buildSwarmOverview(workerLookup.swarm, false, workerLookup.member.meta) : null);
+  const swarmSig = (coordSwarm || workerLookup?.swarm)?.sig || '';
+
+  const parentSession = parentSum
+    ? {
+        id: parentSum.id,
+        title: graph.sqTitleOverrides.get(parentSum.id) || parentSum.title || workerLookup?.swarm.swarmTitle || '',
+        calls: parentSum.calls,
+        outputTokens: parentSum.outputTokens,
+        costUSD: parentSum.costUSD,
+      }
+    : (workerLookup
+        ? {
+            id: workerLookup.coordinatorConvId,
+            title: workerLookup.swarm.swarmTitle || '',
+            calls: 0,
+            outputTokens: 0,
+            costUSD: 0,
+          }
+        : null);
 
   return {
     id: targetId,
     title,
     kind,
-    subagentType: s?.subagentType || '',
-    parentSession: parentSum
-      ? {
-          id: parentSum.id,
-          title: graph.sqTitleOverrides.get(parentSum.id) || parentSum.title || '',
-          calls: parentSum.calls,
-          outputTokens: parentSum.outputTokens,
-          costUSD: parentSum.costUSD,
-        }
-      : null,
+    subagentType: s?.subagentType || (workerLookup ? 'worker' : ''),
+    parentSession,
     childSessions,
-    childKeys: (graph.childrenByParent.get(targetId) || []).map((c) => `${c.id}:${c.key}`).join(','),
+    ...(swarmOverview ? { swarm: swarmOverview } : {}),
+    childKeys: rawChildren.map((c) => `${c.id}:${c.key}`).join(','),
+    swarmSig,
   };
 }
 
