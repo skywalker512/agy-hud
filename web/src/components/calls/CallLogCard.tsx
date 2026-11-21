@@ -1,17 +1,30 @@
 import type { ComponentChildren } from 'preact';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import type {
   ActiveStep,
   CallDetailPayload,
   Compaction,
   Invocation,
+  Lang,
+  StatsSnapshot,
   TurnSummary,
 } from '../../types/telemetry';
+import { copyText } from '../../utils/clipboard';
+import { downloadOrCopyJson, formatSessionJson, formatSessionMarkdown } from '../../utils/exportReport';
+import { formatModelTag } from '../../utils/format';
 import { CompactCard } from './CompactCard';
 import { InvocationRow } from './InvocationRow';
 import { LiveCallRow } from './LiveCallRow';
 import { TurnDivider } from './TurnDivider';
 import { buildTimelineDesc, type TimelineItem } from './timeline';
+
+export type CallSortMode = 'timeline' | 'slowest' | 'ttft' | 'low_tps' | 'cost';
+
+export interface JumpRequest {
+  invIdx: number;
+  nonce: number;
+}
 
 export interface CallLogCardProps {
   invocations: Invocation[];
@@ -42,6 +55,54 @@ export interface CallLogCardProps {
   open?: boolean;
   onToggleOpen?: () => void;
   onViewAll?: () => void;
+  // Optional Wave 2 Track B props (used by CallsTab full view)
+  snap?: StatsSnapshot | null;
+  lang?: Lang;
+  selectedModel?: string;
+  onClearModel?: () => void;
+  jumpRequest?: JumpRequest | null;
+  onSetCompactOnly?: (val: boolean) => void;
+  onEnsureShowAllHistory?: () => void;
+  onUnfoldTurn?: (turnIdx: number) => void;
+  onEnsureInvocationExpanded?: (idx: number, hasDetail: boolean) => void;
+}
+
+function getModelKey(r: Invocation): string {
+  return formatModelTag(r.modelId, r.modelDisplay, r.model) || 'unknown';
+}
+
+function matchesSearch(
+  r: Invocation,
+  q: string,
+  convId: string,
+  turnMap: Map<number, TurnSummary>,
+  detailCache: Map<string, CallDetailPayload>,
+): boolean {
+  if (!q) return true;
+  const idxNum = String(r.idx + 1);
+  if (q === idxNum || q === `#${idxNum}` || `#${idxNum}`.includes(q)) return true;
+
+  const modelTag = formatModelTag(r.modelId, r.modelDisplay, r.model).toLowerCase();
+  if (modelTag.includes(q)) return true;
+  if (r.modelDisplay && r.modelDisplay.toLowerCase().includes(q)) return true;
+  if (r.model && r.model.toLowerCase().includes(q)) return true;
+
+  if (r.turnIndex != null) {
+    const turn = turnMap.get(r.turnIndex);
+    if (turn?.promptPreview && turn.promptPreview.toLowerCase().includes(q)) return true;
+  }
+
+  const cached = convId ? detailCache.get(`${convId}:inv:${r.idx}`) : undefined;
+  const tools = cached?.toolCalls || r.toolCalls || [];
+  for (const tc of tools) {
+    if (tc.name && tc.name.toLowerCase().includes(q)) return true;
+  }
+  const think = cached?.thinkingPreview || r.thinkingPreview || '';
+  if (think && think.toLowerCase().includes(q)) return true;
+  const reply = cached?.replyPreview || r.replyPreview || '';
+  if (reply && reply.toLowerCase().includes(q)) return true;
+
+  return false;
 }
 
 export function CallLogCard({
@@ -73,15 +134,255 @@ export function CallLogCard({
   open,
   onToggleOpen,
   onViewAll,
+  snap,
+  lang = 'en',
+  selectedModel = '',
+  onClearModel,
+  jumpRequest,
+  onSetCompactOnly,
+  onEnsureShowAllHistory,
+  onUnfoldTurn,
+  onEnsureInvocationExpanded,
 }: CallLogCardProps) {
   const isRecent = variant === 'recent';
+  const isFull = !isRecent;
   const isCollapsible = typeof onToggleOpen === 'function';
   const isOpen = isCollapsible ? Boolean(open) : true;
   const limit = initialLimit ?? (isRecent ? 6 : 40);
   const cardTitle = title ?? (isRecent ? t.recentTitle : t.histTitle);
 
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<CallSortMode>('timeline');
+  const [slowTtftOnly, setSlowTtftOnly] = useState(false);
+  const [lowCacheOnly, setLowCacheOnly] = useState(false);
+  const [stallBufOnly, setStallBufOnly] = useState(false);
+  const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportFeedback, setExportFeedback] = useState<string | null>(null);
+
+  const exportWrapRef = useRef<HTMLDivElement>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset local filters when conversation changes
+  useEffect(() => {
+    setSearchQuery('');
+    setSortBy('timeline');
+    setSlowTtftOnly(false);
+    setLowCacheOnly(false);
+    setStallBufOnly(false);
+    setHighlightedIdx(null);
+  }, [convId]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      if (exportTimerRef.current) clearTimeout(exportTimerRef.current);
+    };
+  }, []);
+
+  // Listen for global Escape event from App shortcuts
+  useEffect(() => {
+    if (!isFull) return;
+    const onGlobalEsc = () => {
+      setExportMenuOpen(false);
+      setSearchQuery('');
+    };
+    window.addEventListener('agy-hud-esc', onGlobalEsc);
+    return () => window.removeEventListener('agy-hud-esc', onGlobalEsc);
+  }, [isFull]);
+
+  // Close export dropdown on outside click / Escape
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (exportWrapRef.current && !exportWrapRef.current.contains(e.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setExportMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [exportMenuOpen]);
+
+  const activeModelFilter = selectedModel && selectedModel !== 'all' ? selectedModel : '';
+  const turnByIdx = useMemo(() => new Map(turns.map((u) => [u.turnIndex, u])), [turns]);
+
+  // Anomaly counts computed over model-scoped invocations
+  const modelScopedInvs = useMemo(() => {
+    if (!isFull || !activeModelFilter) return invocations;
+    return invocations.filter((r) => getModelKey(r) === activeModelFilter);
+  }, [isFull, invocations, activeModelFilter]);
+
+  const anomalyCounts = useMemo(() => {
+    let slowTtft = 0;
+    let lowCache = 0;
+    let stallBuf = 0;
+    for (const r of modelScopedInvs) {
+      if (r.ttftSec > 3) slowTtft += 1;
+      if (r.cacheHitPct !== null && r.cacheHitPct < 60) lowCache += 1;
+      if (r.isToolStall || r.isBuffered) stallBuf += 1;
+    }
+    return { slowTtft, lowCache, stallBuf };
+  }, [modelScopedInvs]);
+
+  const trimmedSearch = searchQuery.trim().toLowerCase();
+  const hasInvFilter =
+    isFull &&
+    (Boolean(trimmedSearch) || Boolean(activeModelFilter) || slowTtftOnly || lowCacheOnly || stallBufOnly);
+  const isFlatMode = isFull && !compactOnly && (sortBy !== 'timeline' || hasInvFilter);
+  const hasAnyActiveFilter = isFull && (hasInvFilter || compactOnly || sortBy !== 'timeline');
+
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setSortBy('timeline');
+    setSlowTtftOnly(false);
+    setLowCacheOnly(false);
+    setStallBufOnly(false);
+    if (compactOnly) onSetCompactOnly ? onSetCompactOnly(false) : onToggleCompactOnly();
+    onClearModel?.();
+  };
+
+  // Filtered & sorted flat invocations
+  const flatInvocations = useMemo(() => {
+    if (!isFlatMode) return [];
+    const filtered = invocations.filter((r) => {
+      if (activeModelFilter && getModelKey(r) !== activeModelFilter) return false;
+      if (slowTtftOnly && !(r.ttftSec > 3)) return false;
+      if (lowCacheOnly && !(r.cacheHitPct !== null && r.cacheHitPct < 60)) return false;
+      if (stallBufOnly && !(r.isToolStall || r.isBuffered)) return false;
+      if (trimmedSearch && !matchesSearch(r, trimmedSearch, convId, turnByIdx, detailCache)) return false;
+      return true;
+    });
+
+    const sorted = [...filtered];
+    if (sortBy === 'slowest') {
+      sorted.sort((a, b) => b.totalSec - a.totalSec || b.idx - a.idx);
+    } else if (sortBy === 'ttft') {
+      sorted.sort((a, b) => b.ttftSec - a.ttftSec || b.idx - a.idx);
+    } else if (sortBy === 'low_tps') {
+      sorted.sort((a, b) => {
+        if (a.isBuffered !== b.isBuffered) return a.isBuffered ? 1 : -1;
+        return a.genTps - b.genTps || b.idx - a.idx;
+      });
+    } else if (sortBy === 'cost') {
+      sorted.sort(
+        (a, b) =>
+          (b.quotaPct5h || 0) - (a.quotaPct5h || 0) || b.costUSD - a.costUSD || b.idx - a.idx,
+      );
+    } else {
+      sorted.sort((a, b) => b.idx - a.idx);
+    }
+    return sorted;
+  }, [
+    isFlatMode,
+    invocations,
+    activeModelFilter,
+    slowTtftOnly,
+    lowCacheOnly,
+    stallBufOnly,
+    trimmedSearch,
+    convId,
+    turnByIdx,
+    detailCache,
+    sortBy,
+  ]);
+
+  // Chart-to-log drill-down handler
+  useEffect(() => {
+    if (!isFull || !jumpRequest) return;
+    const target = invocations.find((r) => r.idx === jumpRequest.invIdx);
+    if (!target) return;
+
+    if (compactOnly) {
+      if (onSetCompactOnly) onSetCompactOnly(false);
+      else onToggleCompactOnly();
+    }
+    if (activeModelFilter && getModelKey(target) !== activeModelFilter) {
+      onClearModel?.();
+    }
+    if (slowTtftOnly && !(target.ttftSec > 3)) setSlowTtftOnly(false);
+    if (lowCacheOnly && !(target.cacheHitPct !== null && target.cacheHitPct < 60)) setLowCacheOnly(false);
+    if (stallBufOnly && !(target.isToolStall || target.isBuffered)) setStallBufOnly(false);
+    if (trimmedSearch && !matchesSearch(target, trimmedSearch, convId, turnByIdx, detailCache)) {
+      setSearchQuery('');
+    }
+    if (target.turnIndex != null && collapsedTurns.has(target.turnIndex)) {
+      onUnfoldTurn?.(target.turnIndex);
+    }
+    if (!showAllHistory && invocations.length > limit) {
+      // Ensure target isn't clipped by initial limit
+      const rankFromEnd = invocations.length - 1 - invocations.findIndex((r) => r.idx === target.idx);
+      if (rankFromEnd >= limit || isFlatMode) {
+        onEnsureShowAllHistory?.();
+      }
+    }
+
+    const hasDetail = Boolean(target.hasThinking || target.hasReply || (target.toolCount || 0) > 0);
+    if (onEnsureInvocationExpanded) {
+      onEnsureInvocationExpanded(target.idx, hasDetail);
+    } else if (!expandedRows.has(target.idx)) {
+      onToggleInvocation(target.idx, hasDetail);
+    }
+
+    let raf1 = 0;
+    let raf2 = 0;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-inv-idx="${target.idx}"]`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        setHighlightedIdx(target.idx);
+        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = setTimeout(() => {
+          setHighlightedIdx((cur) => (cur === target.idx ? null : cur));
+        }, 1250);
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+    // Trigger strictly on new jumpRequest nonce
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpRequest?.nonce]);
+
+  const handleExportMd = async () => {
+    if (!snap?.found) return;
+    const ok = await copyText(formatSessionMarkdown(snap, lang));
+    if (!ok) return;
+    if (exportTimerRef.current) clearTimeout(exportTimerRef.current);
+    setExportFeedback(t.copied);
+    exportTimerRef.current = setTimeout(() => {
+      setExportFeedback(null);
+      setExportMenuOpen(false);
+    }, 900);
+  };
+
+  const handleExportJson = async () => {
+    if (!snap?.found) return;
+    const shortId = (snap.conversationId || 'session').slice(0, 8);
+    const res = await downloadOrCopyJson(`agy-hud-${shortId}.json`, formatSessionJson(snap));
+    if (res === 'failed') return;
+    if (exportTimerRef.current) clearTimeout(exportTimerRef.current);
+    setExportFeedback(res === 'downloaded' ? t.exportedJsonSaved : t.exportedJsonCopied);
+    exportTimerRef.current = setTimeout(() => {
+      setExportFeedback(null);
+      setExportMenuOpen(false);
+    }, 950);
+  };
+
   const hasLiveRow = Boolean(activeStep && (activeStep.stepType === 15 || activeStep.stepType === 23));
   const allFolded = turns.length > 0 && turns.every((u) => collapsedTurns.has(u.turnIndex));
+  const latestInvIdx = invocations.length > 0 ? invocations[invocations.length - 1].idx : -1;
 
   const nodes: ComponentChildren[] = [];
 
@@ -123,12 +424,55 @@ export function CallLogCard({
         </div>,
       );
     }
+  } else if (isOpen && isFlatMode) {
+    const visibleFlat = !showAllHistory && flatInvocations.length > limit
+      ? flatInvocations.slice(0, limit)
+      : flatInvocations;
+
+    visibleFlat.forEach((r) => {
+      nodes.push(
+        <InvocationRow
+          key={`inv-${r.idx}`}
+          inv={r}
+          isLatest={r.idx === latestInvIdx && !hasLiveRow}
+          expanded={expandedRows.has(r.idx)}
+          convId={convId}
+          detailCache={detailCache}
+          detailLoading={detailLoading}
+          lang={lang}
+          t={t}
+          onToggle={onToggleInvocation}
+          showTurnBadge={true}
+          highlighted={highlightedIdx === r.idx}
+        />,
+      );
+    });
+
+    if (flatInvocations.length > limit) {
+      nodes.push(
+        <button
+          key="toggle-all-history"
+          type="button"
+          onClick={onToggleShowAllHistory}
+          className="w-full mt-0.5 px-2.5 py-1.5 rounded-md border border-hud-border bg-hud-fill text-hud-muted font-hud-mono text-[11px] font-semibold cursor-pointer hover:text-hud-fg hover:border-hud-accent transition-colors"
+        >
+          {showAllHistory ? t.collapseHistoryBtn(limit) : t.showAllHistoryBtn(visibleFlat.length, flatInvocations.length)}
+        </button>,
+      );
+    }
+
+    if (flatInvocations.length === 0) {
+      nodes.push(
+        <div key="no-match" className="py-[18px] px-2 text-center text-[12px] text-hud-muted">
+          {t.filterNoMatches}
+        </div>,
+      );
+    }
   } else if (isOpen) {
     type TimelineBlock =
       | { kind: 'turn'; turn: TurnSummary; items: ComponentChildren[] }
       | { kind: 'node'; node: ComponentChildren };
 
-    const turnByIdx = new Map(turns.map((u) => [u.turnIndex, u]));
     const blocks: TimelineBlock[] = [];
     const turnBlockMap = new Map<number, { kind: 'turn'; turn: TurnSummary; items: ComponentChildren[] }>();
 
@@ -209,8 +553,10 @@ export function CallLogCard({
             convId={convId}
             detailCache={detailCache}
             detailLoading={detailLoading}
+            lang={lang}
             t={t}
             onToggle={onToggleInvocation}
+            highlighted={highlightedIdx === r.idx}
           />,
         );
       } else {
@@ -276,6 +622,12 @@ export function CallLogCard({
 
   const shouldScrollInline = isRecent && (showAllHistory || (compactOnly && compactions.length > limit));
 
+  const showSlowChip = anomalyCounts.slowTtft > 0 || slowTtftOnly;
+  const showLowCacheChip = anomalyCounts.lowCache > 0 || lowCacheOnly;
+  const showStallChip = anomalyCounts.stallBuf > 0 || stallBufOnly;
+  const showCompactChip = compactions.length > 0 || compactOnly;
+  const hasChipRow = Boolean(activeModelFilter) || showSlowChip || showLowCacheChip || showStallChip || showCompactChip;
+
   return (
     <section id={isRecent ? undefined : 'call-log-card'} className="hud-card">
       <div className="card-head flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
@@ -288,7 +640,7 @@ export function CallLogCard({
         </div>
 
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">
-          {isOpen && turns.length > 0 && !compactOnly && (
+          {isOpen && turns.length > 0 && !compactOnly && !isFlatMode && (
             <button
               type="button"
               className={`filter-chip${allFolded ? ' is-active' : ''}`}
@@ -297,7 +649,7 @@ export function CallLogCard({
               {allFolded ? t.unfoldAllTurns : t.foldAllTurns}
             </button>
           )}
-          {isOpen && compactions.length > 0 && (
+          {isRecent && isOpen && compactions.length > 0 && (
             <button
               type="button"
               className={`filter-chip${compactOnly ? ' is-active' : ''}`}
@@ -305,6 +657,39 @@ export function CallLogCard({
             >
               {t.compactFilterBtn(compactions.length, compactOnly)}
             </button>
+          )}
+          {isFull && snap?.found && invocations.length > 0 && (
+            <div ref={exportWrapRef} className="relative">
+              <button
+                type="button"
+                className="insp-copy-btn"
+                aria-expanded={exportMenuOpen}
+                onClick={() => setExportMenuOpen((p) => !p)}
+              >
+                {exportFeedback || `${t.btnExport} ▾`}
+              </button>
+              {exportMenuOpen && (
+                <div
+                  role="menu"
+                  className="more-popover absolute right-0 top-[calc(100%+4px)] z-30 min-w-[186px] p-1 rounded-lg bg-hud-card border border-hud-border shadow-xl flex flex-col gap-0.5"
+                >
+                  <button
+                    type="button"
+                    onClick={() => void handleExportMd()}
+                    className="w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-hud-fg text-[11px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors"
+                  >
+                    {t.btnCopyReportMd}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExportJson()}
+                    className="w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-hud-fg text-[11px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors"
+                  >
+                    {t.btnExportJson}
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           {onViewAll ? (
             <button type="button" className="link-btn" onClick={onViewAll}>
@@ -325,6 +710,137 @@ export function CallLogCard({
           )}
         </div>
       </div>
+
+      {/* Call Explorer Toolbar (full view only) */}
+      {isFull && isOpen && (invocations.length > 0 || compactions.length > 0) && (
+        <div className="call-toolbar mt-2 flex flex-col gap-1.5 min-w-0">
+          {/* Row 1: Instant Search + Metric Sort */}
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+            <div className="relative flex items-center flex-1 min-w-[140px]">
+              <span
+                className="pointer-events-none absolute left-[7px] text-hud-muted font-hud-mono text-[11px]"
+                aria-hidden="true"
+              >
+                ⌕
+              </span>
+              <input
+                id="call-log-search"
+                type="text"
+                value={searchQuery}
+                placeholder={t.searchPlaceholder}
+                aria-label={t.searchPlaceholder}
+                onInput={(e) => setSearchQuery((e.currentTarget as HTMLInputElement).value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.stopPropagation();
+                    setSearchQuery('');
+                    (e.currentTarget as HTMLInputElement).blur();
+                  }
+                }}
+                className="call-search-input"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  aria-label={t.filterClear}
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-[5px] border-0 bg-transparent text-hud-muted hover:text-hud-fg font-hud-mono text-[12px] leading-none px-1 cursor-pointer"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            <select
+              aria-label="Sort calls"
+              value={sortBy}
+              onChange={(e) => setSortBy((e.currentTarget as HTMLSelectElement).value as CallSortMode)}
+              className="call-sort-select"
+            >
+              <option value="timeline">{t.sortTimeline}</option>
+              <option value="slowest">{t.sortSlowest}</option>
+              <option value="ttft">{t.sortTtft}</option>
+              <option value="low_tps">{t.sortLowTps}</option>
+              <option value="cost">{t.sortCost}</option>
+            </select>
+          </div>
+
+          {/* Row 2: Anomaly & Synced Model Filter Chips */}
+          {hasChipRow && (
+            <div className="flex flex-wrap items-center gap-1 min-w-0">
+              {activeModelFilter && (
+                <button
+                  type="button"
+                  className="anomaly-chip is-model is-active"
+                  onClick={() => onClearModel?.()}
+                >
+                  <span>{t.chipModelFilter(activeModelFilter)}</span>
+                  <span aria-hidden="true">×</span>
+                </button>
+              )}
+              {showSlowChip && (
+                <button
+                  type="button"
+                  className={`anomaly-chip is-bad${slowTtftOnly ? ' is-active' : ''}`}
+                  onClick={() => {
+                    if (compactOnly) onSetCompactOnly ? onSetCompactOnly(false) : onToggleCompactOnly();
+                    setSlowTtftOnly((p) => !p);
+                  }}
+                >
+                  {t.chipSlowTtft(anomalyCounts.slowTtft)}
+                </button>
+              )}
+              {showLowCacheChip && (
+                <button
+                  type="button"
+                  className={`anomaly-chip is-warn${lowCacheOnly ? ' is-active' : ''}`}
+                  onClick={() => {
+                    if (compactOnly) onSetCompactOnly ? onSetCompactOnly(false) : onToggleCompactOnly();
+                    setLowCacheOnly((p) => !p);
+                  }}
+                >
+                  {t.chipLowCache(anomalyCounts.lowCache)}
+                </button>
+              )}
+              {showStallChip && (
+                <button
+                  type="button"
+                  className={`anomaly-chip is-warn${stallBufOnly ? ' is-active' : ''}`}
+                  onClick={() => {
+                    if (compactOnly) onSetCompactOnly ? onSetCompactOnly(false) : onToggleCompactOnly();
+                    setStallBufOnly((p) => !p);
+                  }}
+                >
+                  {t.chipStallBuf(anomalyCounts.stallBuf)}
+                </button>
+              )}
+              {showCompactChip && (
+                <button
+                  type="button"
+                  className={`anomaly-chip is-think${compactOnly ? ' is-active' : ''}`}
+                  onClick={onToggleCompactOnly}
+                >
+                  {t.compactFilterBtn(compactions.length, compactOnly)}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Active Filter Count Banner */}
+          {hasAnyActiveFilter && (
+            <div className="flex items-center justify-between gap-2 px-2 py-[3px] rounded-md bg-hud-surface-2 border border-hud-border font-hud-mono text-[10px] text-hud-muted tabular-nums">
+              <span>
+                {compactOnly
+                  ? t.compactFilterBtn(compactions.length, true)
+                  : t.filterBanner(isFlatMode ? flatInvocations.length : invocations.length, invocations.length)}
+              </span>
+              <button type="button" className="link-btn !py-0 !text-[10px]" onClick={clearAllFilters}>
+                {t.filterClear}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {isOpen && (
         <div

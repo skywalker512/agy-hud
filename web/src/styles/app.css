@@ -3,6 +3,7 @@
 @theme {
   --color-hud-bg: var(--hud-bg);
   --color-hud-card: var(--hud-card);
+  --color-hud-surface-2: var(--hud-surface-2);
   --color-hud-secondary: var(--hud-secondary);
   --color-hud-muted-surface: var(--hud-muted-surface);
   --color-hud-fg: var(--hud-fg);
@@ -25,6 +26,18 @@
   --color-seg-think: var(--seg-think);
   --color-seg-out: var(--seg-out);
   --color-seg-other: var(--seg-other);
+  --color-tint-ok: var(--tint-ok);
+  --color-tint-ok-border: var(--tint-ok-border);
+  --color-tint-warn: var(--tint-warn);
+  --color-tint-warn-border: var(--tint-warn-border);
+  --color-tint-bad: var(--tint-bad);
+  --color-tint-bad-border: var(--tint-bad-border);
+  --color-tint-accent: var(--tint-accent);
+  --color-tint-accent-border: var(--tint-accent-border);
+  --color-tint-think: var(--tint-think);
+  --color-tint-think-border: var(--tint-think-border);
+  --color-tint-out: var(--tint-out);
+  --color-tint-out-border: var(--tint-out-border);
   --font-hud: var(--hud-font);
   --font-hud-mono: var(--hud-mono);
 }
@@ -34,6 +47,7 @@
     color-scheme: light dark;
     --hud-bg: var(--background, #f7f7f8);
     --hud-card: var(--card, #ffffff);
+    --hud-surface-2: color-mix(in srgb, var(--hud-fg) 3.2%, var(--hud-card));
     --hud-secondary: var(--secondary, #e6e7e9);
     --hud-muted-surface: var(--muted, #eff0f1);
     --hud-fg: var(--foreground, #1d1f21);
@@ -56,6 +70,18 @@
     --seg-think: #7c56d8;
     --seg-out: #b57b1b;
     --seg-other: var(--hud-muted);
+    --tint-ok: color-mix(in srgb, var(--hud-ok) 13%, transparent);
+    --tint-ok-border: color-mix(in srgb, var(--hud-ok) 36%, var(--hud-border));
+    --tint-warn: color-mix(in srgb, var(--hud-warn) 14%, transparent);
+    --tint-warn-border: color-mix(in srgb, var(--hud-warn) 38%, var(--hud-border));
+    --tint-bad: color-mix(in srgb, var(--hud-bad) 13%, transparent);
+    --tint-bad-border: color-mix(in srgb, var(--hud-bad) 38%, var(--hud-border));
+    --tint-accent: color-mix(in srgb, var(--hud-accent) 13%, transparent);
+    --tint-accent-border: color-mix(in srgb, var(--hud-accent) 38%, var(--hud-border));
+    --tint-think: color-mix(in srgb, var(--seg-think) 14%, transparent);
+    --tint-think-border: color-mix(in srgb, var(--seg-think) 40%, var(--hud-border));
+    --tint-out: color-mix(in srgb, var(--seg-out) 13%, transparent);
+    --tint-out-border: color-mix(in srgb, var(--seg-out) 38%, var(--hud-border));
     --hud-font: var(
       --font-family,
       var(
@@ -97,6 +123,7 @@
 
   :root[data-theme="dark"] {
     color-scheme: dark;
+    --hud-surface-2: color-mix(in srgb, var(--hud-fg) 4.8%, var(--hud-card));
     --hud-border: var(--card-border, var(--border, color-mix(in srgb, var(--hud-fg) 11%, transparent)));
     --hud-ok: #7aae66;
     --hud-warn: #cab43e;
@@ -106,6 +133,18 @@
     --seg-think: #a985e2;
     --seg-out: #cab43e;
     --seg-other: color-mix(in srgb, var(--hud-muted) 88%, var(--hud-fg));
+    --tint-ok: color-mix(in srgb, var(--hud-ok) 15%, transparent);
+    --tint-ok-border: color-mix(in srgb, var(--hud-ok) 40%, var(--hud-border));
+    --tint-warn: color-mix(in srgb, var(--hud-warn) 16%, transparent);
+    --tint-warn-border: color-mix(in srgb, var(--hud-warn) 42%, var(--hud-border));
+    --tint-bad: color-mix(in srgb, var(--hud-bad) 15%, transparent);
+    --tint-bad-border: color-mix(in srgb, var(--hud-bad) 40%, var(--hud-border));
+    --tint-accent: color-mix(in srgb, var(--hud-accent) 16%, transparent);
+    --tint-accent-border: color-mix(in srgb, var(--hud-accent) 42%, var(--hud-border));
+    --tint-think: color-mix(in srgb, var(--seg-think) 16%, transparent);
+    --tint-think-border: color-mix(in srgb, var(--seg-think) 42%, var(--hud-border));
+    --tint-out: color-mix(in srgb, var(--seg-out) 15%, transparent);
+    --tint-out-border: color-mix(in srgb, var(--seg-out) 40%, var(--hud-border));
     --hud-fill: color-mix(in srgb, var(--hud-fg) 5.5%, transparent);
     --hud-tab-track: color-mix(in srgb, var(--hud-fg) 4%, var(--hud-bg));
     --hud-tab-active-bg: color-mix(in srgb, var(--hud-accent) 18%, color-mix(in srgb, var(--hud-fg) 10%, var(--hud-bg)));
@@ -113,18 +152,34 @@
   }
 
   :root[data-contrast="strong"] {
+    --hud-surface-2: color-mix(in srgb, var(--hud-fg) 6.5%, var(--hud-card));
     --hud-muted: color-mix(in srgb, var(--muted-foreground, #677078) 65%, var(--hud-fg));
     --hud-border: var(--card-border, var(--border, color-mix(in srgb, var(--hud-fg) 28%, transparent)));
     --hud-fill: color-mix(in srgb, var(--hud-fg) 8%, transparent);
     --hud-tab-track: color-mix(in srgb, var(--hud-fg) 7.5%, var(--hud-bg));
     --hud-tab-active-bg: color-mix(in srgb, var(--hud-accent) 22%, var(--hud-card));
     --hud-tab-active-border: color-mix(in srgb, var(--hud-accent) 72%, var(--hud-fg) 22%);
+    --tint-ok-border: color-mix(in srgb, var(--hud-ok) 58%, var(--hud-border));
+    --tint-warn-border: color-mix(in srgb, var(--hud-warn) 58%, var(--hud-border));
+    --tint-bad-border: color-mix(in srgb, var(--hud-bad) 58%, var(--hud-border));
+    --tint-accent-border: color-mix(in srgb, var(--hud-accent) 58%, var(--hud-border));
+    --tint-think-border: color-mix(in srgb, var(--seg-think) 58%, var(--hud-border));
+    --tint-out-border: color-mix(in srgb, var(--seg-out) 58%, var(--hud-border));
   }
 
   * {
     box-sizing: border-box;
     scrollbar-width: thin;
     scrollbar-color: color-mix(in srgb, var(--hud-fg) 22%, transparent) transparent;
+  }
+
+  button:focus-visible,
+  select:focus-visible,
+  input:focus-visible,
+  a:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 1.5px solid var(--hud-accent);
+    outline-offset: 1px;
   }
 
   ::selection {
@@ -165,7 +220,35 @@
   }
 }
 
+@keyframes hud-jump-flash {
+  0% {
+    box-shadow: 0 0 0 2px var(--hud-accent), 0 0 12px color-mix(in srgb, var(--hud-accent) 42%, transparent);
+    border-color: var(--hud-accent);
+  }
+  65% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--hud-accent) 65%, transparent), 0 0 8px color-mix(in srgb, var(--hud-accent) 20%, transparent);
+    border-color: var(--hud-accent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+    border-color: transparent;
+  }
+}
+
+@keyframes hud-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 @layer components {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
   .hud-shell {
     @apply w-full min-w-0 max-w-[720px] mx-auto flex flex-col gap-2.5;
     padding: 10px 10px 18px;
@@ -177,12 +260,14 @@
   }
 
   .card-k {
-    @apply font-semibold text-hud-muted tracking-[0.02em];
-    font-size: calc(11px * var(--hud-font-scale, 1));
+    @apply font-semibold text-hud-muted uppercase;
+    letter-spacing: 0.05em;
+    font-size: calc(10.5px * var(--hud-font-scale, 1));
   }
 
   .card-sub {
     @apply mt-1 text-hud-muted font-hud-mono tabular-nums;
+    font-variant-numeric: tabular-nums lining-nums;
     font-size: calc(11px * var(--hud-font-scale, 1));
   }
 
@@ -767,6 +852,212 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
     font-size: calc(11px * var(--hud-font-scale, 1));
   }
+
+  /* ── Jump Highlight & Collapsed Row Latency Hairline ── */
+  .history-row {
+    position: relative;
+  }
+  .history-row.is-jump-highlight,
+  .hud-card.is-jump-highlight {
+    animation: hud-jump-flash 1.25s ease-out;
+  }
+
+  .row-latency-hairline {
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    bottom: 0;
+    height: 2px;
+    display: flex;
+    overflow: hidden;
+    border-radius: 0 0 6px 6px;
+    pointer-events: none;
+    opacity: 0.78;
+  }
+  .history-row:hover .row-latency-hairline {
+    opacity: 1;
+  }
+
+  .row-micro-pill {
+    @apply inline-flex items-center px-[4.5px] py-[0.5px] rounded font-hud-mono font-semibold leading-[1.35] whitespace-nowrap shrink-0 tabular-nums;
+    font-size: calc(9px * var(--hud-font-scale, 1));
+  }
+  .row-micro-pill.is-buf {
+    @apply text-hud-muted bg-hud-card border border-hud-border;
+  }
+  .row-micro-pill.is-stall {
+    @apply text-hud-warn bg-tint-warn border border-tint-warn-border;
+  }
+  .row-micro-pill.is-turn {
+    @apply text-hud-accent-ink bg-tint-accent border border-tint-accent-border;
+  }
+
+  /* ── OpenRouter-Style Tabbed Call Detail Inspector ── */
+  .insp-tab {
+    @apply border-0 bg-transparent text-hud-muted font-hud-mono font-semibold px-1.5 py-[2.5px] rounded-[4px] cursor-pointer inline-flex items-center gap-1 whitespace-nowrap transition-colors tabular-nums;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+  .insp-tab:hover {
+    @apply text-hud-fg;
+  }
+  .insp-tab.is-active {
+    @apply bg-hud-tab-active-bg text-hud-fg;
+    box-shadow: inset 0 0 0 1px var(--hud-tab-active-border);
+  }
+
+  .insp-copy-btn {
+    @apply border border-hud-border bg-hud-card text-hud-muted rounded-[4px] px-1.5 py-[2px] font-hud-mono font-semibold cursor-pointer whitespace-nowrap transition-colors;
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+  .insp-copy-btn:hover {
+    @apply text-hud-fg border-hud-accent;
+  }
+  .insp-copy-btn.is-copied {
+    @apply text-hud-ok bg-tint-ok border-tint-ok-border;
+  }
+
+  .insp-cell {
+    @apply rounded-md border border-hud-border bg-hud-surface-2 flex flex-col gap-[2px] min-w-0 px-[7px] py-[5px];
+  }
+  .insp-cell-k {
+    @apply font-hud-mono font-semibold uppercase text-hud-muted truncate tracking-[0.04em];
+    font-size: calc(9px * var(--hud-font-scale, 1));
+  }
+  .insp-cell-v {
+    @apply font-hud-mono font-bold text-hud-fg leading-[1.2] truncate tabular-nums;
+    font-size: calc(11px * var(--hud-font-scale, 1));
+  }
+  .insp-cell-sub {
+    @apply font-hud-mono text-hud-muted leading-[1.25] truncate tabular-nums;
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+
+  .insp-wf-seg.is-stall {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      var(--seg-out),
+      var(--seg-out) 4px,
+      color-mix(in srgb, var(--hud-bad) 75%, var(--seg-out)) 4px,
+      color-mix(in srgb, var(--hud-bad) 75%, var(--seg-out)) 8px
+    );
+  }
+
+  .insp-tool-pill {
+    @apply inline-flex items-center px-1.5 py-[1px] rounded font-hud-mono font-semibold text-hud-fg bg-tint-out border border-tint-out-border;
+    font-size: calc(10.5px * var(--hud-font-scale, 1));
+  }
+
+  .insp-shimmer {
+    height: 44px;
+    border-radius: 5px;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--hud-fg) 4%, var(--hud-surface-2)) 25%,
+      color-mix(in srgb, var(--hud-fg) 10%, var(--hud-surface-2)) 50%,
+      color-mix(in srgb, var(--hud-fg) 4%, var(--hud-surface-2)) 75%
+    );
+    background-size: 200% 100%;
+    animation: hud-shimmer 1.3s ease-in-out infinite;
+  }
+
+  /* ── Call Explorer Toolbar ── */
+  .call-search-input {
+    @apply w-full rounded-md border border-hud-border bg-hud-surface-2 text-hud-fg font-hud-mono transition-colors py-1 px-[22px];
+    font-size: calc(11px * var(--hud-font-scale, 1));
+  }
+  .call-search-input::placeholder {
+    color: var(--hud-faint);
+  }
+  .call-search-input:focus {
+    border-color: var(--hud-accent);
+  }
+  .call-sort-select {
+    @apply rounded-md border border-hud-border bg-hud-surface-2 text-hud-fg font-hud-mono cursor-pointer shrink-0 py-1 px-1.5;
+    font-size: calc(10.5px * var(--hud-font-scale, 1));
+  }
+  .call-sort-select option {
+    @apply bg-hud-card text-hud-fg;
+  }
+
+  .anomaly-chip {
+    @apply inline-flex items-center gap-1 rounded-full px-[7px] py-[1.5px] font-hud-mono font-semibold cursor-pointer whitespace-nowrap transition-colors border border-hud-border bg-hud-surface-2 text-hud-muted tabular-nums;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+  .anomaly-chip:hover {
+    @apply text-hud-fg border-hud-accent/55;
+  }
+  .anomaly-chip.is-active {
+    @apply text-hud-fg bg-tint-accent border-tint-accent-border;
+  }
+  .anomaly-chip.is-warn.is-active {
+    @apply text-hud-warn bg-tint-warn border-tint-warn-border;
+  }
+  .anomaly-chip.is-bad.is-active {
+    @apply text-hud-bad bg-tint-bad border-tint-bad-border;
+  }
+  .anomaly-chip.is-think {
+    @apply text-seg-think bg-tint-think border-tint-think-border;
+  }
+  .anomaly-chip.is-think.is-active {
+    @apply text-hud-fg border-seg-think;
+    background: color-mix(in srgb, var(--seg-think) 24%, var(--hud-card));
+  }
+  .anomaly-chip.is-model {
+    @apply text-hud-accent-ink bg-tint-accent border-tint-accent-border;
+  }
+
+  /* ── TopBar Update Pill & AccountTab Update Action ── */
+  .update-pill {
+    @apply inline-flex items-center gap-1 px-1.5 py-[2px] rounded-full font-hud-mono font-bold whitespace-nowrap shrink-0 cursor-pointer transition-colors tabular-nums text-hud-accent-ink bg-tint-accent border border-tint-accent-border;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+  .update-pill:hover {
+    background: color-mix(in srgb, var(--hud-accent) 22%, transparent);
+    border-color: var(--hud-accent);
+  }
+
+  .update-action-btn {
+    @apply inline-flex items-center gap-1 px-2.5 py-[3.5px] rounded-md font-hud-mono font-semibold cursor-pointer whitespace-nowrap border-0 transition-opacity bg-hud-accent text-hud-accent-fg;
+    font-size: calc(10.5px * var(--hud-font-scale, 1));
+  }
+  .update-action-btn:hover {
+    opacity: 0.9;
+  }
+  .update-action-btn:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  /* ── Hero Speed Delta Badge ── */
+  .hero-delta {
+    @apply inline-flex items-center px-1.5 py-[1px] rounded-full font-hud-mono font-semibold whitespace-nowrap tabular-nums;
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+  .hero-delta.is-up {
+    @apply text-hud-ok bg-tint-ok;
+  }
+  .hero-delta.is-down {
+    @apply text-hud-warn bg-tint-warn;
+  }
+  .hero-delta.is-flat {
+    @apply text-hud-muted bg-hud-fill;
+  }
+
+  /* ── Session Model Mix Grid ── */
+  .model-mix-grid {
+    @apply grid gap-x-2 gap-y-1 items-center font-hud-mono tabular-nums;
+    grid-template-columns: minmax(80px, 1.5fr) auto auto auto auto auto;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+}
+
+:root[data-theme="dark"] .hud-card {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 4.5%, transparent);
+}
+
+:lang(zh) .card-k {
+  letter-spacing: 0.02em;
+  text-transform: none;
 }
 
 :root[data-contrast="strong"] .hud-card,
@@ -776,7 +1067,10 @@
 :root[data-contrast="strong"] .hud-select,
 :root[data-contrast="strong"] .hud-btn,
 :root[data-contrast="strong"] .more-popover,
-:root[data-contrast="strong"] .spend-cell {
+:root[data-contrast="strong"] .spend-cell,
+:root[data-contrast="strong"] .insp-cell,
+:root[data-contrast="strong"] .call-search-input,
+:root[data-contrast="strong"] .call-sort-select {
   border-color: color-mix(in srgb, var(--hud-border) 72%, var(--hud-fg) 28%);
 }
 :root[data-contrast="strong"] .history-row {
@@ -856,7 +1150,8 @@
     flex-direction: column;
     overflow: hidden;
   }
-  body.calls-log-open #call-log-card > .card-head {
+  body.calls-log-open #call-log-card > .card-head,
+  body.calls-log-open #call-log-card > .call-toolbar {
     flex-shrink: 0;
   }
   body.calls-log-open #history-list {
@@ -868,7 +1163,8 @@
 
 @media (max-width: 460px) {
   .kpi-grid-4,
-  .spend-grid {
+  .spend-grid,
+  .insp-grid-4 {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
   .model-id-tag {
@@ -887,6 +1183,12 @@
     padding: 9px 10px;
   }
   .history-e2e {
+    display: none !important;
+  }
+  .model-mix-grid {
+    grid-template-columns: minmax(68px, 1.4fr) auto auto auto !important;
+  }
+  .model-mix-hide-xs {
     display: none !important;
   }
 }

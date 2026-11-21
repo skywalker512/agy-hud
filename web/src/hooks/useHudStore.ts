@@ -16,6 +16,8 @@ import type {
   HudTab,
   Lang,
   StatsSnapshot,
+  UpdateApplyResponse,
+  UpdateStatusResponse,
 } from '../types/telemetry';
 
 const POLL_ACTIVE_MS = 500;
@@ -57,6 +59,11 @@ export interface HudStore {
   recentOpen: boolean;
   detailCache: Map<string, CallDetailPayload>;
   detailLoading: Set<string>;
+  updateStatus: UpdateStatusResponse | null;
+  updateChecking: boolean;
+  updateApplying: boolean;
+  updateApplyResult: UpdateApplyResponse | null;
+  updateError: string | null;
   toggleLang: () => void;
   switchTab: (next: HudTab) => void;
   setMetric: (m: ChartMetric) => void;
@@ -65,12 +72,18 @@ export interface HudStore {
   refreshQuota: () => void;
   toggleRecentOpen: () => void;
   toggleCompactOnly: () => void;
+  setCompactOnlyValue: (val: boolean) => void;
   toggleShowAllHistory: () => void;
+  ensureShowAllHistory: () => void;
   toggleTurnCollapsed: (turnIdx: number) => void;
+  unfoldTurn: (turnIdx: number) => void;
   toggleFoldAllTurns: () => void;
   toggleInvocationExpanded: (idx: number, hasDetail: boolean) => void;
+  ensureInvocationExpanded: (idx: number, hasDetail: boolean) => void;
   toggleCompactExpanded: (stepIdx: number, hasDetail: boolean) => void;
   loadCallDetail: (convId: string, kind: 'inv' | 'compact' | 'turn', id: number) => Promise<CallDetailPayload | null>;
+  checkForUpdates: (force?: boolean) => Promise<UpdateStatusResponse | null>;
+  applyUpdate: (force?: boolean) => Promise<UpdateApplyResponse | null>;
 }
 
 export function useHudStore(): HudStore {
@@ -95,6 +108,11 @@ export function useHudStore(): HudStore {
 
   const [detailCache, setDetailCache] = useState<Map<string, CallDetailPayload>>(() => new Map());
   const [detailLoading, setDetailLoading] = useState<Set<string>>(() => new Set());
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatusResponse | null>(null);
+  const [updateChecking, setUpdateChecking] = useState<boolean>(false);
+  const [updateApplying, setUpdateApplying] = useState<boolean>(false);
+  const [updateApplyResult, setUpdateApplyResult] = useState<UpdateApplyResponse | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   const etagRef = useRef<string>('');
   const bootIdRef = useRef<string>('');
@@ -105,6 +123,8 @@ export function useHudStore(): HudStore {
   const pollAbortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const detailInFlightRef = useRef<Set<string>>(new Set());
+  const updateCheckInFlightRef = useRef<boolean>(false);
+  const updateApplyInFlightRef = useRef<boolean>(false);
   const detailCacheRef = useRef<Map<string, CallDetailPayload>>(detailCache);
   detailCacheRef.current = detailCache;
 
@@ -431,8 +451,16 @@ export function useHudStore(): HudStore {
     setCompactOnly((p) => !p);
   }, []);
 
+  const setCompactOnlyValue = useCallback((val: boolean) => {
+    setCompactOnly(val);
+  }, []);
+
   const toggleShowAllHistory = useCallback(() => {
     setShowAllHistory((p) => !p);
+  }, []);
+
+  const ensureShowAllHistory = useCallback(() => {
+    setShowAllHistory(true);
   }, []);
 
   const toggleTurnCollapsed = useCallback((turnIdx: number) => {
@@ -440,6 +468,15 @@ export function useHudStore(): HudStore {
       const next = new Set(prev);
       if (next.has(turnIdx)) next.delete(turnIdx);
       else next.add(turnIdx);
+      return next;
+    });
+  }, []);
+
+  const unfoldTurn = useCallback((turnIdx: number) => {
+    setCollapsedTurns((prev) => {
+      if (!prev.has(turnIdx)) return prev;
+      const next = new Set(prev);
+      next.delete(turnIdx);
       return next;
     });
   }, []);
@@ -473,6 +510,22 @@ export function useHudStore(): HudStore {
     [loadCallDetail],
   );
 
+  const ensureInvocationExpanded = useCallback(
+    (idx: number, hasDetail: boolean) => {
+      const convId = snapRef.current?.conversationId || '';
+      setExpandedRows((prev) => {
+        if (prev.has(idx)) return prev;
+        const next = new Set(prev);
+        next.add(idx);
+        return next;
+      });
+      if (convId && hasDetail && !detailCacheRef.current.has(`${convId}:inv:${idx}`)) {
+        void loadCallDetail(convId, 'inv', idx);
+      }
+    },
+    [loadCallDetail],
+  );
+
   const toggleCompactExpanded = useCallback(
     (stepIdx: number, hasDetail: boolean) => {
       const convId = snapRef.current?.conversationId || '';
@@ -492,6 +545,75 @@ export function useHudStore(): HudStore {
     [loadCallDetail],
   );
 
+  const checkForUpdates = useCallback(async (force = false): Promise<UpdateStatusResponse | null> => {
+    if (updateCheckInFlightRef.current) return null;
+    updateCheckInFlightRef.current = true;
+    setUpdateChecking(true);
+    setUpdateError(null);
+    try {
+      const fetcher = getSidecarFetch();
+      const url = force ? '/api/update-status?force=1' : '/api/update-status';
+      const res = await fetcher(url, { method: 'GET' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as UpdateStatusResponse;
+      setUpdateStatus(json);
+      return json;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (force) setUpdateError(msg);
+      return null;
+    } finally {
+      updateCheckInFlightRef.current = false;
+      setUpdateChecking(false);
+    }
+  }, []);
+
+  const applyUpdate = useCallback(async (force = false): Promise<UpdateApplyResponse | null> => {
+    if (updateApplyInFlightRef.current) return null;
+    updateApplyInFlightRef.current = true;
+    setUpdateApplying(true);
+    setUpdateError(null);
+    setUpdateApplyResult(null);
+    try {
+      const fetcher = getSidecarFetch();
+      const res = await fetcher('/api/update-apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force }),
+      });
+      const json = (await res.json().catch(() => null)) as UpdateApplyResponse | null;
+      if (!json) throw new Error(`HTTP ${res.status}`);
+      setUpdateApplyResult(json);
+      if (json.ok && json.newVersion) {
+        setUpdateStatus((prev) =>
+          prev
+            ? {
+                ...prev,
+                currentVersion: json.newVersion || prev.currentVersion,
+                updateAvailable: false,
+                status: 'up_to_date',
+                updating: false,
+              }
+            : prev,
+        );
+      } else if (!json.ok && json.message) {
+        setUpdateError(json.message);
+      }
+      return json;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setUpdateError(msg);
+      return null;
+    } finally {
+      updateApplyInFlightRef.current = false;
+      setUpdateApplying(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void checkForUpdates(false);
+  }, [checkForUpdates]);
+
   return {
     lang,
     t,
@@ -510,6 +632,11 @@ export function useHudStore(): HudStore {
     recentOpen,
     detailCache,
     detailLoading,
+    updateStatus,
+    updateChecking,
+    updateApplying,
+    updateApplyResult,
+    updateError,
     toggleLang,
     switchTab,
     setMetric,
@@ -518,11 +645,17 @@ export function useHudStore(): HudStore {
     refreshQuota,
     toggleRecentOpen,
     toggleCompactOnly,
+    setCompactOnlyValue,
     toggleShowAllHistory,
+    ensureShowAllHistory,
     toggleTurnCollapsed,
+    unfoldTurn,
     toggleFoldAllTurns,
     toggleInvocationExpanded,
+    ensureInvocationExpanded,
     toggleCompactExpanded,
     loadCallDetail,
+    checkForUpdates,
+    applyUpdate,
   };
 }

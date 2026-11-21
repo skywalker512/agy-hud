@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
-import type { ConvMode, ConversationItem, Lang, StatsSnapshot } from '../../types/telemetry';
+import type {
+  ConvMode,
+  ConversationItem,
+  Lang,
+  StatsSnapshot,
+  UpdateStatusResponse,
+} from '../../types/telemetry';
 import { copyText } from '../../utils/clipboard';
+import { downloadOrCopyJson, formatSessionJson, formatSessionMarkdown } from '../../utils/exportReport';
 import { fmtClock, formatSessionQuotaCompact, shortTitleLabel } from '../../utils/format';
 import { ModelBar } from './ModelBar';
 import { SessionRelBar } from './SessionRelBar';
@@ -14,10 +21,14 @@ interface TopBarProps {
   selectedConv: string;
   lang: Lang;
   t: Translations;
+  updateStatus: UpdateStatusResponse | null;
+  updateChecking: boolean;
   onSelectConversation: (val: string) => void;
   onJumpConversation: (convId: string) => void;
   onInspectChildren: () => void;
   onToggleLang: () => void;
+  onOpenUpdates: () => void;
+  onCheckUpdates: (force?: boolean) => Promise<UpdateStatusResponse | null>;
 }
 
 export function TopBar({
@@ -28,15 +39,27 @@ export function TopBar({
   selectedConv,
   lang,
   t,
+  updateStatus,
+  updateChecking,
   onSelectConversation,
   onJumpConversation,
   onInspectChildren,
   onToggleLang,
+  onOpenUpdates,
+  onCheckUpdates,
 }: TopBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [copiedField, setCopiedField] = useState<'id' | 'jsonl' | 'full' | null>(null);
+  const [copiedField, setCopiedField] = useState<'id' | 'jsonl' | 'full' | 'md' | 'json-saved' | 'json-copied' | null>(
+    null,
+  );
   const menuWrapRef = useRef<HTMLDivElement>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const onGlobalEsc = () => setMenuOpen(false);
+    window.addEventListener('agy-hud-esc', onGlobalEsc);
+    return () => window.removeEventListener('agy-hud-esc', onGlobalEsc);
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -62,16 +85,35 @@ export function TopBar({
     };
   }, []);
 
-  const handleCopy = async (field: 'id' | 'jsonl' | 'full', value: string) => {
-    if (!value) return;
-    const ok = await copyText(value);
-    if (!ok) return;
+  const flashField = (field: 'id' | 'jsonl' | 'full' | 'md' | 'json-saved' | 'json-copied', closeMenu = true) => {
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     setCopiedField(field);
     copyTimerRef.current = setTimeout(() => {
       setCopiedField(null);
-      setMenuOpen(false);
-    }, 650);
+      if (closeMenu) setMenuOpen(false);
+    }, 750);
+  };
+
+  const handleCopy = async (field: 'id' | 'jsonl' | 'full', value: string) => {
+    if (!value) return;
+    const ok = await copyText(value);
+    if (!ok) return;
+    flashField(field);
+  };
+
+  const handleCopySessionMd = async () => {
+    if (!snap?.found) return;
+    const ok = await copyText(formatSessionMarkdown(snap, lang));
+    if (!ok) return;
+    flashField('md');
+  };
+
+  const handleExportSessionJson = async () => {
+    if (!snap?.found) return;
+    const shortId = (snap.conversationId || 'session').slice(0, 8);
+    const res = await downloadOrCopyJson(`agy-hud-${shortId}.json`, formatSessionJson(snap));
+    if (res === 'failed') return;
+    flashField(res === 'downloaded' ? 'json-saved' : 'json-copied');
   };
 
   // Status badge state
@@ -119,7 +161,7 @@ export function TopBar({
     badgeText = t.badgeIdle;
   }
 
-  // Conversation options
+  // Conversation options (with clean [Swarm @rosterName] labels)
   const convOptions = useMemo(() => {
     const list: ConversationItem[] = [...(snap?.conversations || [])];
     const activeId = snap?.conversationId || '';
@@ -129,6 +171,7 @@ export function TopBar({
         updatedMs: 0,
         title: snap?.sessionInfo?.title || '',
         kind: snap?.sessionInfo?.kind || 'main',
+        swarmRosterName: snap?.sessionInfo?.swarm?.selfMember?.rosterName,
       });
     }
     if (mode === 'custom' && selectedConv && !list.some((c) => c.id === selectedConv)) {
@@ -141,17 +184,32 @@ export function TopBar({
     }
     return list.map((c) => {
       const srcTag = c.source === 'cli' ? '[CLI] ' : '';
-      const kindTag = c.kind === 'side_question' ? '[SQ] ' : c.kind === 'subagent' ? '[Sub] ' : '';
+      const swarmTag = c.swarmRosterName ? `[Swarm @${c.swarmRosterName}] ` : '';
+      const kindTag = swarmTag
+        ? ''
+        : c.kind === 'side_question'
+          ? '[SQ] '
+          : c.kind === 'subagent'
+            ? '[Sub] '
+            : '';
       const name = c.title ? shortTitleLabel(c.title, c.id) : `${c.id.slice(0, 8)}…`;
       const qTag = c.quotaUsage ? formatSessionQuotaCompact(c.quotaUsage, true) : '';
       const qPart = qTag ? ` [${qTag}]` : '';
       const tm = c.updatedMs ? ` (${fmtClock(c.updatedMs)})` : '';
       return {
         value: `conv:${c.id}`,
-        label: `${srcTag}${kindTag}${name}${qPart}${tm}`,
+        label: `${srcTag}${swarmTag}${kindTag}${name}${qPart}${tm}`,
       };
     });
-  }, [snap?.conversations, snap?.conversationId, snap?.sessionInfo?.title, snap?.sessionInfo?.kind, mode, selectedConv]);
+  }, [
+    snap?.conversations,
+    snap?.conversationId,
+    snap?.sessionInfo?.title,
+    snap?.sessionInfo?.kind,
+    snap?.sessionInfo?.swarm?.selfMember?.rosterName,
+    mode,
+    selectedConv,
+  ]);
 
   const selectValue =
     mode === 'custom'
@@ -163,6 +221,11 @@ export function TopBar({
   const convId = snap?.conversationId || '';
   const jPath = snap?.jsonlPath || '';
   const fPath = snap?.jsonlFullPath || '';
+  const hasSessionData = Boolean(snap?.found);
+  const showUpdatePill = Boolean(
+    updateStatus?.updateAvailable && !updateStatus.isLinked && updateStatus.latestVersion,
+  );
+  const installedVersion = updateStatus?.currentVersion || '1.2.0';
 
   return (
     <header className="flex flex-col gap-1.5 min-w-0">
@@ -193,6 +256,17 @@ export function TopBar({
             ))}
           </select>
 
+          {showUpdatePill && updateStatus?.latestVersion && (
+            <button
+              type="button"
+              className="update-pill"
+              data-tip={t.updatePillTip(installedVersion, updateStatus.latestVersion)}
+              onClick={onOpenUpdates}
+            >
+              ↑ v{updateStatus.latestVersion}
+            </button>
+          )}
+
           <div ref={menuWrapRef} className="relative shrink-0">
             <button
               type="button"
@@ -207,7 +281,7 @@ export function TopBar({
             {menuOpen && (
               <div
                 role="menu"
-                className="more-popover absolute right-0 top-[calc(100%+5px)] z-40 min-w-[196px] p-1.5 rounded-lg bg-hud-card border border-hud-border shadow-xl flex flex-col gap-[3px]"
+                className="more-popover absolute right-0 top-[calc(100%+5px)] z-40 min-w-[212px] p-1.5 rounded-lg bg-hud-card border border-hud-border shadow-xl flex flex-col gap-[3px]"
               >
                 <div className="font-hud-mono text-[10px] text-hud-muted px-1.5 pt-[3px] pb-1 truncate">
                   {convId ? `ID: ${convId}` : '--'}
@@ -245,7 +319,49 @@ export function TopBar({
                 >
                   {copiedField === 'full' ? t.copied : t.btnCopyJsonlFull}
                 </button>
+
                 <div className="h-px my-0.5 mx-1 bg-hud-border" />
+
+                <button
+                  type="button"
+                  disabled={!hasSessionData}
+                  onClick={() => void handleCopySessionMd()}
+                  className={`w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors ${
+                    copiedField === 'md' ? 'text-hud-ok font-semibold' : 'text-hud-fg'
+                  } ${!hasSessionData ? 'opacity-50 cursor-default' : ''}`}
+                >
+                  {copiedField === 'md' ? t.copied : t.btnCopyReportMd}
+                </button>
+                <button
+                  type="button"
+                  disabled={!hasSessionData}
+                  onClick={() => void handleExportSessionJson()}
+                  className={`w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors ${
+                    copiedField === 'json-saved' || copiedField === 'json-copied'
+                      ? 'text-hud-ok font-semibold'
+                      : 'text-hud-fg'
+                  } ${!hasSessionData ? 'opacity-50 cursor-default' : ''}`}
+                >
+                  {copiedField === 'json-saved'
+                    ? t.exportedJsonSaved
+                    : copiedField === 'json-copied'
+                      ? t.exportedJsonCopied
+                      : t.btnExportJson}
+                </button>
+
+                <div className="h-px my-0.5 mx-1 bg-hud-border" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    void onCheckUpdates(true);
+                    setMenuOpen(false);
+                    onOpenUpdates();
+                  }}
+                  className="w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-hud-fg text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors"
+                >
+                  {updateChecking ? t.menuCheckingUpdates : t.menuCheckUpdates}
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -255,6 +371,26 @@ export function TopBar({
                   className="w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-hud-fg text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors"
                 >
                   {lang === 'en' ? '中文 / EN' : 'EN / 中文'}
+                </button>
+
+                <div className="h-px my-0.5 mx-1 bg-hud-border" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenUpdates();
+                  }}
+                  className="w-full flex items-center justify-between gap-2 px-1.5 py-[3px] border-0 rounded bg-transparent text-left font-hud-mono text-[10px] text-hud-muted cursor-pointer hover:text-hud-fg transition-colors tabular-nums"
+                >
+                  <span>AGY-HUD v{installedVersion}</span>
+                  {updateStatus?.isLinked ? (
+                    <span className="px-1 py-[0.5px] rounded text-[9px] font-bold text-hud-warn border border-hud-border bg-hud-surface-2">
+                      {t.menuDevTag}
+                    </span>
+                  ) : showUpdatePill && updateStatus?.latestVersion ? (
+                    <span className="text-hud-accent-ink font-semibold">↑ v{updateStatus.latestVersion}</span>
+                  ) : null}
                 </button>
               </div>
             )}
