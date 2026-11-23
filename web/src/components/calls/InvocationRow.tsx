@@ -45,6 +45,10 @@ interface BarSegment {
   tip: string;
 }
 
+function normSlug(s: string | undefined): string {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
 function allocateVisibleWidths(values: number[], minPct = 3): number[] {
   const total = values.reduce((a, b) => a + b, 0);
   if (total <= 0) return values.map(() => 0);
@@ -210,6 +214,23 @@ export function InvocationRow({
   const ttftTierColor = tTier === 'fast' ? 'text-hud-ok' : tTier === 'mid' ? 'text-hud-warn' : 'text-hud-bad';
   const cacheTierColor =
     cTier === 'good' ? 'text-hud-ok' : cTier === 'mid' ? 'text-hud-warn' : cTier === 'low' ? 'text-hud-bad' : 'text-hud-muted';
+
+  const normModelTag = normSlug(modelTag);
+  const normDisplay = normSlug(r.modelDisplay);
+  const normPricing = normSlug(r.pricingKey);
+  const showDisplayAlias = Boolean(r.modelDisplay && normDisplay && normDisplay !== normModelTag);
+  const showPricingFallback = Boolean(
+    r.pricingKey &&
+      normPricing &&
+      !normModelTag.startsWith(normPricing) &&
+      !normPricing.startsWith(normModelTag),
+  );
+  const routedTipParts = [
+    `${t.inspMetaRouted}: ${modelTag}`,
+    r.modelDisplay ? `UI: ${r.modelDisplay}` : '',
+    r.pricingKey ? `${t.inspMetaPricing}: ${r.pricingKey}` : '',
+  ].filter(Boolean);
+  const routedTip = routedTipParts.length > 1 ? routedTipParts.join('\n') : undefined;
 
   return (
     <div
@@ -448,7 +469,7 @@ export function InvocationRow({
                 </div>
               </div>
 
-              {/* 3. Token & Cost Composition Bar + Metadata Footer */}
+              {/* 3. Token Composition Bar + Deduplicated Metadata Footer */}
               <div className="rounded-md bg-hud-card px-2.5 py-2 flex flex-col gap-1.5 min-w-0" style={{ border: '1px solid var(--hud-hairline)' }}>
                 <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 font-hud-mono text-[9.5px] text-hud-muted tabular-nums">
                   <span className="font-hud font-semibold uppercase tracking-[0.04em]">{t.inspTokenCompTitle}</span>
@@ -485,7 +506,7 @@ export function InvocationRow({
                     )}
                     {visTok > 0 && (
                       <span
-                        className="h-full bg-seg-cache"
+                        className="h-full bg-seg-out"
                         style={{ width: `${visW.toFixed(2)}%` }}
                         data-tip={`${t.inspVisibleSeg}: ${visTok.toLocaleString()} tok`}
                       />
@@ -507,27 +528,21 @@ export function InvocationRow({
                     {t.inspThinkSeg} {fmtNum(thkTok)}
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    <span className="inline-block w-[7px] h-[7px] rounded-[2px] bg-seg-cache opacity-80" />
+                    <span className="inline-block w-[7px] h-[7px] rounded-[2px] bg-seg-out" />
                     {t.inspVisibleSeg} {fmtNum(visTok)}
                   </span>
                 </div>
 
-                <div className="pt-1 border-t border-hud-border/70 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-hud-mono text-[9.5px] text-hud-muted tabular-nums">
-                  <span>
+                <div className="pt-1 border-t border-hud-hairline flex flex-wrap items-center gap-x-2 gap-y-0.5 font-hud-mono text-[9.5px] text-hud-muted tabular-nums">
+                  <span className={routedTip ? 'cursor-help' : undefined} data-tip={routedTip}>
                     {t.inspMetaRouted}: <span className="text-hud-fg">{modelTag}</span>
-                    {r.modelDisplay && r.modelDisplay !== modelTag ? ` (${r.modelDisplay})` : ''}
+                    {showDisplayAlias ? ` (${r.modelDisplay})` : ''}
                   </span>
                   <span>·</span>
                   <span>
                     {t.inspMetaCtx}: {fmtNum(r.totalContext)} / {fmtNum(r.contextLimit)} ({r.contextPct.toFixed(1)}%)
                   </span>
-                  {r.timestampMs > 0 && (
-                    <>
-                      <span>·</span>
-                      <span>{fmtClock(r.timestampMs)}</span>
-                    </>
-                  )}
-                  {r.pricingKey && (
+                  {showPricingFallback && r.pricingKey && (
                     <>
                       <span>·</span>
                       <span>
