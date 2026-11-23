@@ -365,6 +365,8 @@ export const zh: Translations = {
   // HeroSpeedCards & LiveTab Model Mix
   heroDeltaTip: (deltaPct, avgTps) => `较会话均值 (${avgTps} tok/s) ${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(0)}%`,
   heroSparkTip: (n) => `近 ${n} 次流式调用生成速度趋势`,
+  e2eSparkTip: (n, ttftSharePct) =>
+    `近 ${n} 次端到端趋势：虚线 = 纯生成 (Gen)，实线 = 端到端 (E2E)，阴影落差 = 首字等待 (TTFT) 拖累（本轮 TTFT 占总耗时 ${ttftSharePct}%）`,
   modelMixTitle: '会话模型分布',
   modelMixCalls: (n) => `${n}次`,
   modelMixColModel: '模型',
