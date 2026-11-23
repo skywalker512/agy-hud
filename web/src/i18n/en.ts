@@ -367,4 +367,61 @@ export const en: Translations = {
   modelMixColTtft: 'TTFT',
   modelMixColCache: 'Cache',
   modelMixColCost: 'Cost / 5h',
+
+  // Cache Survival & Expiration (Live Prediction & Account Stats)
+  cacheSurvPill: (probPct, ageStr) => `Cache ~${probPct}% · ${ageStr}`,
+  cacheSurvTip: ({
+    ageStr,
+    lastClock,
+    probPct,
+    familyName,
+    p80Str,
+    p50Str,
+    remSafeStr,
+    remHalfStr,
+    pastHalf,
+    sourceLabel,
+    ctxTokStr,
+    missUsdStr,
+    missQuotaStr,
+  }) => {
+    const lines = [
+      `Idle ${ageStr} since last call (${lastClock}) · Est. cache survival ~${probPct}%`,
+      `${familyName} · Safe (P80) ~${p80Str} · Half-life (P50) ~${p50Str} (${sourceLabel})`,
+    ];
+    if (pastHalf) {
+      lines.push('Past half-life — next turn has high chance of full prompt re-prefill');
+    } else if (remSafeStr) {
+      lines.push(`~${remSafeStr} left in P80 safe window · ~${remHalfStr} to half-life`);
+    } else if (remHalfStr) {
+      lines.push(`Past P80 safe window · ~${remHalfStr} left to half-life`);
+    }
+    if (missUsdStr) {
+      lines.push(
+        `Miss penalty (${ctxTokStr} ctx): +~${missUsdStr}${missQuotaStr ? ` (~-${missQuotaStr} 5h quota)` : ''}`,
+      );
+    }
+    return lines.join('\n');
+  },
+  cacheTtlCardTitle: 'CACHE SURVIVAL & EXPIRATION',
+  cacheTtlHeaderSummary: (pairs, missUsdStr) =>
+    `${pairs.toLocaleString()} pairs${missUsdStr ? ` · miss +${missUsdStr}` : ''}`,
+  cacheTtlEmpty: 'Collecting consecutive same-model call intervals…',
+  cacheTtlKindLru: 'LRU decay',
+  cacheTtlKindHard: 'Hard TTL',
+  cacheTtlKindMixed: 'Empirical',
+  cacheTtlConfFitted: (longN) => `✓ Fitted (${longN} ≥3m)`,
+  cacheTtlConfProv: (longN) => `Calibrating (${longN} ≥3m)`,
+  cacheTtlConfPrior: 'Prior est.',
+  cacheTtlP80Label: 'Safe (P80)',
+  cacheTtlP50Label: 'Half-life (P50)',
+  cacheTtlBgMissLabel: 'Noise miss',
+  cacheTtlExpiredMissSub: (count, costStr) =>
+    `${count} expired miss${count === 1 ? '' : 'es'}${costStr ? ` (+${costStr})` : ''}`,
+  cacheTtlBucketTip: ({ label, hits, count, empPct, predPct }) =>
+    count > 0
+      ? `Idle ${label}\nObserved: ${hits}/${count} hits (${empPct})\nModel curve: ${predPct}`
+      : `Idle ${label}\nNo observed samples yet\nModel curve: ${predPct}`,
+  cacheTtlFootnote:
+    'Log-logistic survival fit across deduplicated same-model intervals (excluding /compact & rewinds). Bars show observed hit rate; dots show fitted curve.',
 };

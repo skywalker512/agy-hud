@@ -89,6 +89,14 @@ import {
   reconcilePoolSamplesPricing,
   solvePoolFitModel,
 } from './lib/quota-fitter.ts';
+import {
+  buildCacheTtlOverview,
+  buildCacheTtlStats,
+  evalCacheSurvival,
+  fitCacheSurvivalModel,
+  getCacheTtlPrior,
+  solveTimeForSurvival,
+} from './lib/cache-ttl.ts';
 import { detectLocale } from './lib/locale.ts';
 import {
   applySelfUpdate,
@@ -358,6 +366,7 @@ async function startServer() {
       }
       const fittedQuota = attachQuotaBudgetEstimates(accountQuota, graph);
       const decoratedTelemetry = attachTelemetryQuotaPredictions(telemetry, fittedQuota);
+      const cacheTtl = buildCacheTtlOverview(graph.summaries, decoratedTelemetry, fittedQuota);
       const enrichedGraph = attachGraphQuotaSummaries({
         conversations: recentList,
         sessionInfo,
@@ -378,6 +387,7 @@ async function startServer() {
         sessionInfo: enrichedGraph.sessionInfo,
         accountHistory,
         accountQuota: fittedQuota,
+        cacheTtl,
         ...decoratedTelemetry,
       };
     } catch (err: any) {
@@ -466,6 +476,8 @@ export {
   attachQuotaBudgetEstimates,
   attachTelemetryQuotaPredictions,
   buildAccountHistory,
+  buildCacheTtlOverview,
+  buildCacheTtlStats,
   buildSessionInfo,
   buildSwarmOverview,
   clearSwarmCache,
@@ -476,7 +488,10 @@ export {
   computeSummaryQuotaUsage,
   conversationEffectiveMs,
   deriveSwarmMemberState,
+  evalCacheSurvival,
   extractLiveStepFromTrajectory,
+  fitCacheSurvivalModel,
+  getCacheTtlPrior,
   getConversationGraph,
   getConversationSwarmMeta,
   getPricingVectorSig,
@@ -509,6 +524,7 @@ export {
   resolveLsGeneratorModel,
   resolveModelPricing,
   solvePoolFitModel,
+  solveTimeForSurvival,
   summarizeConversationDb,
   unescapePbtxtString,
 };

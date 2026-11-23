@@ -480,6 +480,67 @@ export interface AccountHistory {
   dailyHeatmap?: DailyHeatmapSummary;
 }
 
+export type CacheProviderKind = 'claude' | 'gemini' | 'other';
+export type CacheConfidence = 'fitted' | 'provisional' | 'prior';
+
+export interface CacheTtlBucket {
+  key: string;
+  label: string;
+  minSec: number;
+  maxSec: number | null;
+  midSec: number;
+  count: number;
+  hits: number;
+  hitRate: number | null;
+  predictedRate: number;
+}
+
+export interface CacheTtlModelSummary {
+  family: string;
+  providerKind: CacheProviderKind;
+  confidence: CacheConfidence;
+  sampleCount: number;
+  longGapCount: number;
+  hitCount: number;
+  missCount: number;
+  expiredMissCount: number;
+  missCostUSD: number;
+  bgMissRate: number;
+  t50Sec: number;
+  shapeK: number;
+  p80Sec: number;
+  p50Sec: number;
+  p20Sec: number;
+  buckets: CacheTtlBucket[];
+}
+
+export interface CurrentSessionCachePrediction {
+  family: string;
+  providerKind: CacheProviderKind;
+  confidence: CacheConfidence;
+  sampleCount: number;
+  longGapCount: number;
+  bgMissRate: number;
+  t50Sec: number;
+  shapeK: number;
+  p80Sec: number;
+  p50Sec: number;
+  p20Sec: number;
+  lastCallMs: number;
+  cachedContextTokens: number;
+  missPenaltyUSD: number;
+  missPenaltyQuota5hPct: number | null;
+}
+
+export interface CacheTtlOverview {
+  totalPairs: number;
+  totalLongGapPairs: number;
+  totalExpiredMisses: number;
+  totalMissCostUSD: number;
+  models: CacheTtlModelSummary[];
+  currentSession: CurrentSessionCachePrediction | null;
+}
+
 export interface StatsSnapshot {
   unchanged?: boolean;
   found?: boolean;
@@ -499,6 +560,7 @@ export interface StatsSnapshot {
   sessionInfo?: SessionInfo;
   accountHistory?: AccountHistory;
   accountQuota?: AccountQuota;
+  cacheTtl?: CacheTtlOverview;
   invocations?: Invocation[];
   latest?: Invocation | null;
   latestSustained?: Invocation | null;

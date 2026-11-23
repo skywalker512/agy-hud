@@ -367,4 +367,61 @@ export const zh: Translations = {
   modelMixColTtft: '首字',
   modelMixColCache: '缓存',
   modelMixColCost: '成本 / 配额',
+
+  // Cache Survival & Expiration (Live Prediction & Account Stats)
+  cacheSurvPill: (probPct, ageStr) => `存活 ~${probPct}% · ${ageStr}`,
+  cacheSurvTip: ({
+    ageStr,
+    lastClock,
+    probPct,
+    familyName,
+    p80Str,
+    p50Str,
+    remSafeStr,
+    remHalfStr,
+    pastHalf,
+    sourceLabel,
+    ctxTokStr,
+    missUsdStr,
+    missQuotaStr,
+  }) => {
+    const lines = [
+      `距上次调用 ${ageStr}（${lastClock}）· 预计缓存存活概率 ~${probPct}%`,
+      `${familyName} · 安全窗(P80) ~${p80Str} · 半衰期(P50) ~${p50Str}（${sourceLabel}）`,
+    ];
+    if (pastHalf) {
+      lines.push('已超过半衰期，下次发送极可能触发全量重算');
+    } else if (remSafeStr) {
+      lines.push(`距 P80 安全线约余 ${remSafeStr} · 距半衰期约余 ${remHalfStr}`);
+    } else if (remHalfStr) {
+      lines.push(`已过 P80 安全线 · 距半衰期约余 ${remHalfStr}`);
+    }
+    if (missUsdStr) {
+      lines.push(
+        `若失效重算（${ctxTokStr} 上下文）：多花约 ${missUsdStr}${missQuotaStr ? `（约多扣 ${missQuotaStr} 5h 配额）` : ''}`,
+      );
+    }
+    return lines.join('\n');
+  },
+  cacheTtlCardTitle: '缓存存活与失效统计',
+  cacheTtlHeaderSummary: (pairs, missUsdStr) =>
+    `${pairs.toLocaleString()} 对样本${missUsdStr ? ` · 失效重算 +${missUsdStr}` : ''}`,
+  cacheTtlEmpty: '正在积累同模型连续调用间隔样本…',
+  cacheTtlKindLru: 'LRU 衰减',
+  cacheTtlKindHard: '硬 TTL',
+  cacheTtlKindMixed: '实测拟合',
+  cacheTtlConfFitted: (longN) => `✓ 实测 (${longN} 长间隔)`,
+  cacheTtlConfProv: (longN) => `校准中 (${longN} 长间隔)`,
+  cacheTtlConfPrior: '先验初估',
+  cacheTtlP80Label: 'P80 安全窗',
+  cacheTtlP50Label: 'P50 半衰期',
+  cacheTtlBgMissLabel: '短间隔底噪',
+  cacheTtlExpiredMissSub: (count, costStr) =>
+    `过期重算 ${count} 次${costStr ? ` (+${costStr})` : ''}`,
+  cacheTtlBucketTip: ({ label, hits, count, empPct, predPct }) =>
+    count > 0
+      ? `空闲间隔 ${label}\n实测命中: ${hits}/${count} 次 (${empPct})\n模型拟合: ${predPct}`
+      : `空闲间隔 ${label}\n暂无该区间实测样本\n模型拟合: ${predPct}`,
+  cacheTtlFootnote:
+    '基于本机去重后的同模型连续调用间隔拟合生存曲线（已排除 /compact 与上下文回退）。柱状为实测命中率，圆点为拟合曲线。',
 };

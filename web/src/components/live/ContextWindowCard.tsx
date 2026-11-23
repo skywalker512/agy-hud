@@ -3,12 +3,16 @@ import type { StatsSnapshot, TokenBreakdownItem } from '../../types/telemetry';
 import {
   cacheTier,
   computeHeadroomTurns,
+  evalCacheSurvival,
   fmtClock,
   fmtDurationShort,
   fmtNum,
+  fmtQuotaPct,
+  fmtTtlDuration,
   fmtUsd,
   formatSessionQuotaCompact,
   formatSessionQuotaTip,
+  friendlyFamilyName,
   getEffectiveContextState,
 } from '../../utils/format';
 
@@ -52,17 +56,56 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
 
   const headroom = found ? computeHeadroomTurns(snap) : null;
 
-  const latestMs = s?.latestCallMs || latest?.timestampMs || 0;
+  const cachePred = found ? snap?.cacheTtl?.currentSession || null : null;
+  const latestMs = cachePred?.lastCallMs || s?.latestCallMs || latest?.timestampMs || 0;
   let ageBadge: { text: string; tier: 'fresh' | 'warm' | 'stale'; tip: string } | null = null;
   if (found && latestMs > 0) {
     const ageSec = Math.max(0, Math.floor((nowMs - latestMs) / 1000));
     const ageStr = fmtDurationShort(ageSec);
-    const tier = ageSec >= 300 ? 'stale' : ageSec >= 120 ? 'warm' : 'fresh';
-    ageBadge = {
-      text: t.cacheAgeLabel(ageStr),
-      tier,
-      tip: t.cacheAgeTip(ageStr, fmtClock(latestMs)),
-    };
+    if (cachePred) {
+      const prob = evalCacheSurvival(cachePred, ageSec);
+      const probPct = Math.round(prob * 100);
+      const tier: 'fresh' | 'warm' | 'stale' = prob >= 0.75 ? 'fresh' : prob >= 0.4 ? 'warm' : 'stale';
+      const remSafeSec = Math.max(0, cachePred.p80Sec - ageSec);
+      const remHalfSec = Math.max(0, cachePred.p50Sec - ageSec);
+      const sourceLabel =
+        cachePred.confidence === 'fitted'
+          ? t.cacheTtlConfFitted(cachePred.longGapCount)
+          : cachePred.confidence === 'provisional'
+            ? t.cacheTtlConfProv(cachePred.longGapCount)
+            : t.cacheTtlConfPrior;
+      const missUsdStr = cachePred.missPenaltyUSD >= 0.001 ? fmtUsd(cachePred.missPenaltyUSD) : '';
+      const missQuotaStr =
+        cachePred.missPenaltyQuota5hPct && cachePred.missPenaltyQuota5hPct >= 0.01
+          ? fmtQuotaPct(cachePred.missPenaltyQuota5hPct)
+          : '';
+      ageBadge = {
+        text: t.cacheSurvPill(probPct, ageStr),
+        tier,
+        tip: t.cacheSurvTip({
+          ageStr,
+          lastClock: fmtClock(latestMs),
+          probPct,
+          familyName: friendlyFamilyName(cachePred.family),
+          p80Str: fmtTtlDuration(cachePred.p80Sec),
+          p50Str: fmtTtlDuration(cachePred.p50Sec),
+          remSafeStr: remSafeSec >= 15 ? fmtTtlDuration(remSafeSec) : '',
+          remHalfStr: remHalfSec >= 15 ? fmtTtlDuration(remHalfSec) : '',
+          pastHalf: ageSec >= cachePred.p50Sec,
+          sourceLabel,
+          ctxTokStr: fmtNum(cachePred.cachedContextTokens),
+          missUsdStr,
+          missQuotaStr,
+        }),
+      };
+    } else {
+      const tier = ageSec >= 300 ? 'stale' : ageSec >= 120 ? 'warm' : 'fresh';
+      ageBadge = {
+        text: t.cacheAgeLabel(ageStr),
+        tier,
+        tip: t.cacheAgeTip(ageStr, fmtClock(latestMs)),
+      };
+    }
   }
 
   let sessionCost: { text: string; tip: string } | null = null;
@@ -210,7 +253,7 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
             </span>
           )}
           {ageBadge && (
-            <span className={`cache-age-pill ${ageBadge.tier}`} data-tip={ageBadge.tip}>
+            <span className={`cache-age-pill cursor-help ${ageBadge.tier}`} data-tip={ageBadge.tip}>
               {ageBadge.text}
             </span>
           )}

@@ -370,4 +370,43 @@ export interface Translations {
   modelMixColTtft: string;
   modelMixColCache: string;
   modelMixColCost: string;
+
+  // Cache Survival & Expiration (Live Prediction & Account Stats)
+  cacheSurvPill: (probPct: number, ageStr: string) => string;
+  cacheSurvTip: (args: {
+    ageStr: string;
+    lastClock: string;
+    probPct: number;
+    familyName: string;
+    p80Str: string;
+    p50Str: string;
+    remSafeStr: string;
+    remHalfStr: string;
+    pastHalf: boolean;
+    sourceLabel: string;
+    ctxTokStr: string;
+    missUsdStr: string;
+    missQuotaStr: string;
+  }) => string;
+  cacheTtlCardTitle: string;
+  cacheTtlHeaderSummary: (pairs: number, missUsdStr: string) => string;
+  cacheTtlEmpty: string;
+  cacheTtlKindLru: string;
+  cacheTtlKindHard: string;
+  cacheTtlKindMixed: string;
+  cacheTtlConfFitted: (longN: number) => string;
+  cacheTtlConfProv: (longN: number) => string;
+  cacheTtlConfPrior: string;
+  cacheTtlP80Label: string;
+  cacheTtlP50Label: string;
+  cacheTtlBgMissLabel: string;
+  cacheTtlExpiredMissSub: (count: number, costStr: string) => string;
+  cacheTtlBucketTip: (args: {
+    label: string;
+    hits: number;
+    count: number;
+    empPct: string;
+    predPct: string;
+  }) => string;
+  cacheTtlFootnote: string;
 }

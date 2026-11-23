@@ -8,6 +8,7 @@ import type {
 import { copyText } from '../../utils/clipboard';
 import { fmtClock, fmtNum, fmtUsdWithBand } from '../../utils/format';
 import { ActivityHeatmapCard } from './ActivityHeatmapCard';
+import { CacheTtlCard } from './CacheTtlCard';
 import { QuotaPoolsList } from './QuotaPoolsList';
 import { QuotaRulesCard } from './QuotaRulesCard';
 import { SpendGrid } from './SpendGrid';
@@ -149,6 +150,7 @@ export function AccountTab({
       </section>
 
       <QuotaRulesCard quota={q} t={t} />
+      <CacheTtlCard cacheTtl={snap?.cacheTtl} t={t} />
       <ActivityHeatmapCard history={h} t={t} />
 
       {/* Compact Plugin & Updates Card */}

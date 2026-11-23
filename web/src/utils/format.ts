@@ -364,3 +364,25 @@ export function formatLiveStage(
     detail: t.liveWaitDetail(waitSec.toFixed(1), fmtClock(active.createdAtMs)),
   };
 }
+
+export function evalCacheSurvival(
+  params: { bgMissRate: number; t50Sec: number; shapeK: number },
+  ageSec: number,
+): number {
+  const p0 = Math.min(0.5, Math.max(0, Number.isFinite(params.bgMissRate) ? params.bgMissRate : 0.01));
+  const t50 = Math.max(1, Number.isFinite(params.t50Sec) ? params.t50Sec : 600);
+  const k = Math.max(0.2, Number.isFinite(params.shapeK) ? params.shapeK : 2.0);
+  const t = Math.max(0, Number.isFinite(ageSec) ? ageSec : 0);
+  if (t <= 0) return 1 - p0;
+  return Math.min(1, Math.max(0, (1 - p0) / (1 + Math.pow(t / t50, k))));
+}
+
+export function fmtTtlDuration(sec: number | null | undefined): string {
+  if (sec === null || sec === undefined || !Number.isFinite(sec) || sec <= 0) return '0s';
+  if (sec < 60) return `${Math.round(sec)}s`;
+  const min = sec / 60;
+  if (min < 10) return `${min.toFixed(1)}m`;
+  if (min < 90) return `${Math.round(min)}m`;
+  const hr = min / 60;
+  return hr < 10 ? `${hr.toFixed(1)}h` : `${Math.round(hr)}h`;
+}

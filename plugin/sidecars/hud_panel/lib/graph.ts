@@ -18,8 +18,14 @@ import {
 } from './constants.ts';
 import type { AppDataRoot } from './constants.ts';
 import { isCascadeStatusActive } from './ls-client.ts';
-import { computeCallCost } from './pricing.ts';
-import { computeBaseReferenceUSD } from './quota-solver.ts';
+import { computeCallCost, resolveModelPricing } from './pricing.ts';
+import { computeBaseReferenceUSD, resolveModelFamily } from './quota-solver.ts';
+import {
+  CACHE_EXPIRED_MISS_MIN_GAP_SEC,
+  CACHE_HIT_RETENTION_THRESHOLD,
+  CACHE_MIN_PREV_PROMPT_TOKENS,
+} from './cache-ttl.ts';
+import type { CacheGapSample } from './cache-ttl.ts';
 import {
   iterFields,
   parseAnnotationPbtxt,
@@ -92,6 +98,7 @@ export function summarizeConversationDb(conv) {
   const familyUsage: Record<string, any> = Object.create(null);
   const recentCutoffMs = Date.now() - 8 * 86_400_000;
   const recentCalls: any[] = [];
+  const cachePairs: CacheGapSample[] = [];
 
   let db;
   try {
@@ -122,8 +129,12 @@ export function summarizeConversationDb(conv) {
     const stepTimeByGmIdx = new Map<number, number>();
     const stepTimeByBotId = new Map<string, number>();
     const stepTimeByIdx = new Map<number, number>();
+    const stepStartByGmIdx = new Map<number, number>();
+    const stepStartByBotId = new Map<string, number>();
+    const stepStartByIdx = new Map<number, number>();
     const firstToolCreatedByGmIdx = new Map<number, number>();
     const compactionMetas: { ts: number; usage: UsageSubmsg }[] = [];
+    const compactionSpans: { stepIdx: number; gmIdx: number | null; ts: number }[] = [];
     try {
       const firstPromptRow: any = db.prepare('SELECT step_payload FROM steps WHERE step_type = 14 AND step_payload IS NOT NULL ORDER BY idx ASC LIMIT 1').get();
       if (firstPromptRow?.step_payload) {
@@ -146,7 +157,13 @@ export function summarizeConversationDb(conv) {
         if (s.step_type === 15 && meta.gmIdx !== null) {
           lastPlannerGmIdx = meta.gmIdx;
         }
+        const startTs = meta.startedAtMs || meta.createdAtMs || 0;
         const ts = meta.completedAtMs || meta.endAtMs || meta.createdAtMs || 0;
+        if (startTs > 0) {
+          stepStartByIdx.set(s.idx, startTs);
+          if (meta.gmIdx !== null) stepStartByGmIdx.set(meta.gmIdx, startTs);
+          if (meta.botId) stepStartByBotId.set(meta.botId, startTs);
+        }
         if (ts > 0) {
           if (ts > stepLatestTsMs) stepLatestTsMs = ts;
           stepTimeByIdx.set(s.idx, ts);
@@ -154,6 +171,7 @@ export function summarizeConversationDb(conv) {
           if (meta.botId) stepTimeByBotId.set(meta.botId, ts);
         }
         if (s.step_type === 23) {
+          compactionSpans.push({ stepIdx: s.idx, gmIdx: meta.gmIdx, ts });
           const isDone = TERMINAL_STEP_STATUSES.has(s.status) || meta.endAtMs > 0 || meta.completedAtMs > 0;
           if (isDone && meta.usage) {
             compactionMetas.push({ ts, usage: meta.usage });
@@ -234,6 +252,14 @@ export function summarizeConversationDb(conv) {
 
     try {
       const gmRows = db.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx ASC').all();
+      let prevCacheInv: {
+        idx: number;
+        stepIdx: number | null;
+        botId: string;
+        family: string;
+        totalPrompt: number;
+        completedTs: number;
+      } | null = null;
       for (const row of gmRows) {
         const parsed = parseGenRow(row.idx, row.data);
         if (!parsed) continue;
@@ -260,6 +286,10 @@ export function summarizeConversationDb(conv) {
         }
 
         const stepIdx = parsed.lastStepIndex !== null ? parsed.lastStepIndex + 1 : null;
+        const stepStartTs = stepStartByGmIdx.get(row.idx)
+          || (parsed.botId ? stepStartByBotId.get(parsed.botId) : 0)
+          || (stepIdx !== null ? stepStartByIdx.get(stepIdx) : 0)
+          || 0;
         const stepTs = stepTimeByGmIdx.get(row.idx)
           || (parsed.botId ? stepTimeByBotId.get(parsed.botId) : 0)
           || (stepIdx !== null ? stepTimeByIdx.get(stepIdx) : 0)
@@ -271,6 +301,60 @@ export function summarizeConversationDb(conv) {
         const genUncertainStartTs = (firstToolMs > 0 && stepTs > 0 && firstToolMs <= stepTs)
           ? firstToolMs
           : completedTs;
+
+        const currFamily = resolveModelFamily(parsed.modelId, parsed.modelDisplay, parsed.model);
+        const currTotalPrompt = parsed.totalPromptTokens || (parsed.cachedInput + parsed.newInput);
+        if (
+          prevCacheInv
+          && prevCacheInv.completedTs > 0
+          && stepStartTs > 0
+          && currFamily !== 'unknown'
+          && prevCacheInv.family === currFamily
+          && prevCacheInv.totalPrompt >= CACHE_MIN_PREV_PROMPT_TOKENS
+          && currTotalPrompt >= prevCacheInv.totalPrompt * 0.9
+        ) {
+          const compactedBetween = compactionSpans.some((cp) => (
+            (cp.gmIdx !== null && cp.gmIdx > prevCacheInv!.idx && cp.gmIdx <= row.idx)
+            || (prevCacheInv!.stepIdx !== null && stepIdx !== null && cp.stepIdx > prevCacheInv!.stepIdx && cp.stepIdx < stepIdx)
+            || (cp.ts > prevCacheInv!.completedTs && cp.ts < stepStartTs)
+          ));
+          const rawGapSec = (stepStartTs - prevCacheInv.completedTs) / 1000;
+          if (!compactedBetween && rawGapSec >= -5) {
+            const idleGapSec = Math.max(0, rawGapSec);
+            const retention = parsed.cachedInput / prevCacheInv.totalPrompt;
+            const hit = retention >= CACHE_HIT_RETENTION_THRESHOLD;
+            let missCostUSD = 0;
+            if (!hit && idleGapSec >= CACHE_EXPIRED_MISS_MIN_GAP_SEC) {
+              const rates = resolveModelPricing(parsed.modelId, parsed.modelDisplay, parsed.model, completedTs);
+              if (rates) {
+                const uncachedPrefix = Math.max(0, prevCacheInv.totalPrompt - parsed.cachedInput);
+                missCostUSD = (uncachedPrefix * Math.max(0, rates.input - rates.cached)) / 1e6;
+              }
+            }
+            const pairKey = (prevCacheInv.botId && parsed.botId)
+              ? `${prevCacheInv.botId}->${parsed.botId}`
+              : `${currFamily}:${prevCacheInv.completedTs}:${stepStartTs}:${currTotalPrompt}`;
+            cachePairs.push({
+              key: pairKey,
+              family: currFamily,
+              idleGapSec: Number(idleGapSec.toFixed(1)),
+              prevPromptTokens: prevCacheInv.totalPrompt,
+              cachedInput: parsed.cachedInput,
+              retention: Number(retention.toFixed(4)),
+              hit,
+              missCostUSD: Number(missCostUSD.toFixed(5)),
+              ts: stepStartTs,
+            });
+          }
+        }
+        prevCacheInv = {
+          idx: row.idx,
+          stepIdx,
+          botId: parsed.botId || '',
+          family: currFamily,
+          totalPrompt: currTotalPrompt,
+          completedTs: stepTs || stepStartTs || 0,
+        };
 
         recordSpend({
           modelId: parsed.modelId,
@@ -338,6 +422,7 @@ export function summarizeConversationDb(conv) {
     dayBuckets,
     familyUsage,
     recentCalls,
+    cachePairs,
   };
 }
 
