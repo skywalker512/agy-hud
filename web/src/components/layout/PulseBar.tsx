@@ -6,7 +6,7 @@ import {
   fmtDurationShort,
   fmtTps,
   fmtUsd,
-  formatSessionQuotaCompact,
+  formatSessionQuotaTiny,
   formatSessionQuotaTip,
   getEffectiveContextState,
 } from '../../utils/format';
@@ -38,11 +38,11 @@ export function PulseBar({ snap, nowMs, t, visible = true }: PulseBarProps) {
       ? fmtTps(snap?.latestSustained?.genTps || latest.e2eTps)
       : fmtTps(latest.genTps);
     if (active?.stepType === 15) {
-      genText = active.streamStartMs > 0 ? `LIVE ${genVal} tok/s` : t.liveWaitBadge;
+      genText = active.streamStartMs > 0 ? `LIVE ${genVal} t/s` : t.liveWaitBadge;
       genCls = 'pulse-chip is-ok';
     } else {
-      genText = `GEN ${genVal} tok/s`;
-      genCls = 'pulse-chip';
+      genText = `${genVal} t/s`;
+      genCls = 'pulse-chip font-semibold';
     }
   }
 
@@ -73,7 +73,7 @@ export function PulseBar({ snap, nowMs, t, visible = true }: PulseBarProps) {
 
   const showCost = Boolean(found && s && s.pricedCount > 0);
   const sessionQuota = s?.sessionQuota || snap?.sessionInfo?.quotaUsage || null;
-  const quotaStr = found ? formatSessionQuotaCompact(sessionQuota, true) : '';
+  const quotaStr = found ? formatSessionQuotaTiny(sessionQuota) : '';
   const quotaTip = quotaStr ? formatSessionQuotaTip(sessionQuota, t) : undefined;
 
   return (

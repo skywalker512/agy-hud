@@ -66,12 +66,7 @@ export function AccountTab({
   const s = snap?.summary;
   const h = snap?.accountHistory;
 
-  const tierLabel = q?.available
-    ? [q.tierName, q.planName]
-        .filter((v): v is string => Boolean(v))
-        .filter((v, i, a) => a.indexOf(v) === i)
-        .join(' · ')
-    : '';
+  const tierLabel = q?.available ? q.tierName || q.planName || '' : '';
 
   const creditsStr =
     q?.available && typeof q.availableCredits === 'number' && q.availableCredits > 0

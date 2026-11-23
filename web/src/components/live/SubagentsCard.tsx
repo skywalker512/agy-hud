@@ -481,6 +481,20 @@ export function SubagentsCard({
     });
   };
 
+  const normTitle = (swarm.swarmTitle || '').trim().toLowerCase();
+  const candGoalTitle = (swarm.goalTitle || '').trim();
+  const candGoalLine = (swarm.goalLine || '').trim();
+  const subtitle =
+    candGoalTitle && candGoalTitle.toLowerCase() !== normTitle
+      ? candGoalTitle
+      : candGoalLine && candGoalLine.toLowerCase() !== normTitle
+        ? candGoalLine
+        : '';
+  const subtitleTip =
+    candGoalTitle && candGoalLine && candGoalTitle.toLowerCase() !== candGoalLine.toLowerCase()
+      ? `${candGoalTitle}\n${candGoalLine}`
+      : subtitle || undefined;
+
   return (
     <section id="child-sessions-card" className="hud-card flex flex-col gap-2">
       {/* Swarm Header Strip */}
@@ -489,26 +503,30 @@ export function SubagentsCard({
           className="flex items-start justify-between gap-2 min-w-0 cursor-pointer select-none"
           onClick={toggleCardOpen}
         >
-          <div className="flex flex-col gap-0.5 min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-              <span className="card-k">{sw.cockpitTitle}</span>
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+            <div className="flex items-baseline gap-1.5 min-w-0">
+              <span className="card-k shrink-0">{sw.cockpitTitle}</span>
               <span className="text-[12px] font-hud font-semibold text-hud-fg truncate">
                 {swarm.swarmTitle}
               </span>
             </div>
-            {(swarm.goalTitle || swarm.goalLine) && (
+            {subtitle && (
               <div
                 className="text-[11px] font-hud text-hud-muted truncate"
-                data-tip={swarm.goalTitle && swarm.goalLine ? `${swarm.goalTitle}\n${swarm.goalLine}` : undefined}
+                data-tip={subtitleTip}
               >
-                {swarm.goalTitle || swarm.goalLine}
+                {subtitle}
               </div>
             )}
           </div>
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             {swarm.boardSeq > 0 && (
-              <span className="px-1.5 py-[1px] rounded-full bg-hud-fill font-hud-mono text-[9.5px] font-medium text-hud-muted tabular-nums">
-                {sw.boardBadge(swarm.boardSeq)}
+              <span
+                className="font-hud-mono text-[10px] text-hud-muted tabular-nums cursor-help"
+                data-tip={sw.boardBadge(swarm.boardSeq)}
+                onClick={(e) => e.stopPropagation()}
+              >
+                #{swarm.boardSeq}
               </span>
             )}
             <button
@@ -525,28 +543,29 @@ export function SubagentsCard({
           </div>
         </div>
 
-        {/* Live state pills + optional [Flat | By Thread] toggle */}
+        {/* Calm borderless state summary + optional [Flat | By Thread] toggle */}
         <div className="flex flex-wrap items-center justify-between gap-1.5">
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-hud text-[10.5px] tabular-nums">
             {swarm.workingCount > 0 && (
-              <span className="swarm-pill-working inline-flex items-center gap-1.5 px-2 py-[1px] rounded-full border font-hud text-[10px] font-semibold tabular-nums">
+              <span className="inline-flex items-center gap-1.5 px-1.5 py-[1px] rounded-full font-semibold text-hud-ok bg-tint-ok">
                 <span className="swarm-dot-working w-[5.5px] h-[5.5px] rounded-full shrink-0" />
-                {sw.workingPill(swarm.workingCount)}
+                <span>{sw.workingPill(swarm.workingCount)}</span>
               </span>
             )}
             {swarm.waitingCount > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-[1px] rounded-full bg-hud-fill font-hud text-[10px] font-medium text-hud-muted tabular-nums">
-                <span className="w-[5.5px] h-[5.5px] rounded-full border border-hud-muted shrink-0" />
-                {sw.waitingPill(swarm.waitingCount)}
+              <span className="inline-flex items-center gap-1 text-hud-muted">
+                <span className="w-[5.5px] h-[5.5px] rounded-full border border-hud-muted opacity-75 shrink-0" />
+                <span>{sw.waitingPill(swarm.waitingCount)}</span>
               </span>
             )}
             {swarm.stoppedCount > 0 && (
-              <span className="swarm-pill-stopped inline-flex items-center gap-1 px-2 py-[1px] rounded-full border font-hud text-[10px] font-semibold tabular-nums">
-                {sw.stoppedPill(swarm.stoppedCount)}
+              <span className="inline-flex items-center gap-1 font-medium text-hud-warn">
+                <span className="w-[5px] h-[5px] rounded-[1px] bg-hud-warn shrink-0" />
+                <span>{sw.stoppedPill(swarm.stoppedCount)}</span>
               </span>
             )}
             {swarm.killedCount > 0 && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full bg-hud-fill font-hud text-[10px] text-hud-faint tabular-nums opacity-80">
+              <span className="inline-flex items-center gap-0.5 text-hud-faint">
                 <IconX size={9} />
                 <span>{sw.killedPill(swarm.killedCount)}</span>
               </span>
@@ -573,7 +592,7 @@ export function SubagentsCard({
           )}
         </div>
 
-        {/* Rolled-up Swarm Total strip (borderless recessed well) */}
+        {/* Rolled-up Swarm Total strip (borderless recessed well, calm inline quota delta) */}
         <div className="swarm-surface-well flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2.5 py-1.5 rounded-lg font-hud-mono text-[10.5px] tabular-nums">
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
             <span className="font-hud font-semibold text-hud-fg">{sw.swarmTotalLabel}</span>
@@ -582,8 +601,11 @@ export function SubagentsCard({
             </span>
           </div>
           {swarmQuotaStr && (
-            <span className="quota-pill cursor-help" data-tip={swarmQuotaTip}>
-              {t.sessionQuotaPill(swarmQuotaStr)}
+            <span
+              className="font-hud-mono text-[10px] font-semibold text-hud-accent-ink cursor-help whitespace-nowrap"
+              data-tip={swarmQuotaTip}
+            >
+              {swarmQuotaStr}
             </span>
           )}
         </div>

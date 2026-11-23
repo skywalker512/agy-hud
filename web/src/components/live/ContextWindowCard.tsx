@@ -12,7 +12,7 @@ import {
   fmtQuotaPct,
   fmtTtlDuration,
   fmtUsd,
-  formatSessionQuotaCompact,
+  formatSessionQuotaTiny,
   formatSessionQuotaTip,
   friendlyFamilyName,
   getEffectiveContextState,
@@ -136,7 +136,7 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
     : undefined;
 
   const rawSessionQuota = found ? (s?.sessionQuota || snap?.sessionInfo?.quotaUsage || null) : null;
-  const sessionQuotaStr = formatSessionQuotaCompact(rawSessionQuota);
+  const sessionQuotaStr = formatSessionQuotaTiny(rawSessionQuota);
   const sessionQuotaTip = sessionQuotaStr ? formatSessionQuotaTip(rawSessionQuota, t) : '';
   const spendQuotaTip = [costTip, sessionQuotaTip].filter(Boolean).join('\n\n') || undefined;
 
@@ -443,17 +443,13 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
         >
           <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">{t.ctxMicroSpendQuota}</span>
           <span className="font-hud-mono text-[11.5px] font-bold text-hud-fg tabular-nums truncate">
-            {costStr || sessionQuotaStr ? (
-              <>
-                <span>{costStr || '--'}</span>
-                {sessionQuotaStr && (
-                  <span className="text-[9.5px] font-semibold text-hud-accent-ink ml-1">{sessionQuotaStr}</span>
-                )}
-              </>
-            ) : (
-              '--'
-            )}
+            {costStr || '--'}
           </span>
+          {sessionQuotaStr && (
+            <span className="font-hud-mono text-[9.5px] font-semibold text-hud-accent-ink tabular-nums leading-tight break-words">
+              {sessionQuotaStr}
+            </span>
+          )}
         </div>
       </div>
 
