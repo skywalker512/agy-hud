@@ -188,8 +188,8 @@ export function HeroSpeedCards({
             >
               <defs>
                 <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--seg-cache)" stopOpacity="0.22" />
-                  <stop offset="100%" stopColor="var(--seg-cache)" stopOpacity="0" />
+                  <stop offset="0%" stop-color="var(--seg-cache)" stop-opacity="0.22" />
+                  <stop offset="100%" stop-color="var(--seg-cache)" stop-opacity="0" />
                 </linearGradient>
               </defs>
               <path d={sparkline.areaPath} fill={`url(#${gradId})`} />
@@ -197,10 +197,10 @@ export function HeroSpeedCards({
                 d={sparkline.linePath}
                 fill="none"
                 stroke="var(--seg-cache)"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                vector-effect="non-scaling-stroke"
               />
               <circle
                 cx={sparkline.lastPt.x}
@@ -215,7 +215,7 @@ export function HeroSpeedCards({
                 r="2.1"
                 fill="var(--seg-cache)"
                 stroke="var(--hud-card)"
-                strokeWidth="0.9"
+                stroke-width="0.9"
               />
             </svg>
           </div>

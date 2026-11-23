@@ -1441,15 +1441,15 @@ export function TrendChartCard({
                 x2={(padLeft + plotW).toFixed(1)}
                 y2={gy.toFixed(1)}
                 stroke="var(--hud-border)"
-                strokeWidth="1"
-                strokeDasharray={gi === 2 ? undefined : '2 3'}
+                stroke-width="1"
+                stroke-dasharray={gi === 2 ? undefined : '2 3'}
                 opacity="0.45"
               />
             ))}
             <text
               x={(svgW / 2).toFixed(1)}
               y={(padTop + chartH * 0.52).toFixed(1)}
-              textAnchor="middle"
+              text-anchor="middle"
               className="trend-axis-label"
               style={{ fontSize: '11px' }}
             >
@@ -1472,22 +1472,22 @@ export function TrendChartCard({
           >
             <defs>
               <linearGradient id={`${gradPrefix}-ctx`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--seg-input)" stopOpacity="0.22" />
-                <stop offset="100%" stopColor="var(--seg-input)" stopOpacity="0" />
+                <stop offset="0%" stop-color="var(--seg-input)" stop-opacity="0.22" />
+                <stop offset="100%" stop-color="var(--seg-input)" stop-opacity="0" />
               </linearGradient>
               {seriesList.map((s, si) => (
                 <linearGradient key={`grad-${si}`} id={`${gradPrefix}-area-${si}`} x1="0" y1="0" x2="0" y2="1">
                   <stop
                     offset="0%"
-                    stopColor={s.color}
-                    stopOpacity={seriesList.length === 1 ? '0.2' : '0.1'}
+                    stop-color={s.color}
+                    stop-opacity={seriesList.length === 1 ? '0.2' : '0.1'}
                   />
-                  <stop offset="100%" stopColor={s.color} stopOpacity="0" />
+                  <stop offset="100%" stop-color={s.color} stop-opacity="0" />
                 </linearGradient>
               ))}
               <linearGradient id={`${gradPrefix}-danger`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--hud-bad)" stopOpacity="0.14" />
-                <stop offset="100%" stopColor="var(--hud-bad)" stopOpacity="0.02" />
+                <stop offset="0%" stop-color="var(--hud-bad)" stop-opacity="0.14" />
+                <stop offset="100%" stop-color="var(--hud-bad)" stop-opacity="0.02" />
               </linearGradient>
             </defs>
 
@@ -1507,14 +1507,14 @@ export function TrendChartCard({
                   x2={(padLeft + plotW).toFixed(1)}
                   y2={ctxDangerY.toFixed(1)}
                   stroke="var(--hud-bad)"
-                  strokeWidth="1"
-                  strokeDasharray="3 3"
+                  stroke-width="1"
+                  stroke-dasharray="3 3"
                   opacity="0.45"
                 />
                 <text
                   x={(padLeft + plotW - 2).toFixed(1)}
                   y={(ctxDangerY - 2.5).toFixed(1)}
-                  textAnchor="end"
+                  text-anchor="end"
                   className="trend-ref-label"
                   fill="var(--hud-bad)"
                   opacity="0.78"
@@ -1536,14 +1536,14 @@ export function TrendChartCard({
                     x2={(padLeft + plotW).toFixed(1)}
                     y2={gy.toFixed(1)}
                     stroke="var(--hud-fg)"
-                    strokeWidth="1"
-                    strokeDasharray={gi === 2 ? undefined : '2 3'}
+                    stroke-width="1"
+                    stroke-dasharray={gi === 2 ? undefined : '2 3'}
                     opacity={gi === 2 ? 0.12 : 0.06}
                   />
                   <text
                     x={(padLeft - 6).toFixed(1)}
                     y={(gy + 3).toFixed(1)}
-                    textAnchor="end"
+                    text-anchor="end"
                     className="trend-axis-label"
                   >
                     {label}
@@ -1561,14 +1561,14 @@ export function TrendChartCard({
                   x2={(padLeft + plotW).toFixed(1)}
                   y2={ttftSla3Y.toFixed(1)}
                   stroke="var(--hud-warn)"
-                  strokeWidth="1"
-                  strokeDasharray="3 3"
+                  stroke-width="1"
+                  stroke-dasharray="3 3"
                   opacity="0.48"
                 />
                 <text
                   x={(padLeft + plotW - 2).toFixed(1)}
                   y={(ttftSla3Y - 2.5).toFixed(1)}
-                  textAnchor="end"
+                  text-anchor="end"
                   className="trend-ref-label"
                   fill="var(--hud-warn)"
                   opacity="0.82"
@@ -1585,14 +1585,14 @@ export function TrendChartCard({
                   x2={(padLeft + plotW).toFixed(1)}
                   y2={ttftSla10Y.toFixed(1)}
                   stroke="var(--hud-bad)"
-                  strokeWidth="1"
-                  strokeDasharray="3 3"
+                  stroke-width="1"
+                  stroke-dasharray="3 3"
                   opacity="0.52"
                 />
                 <text
                   x={(padLeft + plotW - 2).toFixed(1)}
                   y={(ttftSla10Y - 2.5).toFixed(1)}
-                  textAnchor="end"
+                  text-anchor="end"
                   className="trend-ref-label"
                   fill="var(--hud-bad)"
                   opacity="0.85"
@@ -1609,8 +1609,8 @@ export function TrendChartCard({
                   x2={(padLeft + plotW).toFixed(1)}
                   y2={ttftP95Y.toFixed(1)}
                   stroke="var(--hud-fg)"
-                  strokeWidth="1"
-                  strokeDasharray="4 3"
+                  stroke-width="1"
+                  stroke-dasharray="4 3"
                   opacity="0.28"
                 />
                 <rect
@@ -1624,7 +1624,7 @@ export function TrendChartCard({
                 <text
                   x={(padLeft + 6).toFixed(1)}
                   y={(Math.max(padTop + 8.5, ttftP95Y - 2.5)).toFixed(1)}
-                  textAnchor="start"
+                  text-anchor="start"
                   className="trend-ref-label"
                   fill="var(--hud-muted)"
                 >
@@ -1642,14 +1642,14 @@ export function TrendChartCard({
                   x2={(padLeft + plotW).toFixed(1)}
                   y2={cacheTargetY.toFixed(1)}
                   stroke="var(--hud-ok)"
-                  strokeWidth="1"
-                  strokeDasharray="3 3"
+                  stroke-width="1"
+                  stroke-dasharray="3 3"
                   opacity="0.46"
                 />
                 <text
                   x={(padLeft + plotW - 2).toFixed(1)}
                   y={(cacheTargetY - 2.5).toFixed(1)}
-                  textAnchor="end"
+                  text-anchor="end"
                   className="trend-ref-label"
                   fill="var(--hud-ok)"
                   opacity="0.82"
@@ -1668,14 +1668,14 @@ export function TrendChartCard({
                   x2={(padLeft + plotW).toFixed(1)}
                   y2={quotaAvgY.toFixed(1)}
                   stroke="var(--hud-accent)"
-                  strokeWidth="1"
-                  strokeDasharray="3 3"
+                  stroke-width="1"
+                  stroke-dasharray="3 3"
                   opacity="0.42"
                 />
                 <text
                   x={(padLeft + plotW - 2).toFixed(1)}
                   y={(quotaAvgY - 2.5).toFixed(1)}
-                  textAnchor="end"
+                  text-anchor="end"
                   className="trend-ref-label"
                   fill="var(--hud-accent-ink)"
                   opacity="0.82"
@@ -1694,14 +1694,14 @@ export function TrendChartCard({
                   x2={(padLeft + plotW).toFixed(1)}
                   y2={allPoints[0].y.toFixed(1)}
                   stroke="var(--hud-accent)"
-                  strokeWidth="1"
-                  strokeDasharray="3 3"
+                  stroke-width="1"
+                  stroke-dasharray="3 3"
                   opacity="0.42"
                 />
                 <text
                   x={(padLeft + plotW - 2).toFixed(1)}
                   y={(padTop + 9).toFixed(1)}
-                  textAnchor="end"
+                  text-anchor="end"
                   className="trend-axis-label"
                 >
                   {tt.singleCallNote}
@@ -1718,8 +1718,8 @@ export function TrendChartCard({
                   x2={m.x.toFixed(1)}
                   y2={yBase.toFixed(1)}
                   stroke="var(--seg-think)"
-                  strokeWidth="1.2"
-                  strokeDasharray="2.5 2.5"
+                  stroke-width="1.2"
+                  stroke-dasharray="2.5 2.5"
                   opacity={metric === 'ctx' ? 0.82 : 0.56}
                 />
                 <polygon
@@ -1786,10 +1786,10 @@ export function TrendChartCard({
                     d={emaPath}
                     fill="none"
                     stroke="var(--hud-fg)"
-                    strokeWidth="1.25"
-                    strokeDasharray="3 2.5"
+                    stroke-width="1.25"
+                    stroke-dasharray="3 2.5"
                     opacity="0.52"
-                    strokeLinecap="round"
+                    stroke-linecap="round"
                   />
                 )}
               </g>
@@ -1808,9 +1808,9 @@ export function TrendChartCard({
                       d={ctxCurvePath}
                       fill="none"
                       stroke="var(--seg-input)"
-                      strokeWidth="1.75"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
                     />
                   </>
                 )}
@@ -1827,7 +1827,7 @@ export function TrendChartCard({
                       r={isLast ? 3.4 : 2.2}
                       fill={color}
                       stroke="var(--hud-card)"
-                      strokeWidth="1.1"
+                      stroke-width="1.1"
                     />
                   );
                 })}
@@ -1881,8 +1881,8 @@ export function TrendChartCard({
                             x2={(padLeft + plotW).toFixed(1)}
                             y2={meanY.toFixed(1)}
                             stroke={s.color}
-                            strokeWidth="1"
-                            strokeDasharray="3 3"
+                            stroke-width="1"
+                            stroke-dasharray="3 3"
                             opacity="0.26"
                           />
                         )}
@@ -1897,9 +1897,9 @@ export function TrendChartCard({
                             d={curve}
                             fill="none"
                             stroke={s.color}
-                            strokeWidth="1.75"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
+                            stroke-width="1.75"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
                           />
                         )}
                         {s.points.map((pt) => {
@@ -1937,7 +1937,7 @@ export function TrendChartCard({
                                   r={isLast ? 5.6 : 4.6}
                                   fill="none"
                                   stroke="var(--hud-warn)"
-                                  strokeWidth="1.4"
+                                  stroke-width="1.4"
                                   opacity="0.92"
                                 />
                               )}
@@ -1947,7 +1947,7 @@ export function TrendChartCard({
                                 r={isLast ? 3.5 : isBufNode ? 2.8 : 2.3}
                                 fill={dotFill}
                                 stroke={isBufNode ? s.color : 'var(--hud-card)'}
-                                strokeWidth={isBufNode ? '1.5' : '1.1'}
+                                stroke-width={isBufNode ? '1.5' : '1.1'}
                               />
                             </g>
                           );
@@ -1963,16 +1963,16 @@ export function TrendChartCard({
                         d={emaPath}
                         fill="none"
                         stroke="var(--hud-fg)"
-                        strokeWidth="1.25"
-                        strokeDasharray="4 3"
+                        stroke-width="1.25"
+                        stroke-dasharray="4 3"
                         opacity="0.52"
-                        strokeLinecap="round"
+                        stroke-linecap="round"
                       />
                       {emaLastY !== null && (
                         <text
                           x={(padLeft + plotW - 2).toFixed(1)}
                           y={clamp(emaLastY - 3.5, padTop + 8, yBase - 4).toFixed(1)}
-                          textAnchor="end"
+                          text-anchor="end"
                           className="trend-ref-label"
                           fill="var(--hud-muted)"
                         >
@@ -2010,7 +2010,7 @@ export function TrendChartCard({
                 key={`xtick-${ti}`}
                 x={tk.x.toFixed(1)}
                 y={(svgH - 4).toFixed(1)}
-                textAnchor={tk.anchor}
+                text-anchor={tk.anchor}
                 className="trend-axis-label"
               >
                 {tk.label}
@@ -2019,7 +2019,7 @@ export function TrendChartCard({
 
             {/* Zero-lag SVG Crosshair + Horizontal Value Guide + Focus Halo */}
             {hoveredPt && (
-              <g pointerEvents="none">
+              <g pointer-events="none">
                 {(metric === 'out' || metric === 'quota') && (
                   <rect
                     className="trend-hover-col"
@@ -2057,14 +2057,14 @@ export function TrendChartCard({
                   r="3.5"
                   fill={modelColorMap.get(getModelKey(hoveredPt.inv)) || 'var(--hud-accent)'}
                   stroke="var(--hud-card)"
-                  strokeWidth="1.4"
+                  stroke-width="1.4"
                 />
               </g>
             )}
 
             {/* Drag-to-Zoom Selection Marquee */}
             {dragZoom && (
-              <g pointerEvents="none">
+              <g pointer-events="none">
                 <rect
                   className="trend-zoom-marquee"
                   x={dragZoom.x1.toFixed(1)}
@@ -2077,7 +2077,7 @@ export function TrendChartCard({
                   transform={`translate(${clamp((dragZoom.x1 + dragZoom.x2) / 2, padLeft + 28, padLeft + plotW - 28).toFixed(1)}, ${(padTop + 13).toFixed(1)})`}
                 >
                   <rect className="trend-zoom-badge-bg" x="-26" y="-9" width="52" height="15" rx="4" />
-                  <text className="trend-zoom-badge-text" x="0" y="1.5" textAnchor="middle">
+                  <text className="trend-zoom-badge-text" x="0" y="1.5" text-anchor="middle">
                     {tt.zoomSelecting(dragZoom.count)}
                   </text>
                 </g>
@@ -2203,9 +2203,9 @@ export function TrendChartCard({
                     d={minimapData.path}
                     fill="none"
                     stroke="var(--hud-muted)"
-                    strokeWidth="1.15"
+                    stroke-width="1.15"
                     opacity="0.58"
-                    strokeLinejoin="round"
+                    stroke-linejoin="round"
                   />
                 )}
               </g>
@@ -2220,7 +2220,7 @@ export function TrendChartCard({
                 x2={cx.toFixed(1)}
                 y2={(minimapH - 2).toFixed(1)}
                 stroke="var(--seg-think)"
-                strokeWidth="1.2"
+                stroke-width="1.2"
                 opacity="0.78"
               />
             ))}

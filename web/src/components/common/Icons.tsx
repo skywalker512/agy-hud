@@ -12,9 +12,9 @@ const baseProps = (size: number, strokeWidth: number, className?: string): JSX.S
   viewBox: '0 0 16 16',
   fill: 'none',
   stroke: 'currentColor',
-  strokeWidth,
-  strokeLinecap: 'round',
-  strokeLinejoin: 'round',
+  'stroke-width': strokeWidth,
+  'stroke-linecap': 'round',
+  'stroke-linejoin': 'round',
   className: className ? `shrink-0 ${className}` : 'shrink-0',
   'aria-hidden': 'true',
 });
