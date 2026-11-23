@@ -3,7 +3,7 @@
 <img src="docs/assets/banner.svg" alt="AGY-HUD Banner" width="100%" />
 
 <p>
-  <strong>Mission control for Google Antigravity — real-time token throughput, TTFT waterfalls, routed model truth (<code>f19</code>), context X-ray, calibrated 5h/7d quota runway, and first-class native Swarm observability.</strong>
+  <strong>Live telemetry for Google Antigravity — real-time speed, TTFT waterfalls, prompt cache survival, calibrated quota runway, and native Swarm visibility right in your side pane.</strong>
 </p>
 
 <p>
@@ -18,227 +18,177 @@
   <strong>English</strong> ·
   <a href="README.zh-CN.md">简体中文</a> ·
   <a href="https://skywalker512.github.io/agy-hud/">Website</a> ·
-  <a href="docs/INSTALLATION.md">Installation</a> ·
-  <a href="docs/GUIDE.md">User &amp; Technical Guide</a> ·
-  <a href="CHANGELOG.md">Changelog</a>
-</p>
-
-<p>
-  <a href="#why-agy-hud">Why AGY-HUD</a> ·
-  <a href="#visual-showcase">Showcase</a> ·
   <a href="#quick-install">Quick Install</a> ·
-  <a href="#comparison">Comparison</a> ·
-  <a href="#shortcuts">Shortcuts</a> ·
-  <a href="#development">Development</a>
+  <a href="#interface-tour">Tour</a> ·
+  <a href="#craftsmanship">Craftsmanship</a> ·
+  <a href="docs/GUIDE.md">Technical Guide</a> ·
+  <a href="AGENTS.md">AGENTS.md</a>
 </p>
 
 </div>
-
----
-
-## <a id="why-agy-hud"></a>Why AGY-HUD?
-
-**AGY-HUD** is a native side-pane telemetry cockpit built specifically for **Google Antigravity 2.0**. Instead of sitting behind a fragile MITM API proxy or scraping truncated logs, it reads Antigravity's local SQLite conversation stores (`~/.gemini/antigravity/conversations/<uuid>.db` + `-wal`), local loopback Language Server RPC, and on-disk Swarm metadata in **strictly read-only mode** with **zero runtime npm dependencies** and **0 ms proxy latency**.
-
-### 6 Killer Differentiators
-
-1. **First-Class Native AGY Swarm Cockpit *(Zero Competitors)***
-   Directly parses Antigravity's on-disk swarm state (`swarm.json`, `members.json`, `plan.json`, `board.jsonl`) with mtime caching. Displays the swarm title & goal, live pulsing `@rosterName` worker states (`working` / `waiting` / `stopped` / `killed`), assigned task titles, optional thread grouping (`Flat | By Thread`), `share`/`branch` worktree badges, `Board #seq`, rolled-up cost & 5h/7d quota burn across coordinator + workers, and one-click coordinator↔worker navigation with breadcrumbs.
-2. **Interactive Historical Trend Explorer**
-   Browse your entire session history across 6 metrics (`TPS`, `TTFT`, `OUT`, `CACHE`, `CTX`, `QUOTA%`) — never locked to the last 32 calls. Features range presets (`20 | 50 | 100 | All`), a TradingView-style **Minimap Brush/Scrubber** with resize handles and track jump, **canvas drag-to-zoom**, modifier-wheel cursor zoom, smart **`Follow Live ⏭`** locking, dual `#Seq / Time` X-axis, 4-cell viewport summary strip (`LATEST + Δ`, `AVG`, `P95`, `PEAK`), `0 ms` pointer crosshair, cross-metric compaction markers, and click-to-inspect drill-down.
-3. **OpenRouter-Style Tabbed Call Detail Inspector & Explorer**
-   Expanding any call opens a structured 5-tab inspector (`Overview` · `Thinking` · `Tools` · `Reply` · `Raw`) featuring a 4-cell metric strip, proportional **Timing Waterfall** (`TTFT` / `Think` / `Tool Gen & TC-WAIT` / `Reply Stream`), and **Token & Cost Composition Bar** (prompt cache prefix vs new input, thinking vs visible output). Paired with instant Call Log search (`/`), anomaly filter chips (`Slow TTFT >3s`, `Low Cache <60%`, `Stall / Buf`, `Compacts`), metric sorting, and one-click **Markdown / JSON** report export.
-4. **Zero-Proxy Read-Only Telemetry & Ground-Truth Routed Model (`f19`)**
-   Uses Node.js 22.18+'s built-in `node:sqlite` (`?mode=ro`) to expose the exact backend routed model identifier (`gen_metadata.f1.f19`, e.g. `gemini-4-carbon`, `gemini-3.8-flash-k`) and real context window limit (`f9.f10.f4`), cutting through opaque UI aliases. Cleanly separates sustained `GEN TPS` from `E2E TPS` and isolates single-packet `BUF` spikes so averages never exceed peak speed.
-5. **Empirical `k`-Multiplier Quota Calibration, 5h/7d Runway & 16-Week Heatmap**
-   Fits per-model `k`-multipliers and 5h/7d credit tank capacities via Huber/Tukey IRLS + adaptive `6σ` MAD outlier rejection (plus regularized 3-param token ridge for Claude families), surfacing out-of-sample error bands, unattributed remote spend gaps, and burn-rate exhaustion ETAs. Automatically discovers and merges App, CLI (`agy`), ACP, and IDE sibling stores into unified spend accounting and a 16-week daily activity heatmap.
-6. **Smart Heuristic Chinese Detection, Host Theme Sync & Safe Self-Upgrade**
-   Automatically detects Chinese environments on first launch using weighted OS locale, region, timezone, input method, and user-font signals (with 7-day disk caching and zero false positives from macOS system fonts), while allowing instant manual `EN / 中文` toggling. Synchronizes Antigravity's `light`, `dark`, and `strong` contrast themes automatically, and ships with one-line cross-platform installers, `--doctor` diagnostics, and hardened in-app self-upgrade.
-
----
-
-## <a id="visual-showcase"></a>Visual Showcase
-
-> All screenshots below are captured directly from the live AGY-HUD side-pane UI.
-
-### Live Tab — Speed Sparkline, Context X-Ray & Native Swarm Cockpit
 
 <table>
   <tr>
     <td width="50%" align="center">
       <img src="docs/assets/screenshots/hud-live-dark-en.png" alt="AGY-HUD Live Tab (English, Dark)" width="100%" />
       <br />
-      <sub><strong>Live Tab (EN · Dark)</strong> — Hero GEN TPS sparkline &amp; delta, 5-bucket Context Window X-Ray, KPIs, and Native AGY Swarm Cockpit (<code>@rosterName</code>, live states, tasks, <code>Board #seq</code>, rolled-up quota).</sub>
+      <sub><strong>Live</strong> — Sustained speed &amp; area sparkline, 2-col Context X-Ray, live Cache TTL survival, and Native Swarm Cockpit.</sub>
     </td>
-    <td width="50%" align="center">
-      <img src="docs/assets/screenshots/hud-live-dark-zh.png" alt="AGY-HUD Live Tab (Chinese, Dark)" width="100%" />
-      <br />
-      <sub><strong>Live Tab (中文 · Dark)</strong> — Automatic heuristic Chinese localization &amp; Native Swarm Cockpit with full bilingual parity.</sub>
-    </td>
-  </tr>
-</table>
-
-### Calls Tab — Historical Trend Explorer & OpenRouter-Style Call Inspector
-
-<table>
-  <tr>
     <td width="50%" align="center">
       <img src="docs/assets/screenshots/hud-calls-dark-en.png" alt="AGY-HUD Calls Tab (English, Dark)" width="100%" />
       <br />
-      <sub><strong>Calls Tab (EN · Dark)</strong> — Full-history Trend Chart (<code>20|50|100|All</code>), Minimap Brush/Scrubber, 4-cell viewport stat strip, and expanded Call Detail Inspector (Timing Waterfall + Token Composition Bar).</sub>
-    </td>
-    <td width="50%" align="center">
-      <img src="docs/assets/screenshots/hud-calls-light-en.png" alt="AGY-HUD Calls Tab (English, Light)" width="100%" />
-      <br />
-      <sub><strong>Calls Tab (EN · Light)</strong> — Automatic Antigravity Light Theme synchronization with high-contrast etched surfaces and Call Explorer.</sub>
+      <sub><strong>Calls</strong> — Full-session Trend Explorer with minimap brush, 5-tab Call Inspector, timing waterfall &amp; token breakdown.</sub>
     </td>
   </tr>
 </table>
 
-### Account Tab — Dual 5h/7d Runway, `k`-Multiplier Rules, Heatmap & Self-Update
-
-<div align="center">
-  <img src="docs/assets/screenshots/hud-account-dark-en.png" alt="AGY-HUD Account Tab (English, Dark)" width="54%" />
-  <br />
-  <sub><strong>Account Tab (EN · Dark)</strong> — Dual 5h/7d Quota Pool Runway, Calibrated <code>k</code>-Multiplier Rules, Multi-Store (App + CLI) Spend Grid, 16-Week Activity Heatmap, and 1-Click <strong>Plugin &amp; Updates</strong> card.</sub>
-</div>
+<table>
+  <tr>
+    <td width="33%" align="center">
+      <img src="docs/assets/screenshots/hud-account-dark-en.png" alt="AGY-HUD Account Tab (English, Dark)" width="100%" />
+      <br />
+      <sub><strong>Account</strong> — Hatched 5h/7d runway bar, <code>k</code>-rules, Cache TTL curve, 16w/52w Iceberg heatmap &amp; 1-click update.</sub>
+    </td>
+    <td width="33%" align="center">
+      <img src="docs/assets/screenshots/hud-calls-light-en.png" alt="AGY-HUD Light Theme Synchronization" width="100%" />
+      <br />
+      <sub><strong>Native Light Sync</strong> — Mirrors Antigravity's theme, font scale, and strong-contrast mode automatically.</sub>
+    </td>
+    <td width="33%" align="center">
+      <img src="docs/assets/screenshots/hud-live-dark-zh.png" alt="AGY-HUD Chinese Localization (Dark)" width="100%" />
+      <br />
+      <sub><strong>Bilingual EN / 中文</strong> — Smart first-launch locale detection with instant manual toggle.</sub>
+    </td>
+  </tr>
+</table>
 
 ---
 
 ## <a id="quick-install"></a>Quick Install
 
-**Requirement**: **Node.js 22.18+** (for built-in `node:sqlite` and native TypeScript execution) and **Google Antigravity 2.0**.
+> **Pure official Antigravity Sidecar · Zero CDP · Zero `app.asar` patching · 100% local read-only · Zero runtime dependencies**
 
-### macOS & Linux (One-Line Install)
+### macOS & Linux
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | sh
 ```
 
-### Windows (PowerShell 5.1+ / PowerShell 7+)
+### Windows (PowerShell 5.1+ / 7+)
 
 ```powershell
 irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex
 ```
 
-### Install from Source or Dev Symlink
+### AI Agent Install (1 Sentence)
+
+Paste this into Antigravity, Claude Code, Codex, or any coding agent (instructions live in [`AGENTS.md`](AGENTS.md)):
+
+> `Install agy-hud from https://github.com/skywalker512/agy-hud following AGENTS.md and verify the installation.`
+
+<details>
+<summary><strong>Source install, dev hot-reload (<code>--link</code>), <code>--doctor</code>, and uninstall</strong></summary>
 
 ```bash
-git clone https://github.com/skywalker512/agy-hud.git
-cd agy-hud
-
-# Atomic copy-install into ~/.gemini/config/plugins/agy-hud
-node plugin/install.mjs
-
-# Or link directly for live development hot-reload (symlink on Unix, junction on Windows)
-node plugin/install.mjs --link
-```
-
-### Verify, Update & Uninstall
-
-```bash
-# Run full environment & installation health diagnostics (6 checks)
-node plugin/install.mjs --doctor
-
-# Check for or apply updates from CLI (or click "Update Now" inside Account → Plugin & Updates)
-node plugin/install.mjs --check-update
-node plugin/install.mjs --update
-
-# Remove the installed plugin or dev symlink cleanly
+git clone https://github.com/skywalker512/agy-hud.git && cd agy-hud
+node plugin/install.mjs          # Atomic copy-install to ~/.gemini/config/plugins/agy-hud
+node plugin/install.mjs --link   # Dev symlink (macOS/Linux) or junction (Windows)
+node plugin/install.mjs --doctor # Run 6 environment & bundle health checks
+node plugin/install.mjs --update # Safe CLI upgrade with automatic rollback
 node plugin/install.mjs --uninstall
 ```
 
-> Restart Antigravity (or reload plugins) after first installation if the AGY-HUD side-pane icon does not appear immediately. See [docs/INSTALLATION.md](docs/INSTALLATION.md) for custom target directories, pinned versions, `--json` output, and troubleshooting.
+</details>
+
+*Requires **Node.js 22.18+** (built-in `node:sqlite`) and **Google Antigravity 2.0**. Restart Antigravity (or reload plugins) if the AGY-HUD icon does not appear immediately. See [docs/INSTALLATION.md](docs/INSTALLATION.md) for custom paths, pinned versions, and troubleshooting.*
 
 ---
 
-## <a id="comparison"></a>How AGY-HUD Compares
+## <a id="interface-tour"></a>Interface Tour
 
-| Capability | **AGY-HUD** | **API Proxy Monitors** | **CLI Log Aggregators** | **Basic Statuslines** |
-| :--- | :---: | :---: | :---: | :---: |
-| **Zero-Proxy Local Read-Only Telemetry** | **Native `node:sqlite` + LS RPC** | MITM proxy required | Post-hoc log parse | Stdin / shell hooks |
-| **First-Class Native AGY Swarm Cockpit** | **Full roster, states, tasks, threads, board `#seq`** | No | No | Count only |
-| **Ground-Truth Routed Model ID (`f19`)** | **Yes (backend ID + real context cap)** | Request alias only | Alias only | Alias only |
-| **GEN vs E2E TPS + `BUF` Spike Isolation** | **Yes (sustained + buffered split)** | Partial | No | No |
-| **Historical Minimap Brush & Drag-to-Zoom** | **Full session + `Follow Live` + drill-down** | Web dashboard only | Static CLI tables | None |
-| **OpenRouter-Style Call Waterfall & Export** | **5-tab inspector + MD / JSON export** | Web dashboard only | JSON / CSV tables | None |
-| **Empirical `k`-Fitter & 5h/7d Runway** | **IRLS `k`, OOS error, remote gap, ETA** | No | Cost tables only | Raw % only |
-| **Multi-Store (App + CLI) + 16-Week Heatmap** | **Auto-discovered & merged** | Proxy traffic only | Manual paths | Session only |
-| **Runtime Dependencies / Proxy Overhead** | **0 deps · 0 ms** | Heavy runtime + latency | CLI runtime | Minimal |
+AGY-HUD organizes everything into three calm, glanceable views designed for a narrow auxiliary side pane:
+
+### 1. Live — *What is happening right now?*
+- **Hero Speed & Area Sparkline**: Separates post-TTFT streaming speed (`GEN TPS`) from end-to-end speed (`E2E TPS`), showing a session-average delta badge and a smooth bottom-anchored sparkline without single-packet spikes skewing your numbers.
+- **Context Window X-Ray**: Clean segmented bar with interactive hover highlighting and an aligned 2-column token table (`Sys Prompt`, `Tool Defs`, `Tool Results` with per-tool leaderboard, `Model Replies`, `User / Ckpt`, plus finer MCP/skills/rules breakdown when present).
+- **Stay Ahead of Compaction & Cache Expiry**: A compact 4-column micro-metric strip shows estimated **headroom turns (`~Nt`)**, **cache hit %**, live **Prompt Cache TTL survival probability**, and **session cost / `5h` quota burn**.
+- **Native AGY Swarm Cockpit**: Automatically appears on Swarm sessions to track `@rosterName` worker states, active tasks, `Board #seq`, rolled-up swarm burn, and one-click coordinator↔worker breadcrumbs.
+
+### 2. Calls — *Why was that turn slow or expensive?*
+- **Full-Session Trend Explorer**: Never locked to the last 32 calls. Switch across 6 metrics (`TPS`, `TTFT`, `OUT`, `CACHE`, `CTX`, `QUOTA%`), scrub history with the **Minimap Brush**, drag-to-zoom on the canvas, lock/unlock **`Follow Live`**, and click any point to jump straight to that call.
+- **5-Tab Call Detail Inspector**: Click any call row to inspect `Overview` (4-cell strip, proportional **Timing Waterfall** for `TTFT / Think / Tool Gen & TC-WAIT / Reply`, and **Token Composition Bar**), `Thinking`, `Tools`, `Reply`, and `Raw`.
+- **Search, Filter & Export**: Hit `/` to search across models, prompts, and tool names; filter anomalies (`Slow TTFT >3s`, `Low Cache <60%`, `Stall / Buf`, `Compacts`); sort by slowest or costliest; or copy a clean **Markdown / JSON** report in one click.
+
+### 3. Account — *How long will my quota last?*
+- **Dual 5h / 7d Quota Runway**: Hatched diagonal runway bars show projected burn before reset right inside the progress bar—so you can tell at a glance whether your current pace finishes safely or runs dry early.
+- **Calibrated `k`-Multiplier Rules & Prompt Cache TTL**: See empirically fitted quota multipliers per model family alongside 7-bucket Prompt Cache survival curves (`P80` / `P50` safe windows and cumulative expired-cache cost).
+- **Unified Ledger, 16w/52w Heatmap & Iceberg View**: Automatically merges App, CLI (`agy`), ACP, and IDE stores into one spend grid, a **16-week / 52-week Activity Heatmap**, and a **Monochrome Token Iceberg** view (New Tokens above baseline vs Cached Read below baseline), plus 1-click in-app updates.
+
+---
+
+## <a id="craftsmanship"></a>Craftsmanship & Details
+
+- **Native Host Theme, Font & Strong-Contrast Sync** — [`useThemeSync.ts`](web/src/hooks/useThemeSync.ts) samples Antigravity's live CSS variables (`--background`, `--card`, `--primary`), font family, font scale, and high-contrast mode via `MutationObserver` and host `theme-change` events. Layered borderless cards, custom SVG icons, custom popover selects, and a scroll-aware `PulseBar` (which stays hidden at the top of `Live` so numbers never duplicate) make the HUD feel built into Antigravity.
+- **Prompt Cache TTL Survival Modeling** — [`cache-ttl.ts`](plugin/sidecars/hud_panel/lib/cache-ttl.ts) fits a regularized Log-Logistic survival curve $S(t) = (1 - p_0) / (1 + (t / t_{50})^k)$ per model family (`P80` / `P50` horizons, distinct sharp TTL cliffs for Claude vs gentle LRU decay for Gemini), giving live expiry probability and exact miss penalty in USD and `5h` quota `%`.
+- **Quota Runway & Empirical IRLS Calibration** — Fits per-model `k`-multipliers and Claude 3-parameter token ridge weights using Huber/Tukey IRLS + adaptive `6σ` MAD outlier rejection over clean short windows (`≤ 15 min`), isolating remote spend gaps and showing out-of-sample (`OOS`) validation status before dropping `provisional` tags.
+- **True Telemetry Fidelity** — Opens local SQLite + WAL databases strictly read-only (`node:sqlite`, `?mode=ro`), decodes Protobuf `gen_metadata.f1.f19` for the actual backend routed model ID and `f9.f10.f4` for the real context cap, isolates single-packet `BUF` bursts so sustained `AVG GEN` never exceeds `PEAK`, separates `THK` from `TC-WAIT` tool stalls, and unifies App + CLI (`agy`) + ACP + IDE sibling stores.
+- **First-Class Native AGY Swarm Cockpit** — Directly reads Antigravity's on-disk swarm state (`swarm.json`, `members.json`, `plan.json`, bounded tail reads of `board.jsonl`) with combined `mtime` caching. Surfaces live pulsing `@rosterName` states, task summaries, `Flat | By Thread` grouping, `share`/`branch` worktree badges, `Board #seq`, rolled-up swarm quota/cost, and reverse-indexed worker→coordinator navigation.
+- **Account Insights, Smart Locale & Hardened Self-Updater** — Combines 16w/52w Activity Heatmaps and the Monochrome Token Iceberg view with multi-signal EN/中文 detection (zero-weighting macOS `PingFang.ttc` to avoid false positives) and a zero-dependency in-app updater enforced by a strict GitHub HTTPS allowlist, zip-slip protection, SHA-256 backend diff detection, and atomic swap with rollback.
 
 ---
 
 ## <a id="shortcuts"></a>Keyboard Shortcuts & Chart Controls
 
-When the AGY-HUD side pane is focused (shortcuts automatically ignore text inputs and dropdowns):
-
 | Shortcut / Gesture | Action |
 | :--- | :--- |
 | `1` / `2` / `3` | Switch between **Live**, **Calls**, and **Account** tabs |
-| `/` | Focus the Call Log search box (auto-switches to **Calls** tab if needed) |
-| `Esc` | Clear Call Log search, close `⋯` / Export popovers, or dismiss chart crosshair |
-| **Drag horizontally** on Trend Chart | Draw a zoom marquee (`≥ 8 px`) to zoom straight into that historical range |
-| **Click** a point/bar on Trend Chart | Jump directly to and expand that exact call in the Call Log (`< 6 px` move) |
-| `Ctrl` / `Cmd` / `Shift` + **Mouse Wheel** | Smooth cursor-centered zoom (regular vertical scrolling is never hijacked) |
-| **Horizontal trackpad swipe** (zoomed) | Pan smoothly left/right across history |
-| **Minimap Brush** drag / handles / click / dbl-click | Pan viewport, resize window edges, click track to jump-center, double-click to reset to `All` / `Follow Live` |
+| `/` | Focus Call Log search (auto-switches to **Calls** tab) |
+| `Esc` | Clear search, close popovers, or dismiss chart crosshair |
+| **Drag horizontally** on Trend Chart | Draw a marquee (`≥ 8 px`) to zoom into that range |
+| **Click** a point/bar on Trend Chart | Jump directly to and expand that call in the Call Log |
+| `Ctrl` / `Cmd` / `Shift` + **Wheel** | Smooth cursor-centered zoom (never hijacks page scroll) |
+| **Minimap Brush** | Drag handles to resize, drag body to pan, click track to jump, double-click to reset |
 
 ---
 
-## Documentation & Launch Site
+## Privacy, Architecture & FAQ
 
-- **Launch Website**: [skywalker512.github.io/agy-hud](https://skywalker512.github.io/agy-hud/) *(source in [`site/`](site/))*
-- **Installation & Self-Upgrade Guide**: [docs/INSTALLATION.md](docs/INSTALLATION.md) · [中文安装文档](docs/INSTALLATION.zh-CN.md)
-- **Complete User & Technical Guide**: [docs/GUIDE.md](docs/GUIDE.md) · [完整使用与技术指南](docs/GUIDE.zh-CN.md)
-  - Native Swarm Observability Cockpit (`swarm.json` / `members.json` / `plan.json` / `board.jsonl`)
-  - Historical Trend Explorer & OpenRouter-Style Call Inspector
-  - Heuristic Chinese Detection & 7-Day Disk Cache
-  - Metrics Glossary, Protobuf Field Map & Quota `k`-Fitter Math
-- **Release History**: [CHANGELOG.md](CHANGELOG.md)
+- **100% Local Read-Only**: AGY-HUD reads `~/.gemini/antigravity/conversations/<uuid>.db` (`?mode=ro`), local loopback Language Server RPC, and on-disk Swarm metadata. Prompts, code, and telemetry never leave your machine. The only optional outbound request is checking/downloading releases from `github.com/skywalker512/agy-hud`.
+- **Zero Patching, Survives Updates**: Because AGY-HUD is a standard Antigravity sidecar plugin—never touching `app.asar` or requiring CDP flags—it keeps working across Antigravity updates and launches cleanly from your normal app icon.
+- **Why Node.js 22.18+?** Built-in `node:sqlite` and native TypeScript stripping allow the entire sidecar backend and installer to run with **zero runtime npm dependencies**.
 
 ---
 
-## <a id="development"></a>Development
+## Documentation & Development
 
-The sidecar backend (`plugin/sidecars/hud_panel/`) runs directly on Node.js 22.18+ with zero runtime dependencies. The UI source lives in `web/` (Preact + TypeScript + Tailwind CSS v4) and compiles into `plugin/sidecars/hud_panel/ui/`:
+| Resource | Description |
+| :--- | :--- |
+| [Launch Website](https://skywalker512.github.io/agy-hud/) | Interactive 3-tab HUD preview & OS install picker ([`site/`](site/)) |
+| [Installation & Self-Upgrade Guide](docs/INSTALLATION.md) | Custom paths, pinned versions, `--doctor`, security model & troubleshooting ([中文](docs/INSTALLATION.zh-CN.md)) |
+| [User & Technical Guide](docs/GUIDE.md) | Deep dive into Swarm Cockpit, Cache TTL math, IRLS `k`-fitter, Protobuf map & API ([中文](docs/GUIDE.zh-CN.md)) |
+| [AGENTS.md](AGENTS.md) | Copy-pasteable install & verification guide for AI coding agents |
+| [CHANGELOG.md](CHANGELOG.md) | Full release history |
+
+<details>
+<summary><strong>Local development & test commands</strong></summary>
 
 ```bash
-# Install UI build dependencies and compile the bundle
+# Build UI bundle (Preact + TypeScript + Tailwind CSS v4 -> plugin/sidecars/hud_panel/ui/)
 npm --prefix web install
-npm --prefix web run build      # typecheck + Vite build -> plugin/sidecars/hud_panel/ui/
-npm --prefix web run dev        # watch mode (pair with `node plugin/install.mjs --link`)
+npm --prefix web run build
+npm --prefix web run dev          # watch mode paired with `node plugin/install.mjs --link`
 
-# Run full verification: backend typecheck + UI build + all unit & trace tests
+# Full verification: backend typecheck + UI build + all unit & trace tests
 npm --prefix plugin/sidecars/hud_panel run check
-```
-
-Or run test suites directly:
-
-```bash
-node --test plugin/sidecars/hud_panel/test/*.test.ts
 node --test tools/test/trace.test.mjs
 ```
 
-### Project Structure
-
-```text
-agy-hud/
-├── plugin/                      # Installed Antigravity 2.0 side-pane plugin
-│   ├── plugin.json              # Plugin manifest
-│   ├── install.mjs              # Cross-platform installer, updater & --doctor CLI
-│   ├── assets/logo.svg          # Plugin icon
-│   └── sidecars/hud_panel/      # Zero-dep Node 22.18+ backend (lib/, pricing.json) & built ui/
-├── scripts/                     # One-line installers (install.sh for macOS/Linux, install.ps1 for Windows)
-├── web/                         # Side-pane UI source (Preact + TypeScript + Tailwind v4)
-├── site/                        # Commercial launch website (Vite + Preact + Tailwind v4)
-├── tools/                       # Trace collector & replay CLI for regression fixtures
-├── docs/                        # Detailed EN/ZH guides & real UI screenshots
-├── CHANGELOG.md
-└── LICENSE
-```
+</details>
 
 ---
 
-## License
+## Acknowledgments & License
+
+Forked from and built upon [adahime/agy-hud](https://github.com/adahime/agy-hud) by [@adahime](https://github.com/adahime), who pioneered the read-only local SQLite/WAL protobuf (`f19` / `gen_metadata`) telemetry foundation and original Antigravity 2.0 side-pane plugin.
 
 Released under the [MIT License](LICENSE).

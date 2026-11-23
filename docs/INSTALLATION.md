@@ -1,8 +1,10 @@
 # Installation, Diagnostics & Self-Upgrade Guide
 
-> **English** · [简体中文](INSTALLATION.zh-CN.md) · [Back to README](../README.md) · [User & Technical Guide](GUIDE.md)
+> **English** · [简体中文](INSTALLATION.zh-CN.md) · [Back to README](../README.md) · [User & Technical Guide](GUIDE.md) · [AGENTS.md](../AGENTS.md)
 
 This guide covers installing, verifying, updating, and troubleshooting **AGY-HUD** on **macOS**, **Linux**, and **Windows**.
+
+> **Pure official Antigravity Sidecar · Zero CDP · Zero `app.asar` patching · 100% local read-only · Zero runtime dependencies**
 
 ---
 
@@ -39,6 +41,12 @@ curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/i
 ```powershell
 irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex
 ```
+
+### AI Agent Install (1 Sentence)
+
+You can also let Antigravity, Claude Code, Codex, or any coding agent run and verify the installation for you using [`AGENTS.md`](../AGENTS.md):
+
+> `Install agy-hud from https://github.com/skywalker512/agy-hud following AGENTS.md and verify the installation.`
 
 ### Environment Variables (Optional)
 
