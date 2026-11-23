@@ -113,6 +113,7 @@ const STATIC_ASSETS = {
   '/app.js': [join(UI_DIR, 'app.js'), 'application/javascript; charset=utf-8'],
 };
 const WATCHED_ASSETS = ['index.html', 'styles.css', 'app.js'];
+const ASSET_SETTLE_MS = 250;
 const assetMemCache = new Map();
 let lastCompleteAssetKey = '';
 
@@ -132,9 +133,26 @@ function readUiAsset(filePath, fallback = '') {
 function getAssetKey() {
   const stats = WATCHED_ASSETS.map((name) => statSafe(join(UI_DIR, name)));
   if (stats.every((s) => s.size > 0)) {
-    lastCompleteAssetKey = stats.map((s) => `${s.mtimeMs}:${s.size}`).join('|');
+    const candidate = stats.map((s) => `${s.mtimeMs}:${s.size}`).join('|');
+    if (!lastCompleteAssetKey || candidate === lastCompleteAssetKey) {
+      lastCompleteAssetKey = candidate;
+    } else {
+      const newestMtimeMs = Math.max(...stats.map((s) => s.mtimeMs));
+      if (Date.now() - newestMtimeMs >= ASSET_SETTLE_MS) {
+        lastCompleteAssetKey = candidate;
+      }
+    }
   }
   return lastCompleteAssetKey;
+}
+
+function renderIndexHtml(indexHtmlPath: string) {
+  const raw = readUiAsset(indexHtmlPath);
+  const key = getAssetKey() || BOOT_ID;
+  const v = encodeURIComponent(key);
+  return raw
+    .replace(/href="\/styles\.css(?:\?[^"]*)?"/, `href="/styles.css?v=${v}"`)
+    .replace(/src="\/app\.js(?:\?[^"]*)?"/, `src="/app.js?v=${v}"`);
 }
 
 function startSelfWatch() {
@@ -209,7 +227,13 @@ async function startServer() {
     readUiAsset(filePath);
   }
 
-  app.page('/', () => readUiAsset(indexHtmlPath));
+  app.page(
+    '/',
+    () => new Response(renderIndexHtml(indexHtmlPath), {
+      contentType: 'text/html; charset=utf-8',
+      headers: NO_STORE_HEADERS,
+    }),
+  );
 
   for (const [route, [filePath, contentType]] of Object.entries(STATIC_ASSETS)) {
     app.api(
