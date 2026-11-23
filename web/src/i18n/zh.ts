@@ -300,7 +300,7 @@ export const zh: Translations = {
   inspPhaseToolStall: '工具阻塞',
   inspPhaseStream: '流式输出',
   inspPhaseGen: '生成',
-  inspTokenCompTitle: 'Token 与成本构成',
+  inspTokenCompTitle: 'Token 构成',
   inspPromptLbl: (total, pct) => `输入 ${total}（${pct} 命中缓存）`,
   inspOutputLbl: (total, thkPct) => `输出 ${total}${thkPct > 0 ? `（${thkPct}% 思考）` : ''}`,
   inspCachedSeg: '缓存',

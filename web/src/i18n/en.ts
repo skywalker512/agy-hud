@@ -300,7 +300,7 @@ export const en: Translations = {
   inspPhaseToolStall: 'TC-WAIT',
   inspPhaseStream: 'Stream',
   inspPhaseGen: 'Generation',
-  inspTokenCompTitle: 'TOKEN & COST COMPOSITION',
+  inspTokenCompTitle: 'TOKEN COMPOSITION',
   inspPromptLbl: (total, pct) => `Prompt ${total} (${pct} cached)`,
   inspOutputLbl: (total, thkPct) => `Output ${total}${thkPct > 0 ? ` (${thkPct}% thinking)` : ''}`,
   inspCachedSeg: 'Cached',
