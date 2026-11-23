@@ -56,8 +56,8 @@ AGY-HUD monitors Antigravity's native on-disk swarm directory in **strictly read
 ### Cockpit Features
 
 - **Swarm Header & Rollup**: Displays the swarm title, `plan.json` goal subtitle, live active/waiting/stopped/killed counters, `Board #seq` badge, and rolled-up **calls, output tokens, USD cost, and 5h/7d quota burn** across the coordinator plus all workers.
-- **Clean Hairline Member Rows**: Sorted **Active First** (`working → waiting → stopped → killed`, tie-broken by latest activity timestamp). Each row shows `@rosterName`, compact tinted worktree badge (`share` / `branch`), routed model tag, clamped `taskTitle` (falling back to the worker's brief), tabular metrics, last board `#seq`, and a rich hover tooltip with latest board post snippet and read progress (`lastReadSeq / boardSeq`).
-- **Thread Grouping**: Swarms with multiple `plan.json` threads automatically expose a **`Flat | By Thread`** toggle with collapsible thread sections.
+- **Clean Hairline Member Rows & Stable Ordering**: Uses a **deterministic, non-jumping sort order** — regular workers in `plan.json` thread / alphabetical `@rosterName` order, followed by infrastructure helpers (`@monitor`, `@narrator`), with `killed` members muted at the bottom — so active rows highlight via pulsing status dots without jumping under your cursor during live polls. Each row shows `@rosterName`, compact tinted worktree badge (`share` / `branch`), routed model tag, clamped `taskTitle` (falling back to the worker's brief), tabular metrics, last board `#seq`, and a rich hover tooltip with latest board post snippet and read progress (`lastReadSeq / boardSeq`).
+- **Persisted Thread Grouping**: Swarms with multiple `plan.json` threads automatically expose a **`Flat | By Thread`** toggle (persisted in `localStorage`) with collapsible thread sections.
 - **Worker-View Breadcrumbs (`ModelBar`, `SessionRelBar` & Conversation Switcher)**: On main sessions, the `MAIN`/`SWARM` status folds cleanly into `ModelBar` to keep header height slim; jumping into any worker reveals a dedicated breadcrumb row (`← @coordinator · <Swarm Title>`) plus the active `@rosterName` and live state pill, and labels conversations as `[Swarm @rosterName]` in the top popover switcher.
 
 ---
@@ -147,17 +147,17 @@ Available in the full **Calls** tab:
 
 ## 4. Live Tab, Host Theme Sync & Visual Craft
 
-- **Hero Speed Cards (`HeroSpeedCards.tsx`)**: Displays live `GEN TPS` and `E2E TPS` with tight tabular figure tracking, a **session-average `%` delta badge**, a **full-width bottom-anchored smooth area-gradient sparkline**, and a subtle top-edge accent glow while actively streaming (`stepType === 15`).
-- **Unified KPI Strip (`KpiGrid.tsx`)**: Consolidates the 4 headline metrics into one segmented hairline-divided card (`2×2` on narrow side panes, `4×1` when wider).
+- **Hero Speed Cards (`HeroSpeedCards.tsx`)**: Displays live `GEN TPS` and `E2E TPS` with tight tabular figure tracking, a **session-average `%` delta badge**, a **full-width bottom-anchored smooth area-gradient sparkline** (preventing collisions on narrow panes), latest-call **Cache Hit %** directly on the E2E card to explain TTFT at a glance, and a subtle top-edge accent glow while actively streaming (`stepType === 15`).
+- **Unified KPI Strip (`KpiGrid.tsx`)**: Consolidates the 4 headline metrics into one segmented hairline-divided card (`2×2` on narrow side panes, `4×1` when wider), with plain-language hover tooltips explaining output-token-weighted `Avg Gen` (`Σ outputTokens / Σ genSec`), `Peak TPS / Cache`, `Avg TTFT / Output`, and `Model / Tool Time`.
 - **Context Window X-Ray (`ContextWindowCard.tsx`)**:
   - Clean header (`Context Window` + `used / limit · %`) over a rounded segmented bar with `1px` gaps and interactive hover highlighting synced to the **2-column aligned breakdown table** below (`Sys Prompt`, `Tool Defs`, `Tool Results` with per-tool token footprint leaderboard, `Model Replies`, and `User / Ckpt`, plus finer additive sub-counts for MCP tools, skills, rules, and checkpoints when extractable).
   - Borderless **4-column micro-metric strip** displaying **Headroom turns (`~Nt`)**, **Cache Hit %**, live **Prompt Cache TTL survival pill**, and **Session Cost / `5h` Quota**.
-- **Smart Scroll-Aware `PulseBar` (`PulseBar.tsx`)**: On the **Live** tab, `PulseBar` uses an `IntersectionObserver` sentinel to stay hidden while `HeroSpeedCards` are visible—eliminating duplicate numbers at the top of the screen—and smoothly slides in as you scroll down. On **Calls** and **Account**, it remains docked for continuous live awareness.
+- **Smart Scroll-Aware `PulseBar` (`PulseBar.tsx`) & Persisted Fold States**: On the **Live** tab, `PulseBar` uses an `IntersectionObserver` sentinel to stay hidden while `HeroSpeedCards` are visible—eliminating duplicate numbers at the top of the screen—and smoothly slides in as you scroll down. On **Calls** and **Account**, it remains docked for continuous live awareness. Collapsible card open/closed states (`QuotaRulesCard`, `CacheTtlCard`, `SessionModelMix`, `RecentCallsCard`, `SubagentsCard`) persist in `localStorage`.
 - **Conditional Session Model Mix (`LiveTab.tsx`)**: Whenever **2 or more routed models** appear in the same session (e.g. `gemini-4-carbon` + `gemini-3.8-flash-k`), a compact collapsible Model Mix table compares each model's call count, sustained `AVG GEN`, `AVG TTFT`, `Cache %`, USD spend, and `5h` quota burn.
 - **Native Host Theme, Font & Strong-Contrast Sync (`web/src/hooks/useThemeSync.ts`)**:
   - Dynamically samples Antigravity's `--background`, `--card`, `--border`, `--primary`, and `--primary-foreground` via an offscreen canvas + `MutationObserver` + host `theme-change` messages.
   - Automatically computes relative luminance to set `data-theme="dark|light"`, detects high-contrast mode (`data-contrast="strong"`), lifts flat/inverted `--card` surfaces, guarantees readable accent ink contrast, and inherits Antigravity's `--font-family` and `--hud-font-scale`.
-  - Uses layered borderless surfaces, a unified lightweight SVG icon set (`Icons.tsx`), and keyboard-accessible custom popovers (`SelectPopover.tsx`), degrading cleanly down to ultra-compact `<= 250px` side panes.
+  - Uses layered borderless surfaces, a unified lightweight SVG icon set (`Icons.tsx`), and viewport-clamped keyboard-accessible popovers (`SelectPopover.tsx`, `⋯` menu, Export menu) that never clip off-screen even down to `240px` narrow side panes.
 
 <div align="center">
   <img src="assets/screenshots/hud-calls-light-en.png" alt="AGY-HUD Light Theme Synchronization" width="52%" />
@@ -270,10 +270,14 @@ Antigravity enforces rolling **5-hour (`5h`)** and **7-day (`7d`)** quota pools 
 4. **Robust IRLS & Outlier Rejection**:
    - Uses symmetric Huber/Tukey Iteratively Reweighted Least Squares (IRLS) with adaptive **MAD `6σ` outlier rejection** so quota boundary jitter or sudden cache flushes cannot skew calibration.
    - For Claude families (`claude-opus-5-5`, `claude-sonnet-5-5`), the solver fits a regularized 3-parameter per-token ridge vector `[w_in, w_cache, w_out]` (%/M tokens), staying marked **`provisional`** (`~-X%`) until validated by `≥ 20` clean short windows, `≥ 5` holdout windows, and **out-of-sample (OOS) error `≤ 2%`**.
-5. **Hatched Runway Bar (`QuotaPoolsList.tsx`)**:
-   - Combines current pool remaining `%`, reset countdown, and recent observed burn rate directly inside the progress bar: solid fill = projected remaining at reset, **diagonal hatched stripe** = projected burn between now and reset (shifting to amber/red warning if exhausting before reset), track = already consumed.
-6. **16w / 52w Activity Heatmap & Monochrome Token Iceberg (`ActivityHeatmapCard.tsx`)**:
+5. **Bayesian Historical Rhythm & Hatched Runway Bar (`lib/quota-budget.ts`, `QuotaPoolsList.tsx`)**:
+   - Instead of linearly extrapolating a brief burst right after a window resets, `computeWindowRunway` learns each pool's empirical pace from prior 14–30d local calls (`≥ 2` active days and `≥ 2` distinct active hours; cold start falls back untouched) and blends it with the current window via Bayesian shrinkage $w_{\text{cur}} = \text{elapsed} / (\text{elapsed} + \tau)$:
+     - **`7d` pool (`τ = 24h`)**: Blends empirical calendar-day burn % (capturing real sleep/work cadence and exposing `activeHoursPerDay` in the tooltip).
+     - **`5h` pool (`τ = 1.0h`)**: Blends empirical active-hour burn % so early bursts damp toward your typical session intensity.
+   - Rendered directly inside the progress bar: solid fill = projected remaining at reset, **diagonal hatched stripe** = projected burn between now and reset (shifting to amber/red warning if exhausting before reset), track = already consumed.
+6. **16w / 52w Activity Heatmap, Iceberg View & Local vs Remote Spend Clarity (`ActivityHeatmapCard.tsx`, `SpendGrid.tsx`, `AccountTab.tsx`)**:
    - Unified multi-store daily activity across App, CLI (`agy`), ACP, and IDE with a `16w | 52w` span toggle and a **Monochrome Token Iceberg** visualization plotting **New Tokens** (non-cached input + output + thinking) above the zero-line against **Cached Read** tokens below the zero-line so cache leverage is immediately visible day by day.
+   - `SpendGrid` explicitly distinguishes **local-machine telemetry totals** (App + CLI + IDE on this machine) from estimated **other-device / cloud active-window deltas**, and the **Plugin & Updates** card provides platform-aware 1-line CLI fallback commands for regular installs (reserving `git pull && node plugin/install.mjs --update` for `--link` dev mode).
 
 ---
 

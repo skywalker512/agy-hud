@@ -56,8 +56,8 @@ AGY-HUD 在所有已发现的 `appDataDir` 根目录下以**严格只读模式**
 ### 驾驶舱核心能力
 
 - **蜂群总览与汇总条**：展示蜂群标题、`plan.json` 目标副标题、实时状态统计（工作中 / 等待 / 停止 / 已终止）、`Board #seq` 进度，以及协调者 + 全部工作节点的**调用总数、输出 Token、美元成本与 5h/7d 配额消耗总计**。
-- **清爽细线成员列表**：默认按**活跃优先**排序（`working → waiting → stopped → killed`，同状态按最新活动时间倒序）。每行以淡细线分隔，展示 `@rosterName`、柔和工作树标签（`share` / `branch`）、路由模型标签、截断任务摘要、对齐等宽指标、最近发言 `#seq`，悬停可查看最新公告板摘录与阅读进度（`lastReadSeq / boardSeq`）。
-- **按线程分组**：当 `plan.json` 定义了多个并行线程时，自动显示 **`平铺 | 按线程`** 切换胶囊，支持折叠/展开各工作线程。
+- **清爽细线成员列表与稳定不跳动排序**：采用**确定性计划/花名册顺序** —— 常规工作节点按 `plan.json` 线程顺序（无计划时按 `@rosterName` 字母序）排列，其后为基础设施辅助节点（`@monitor`、`@narrator`），已终止（`killed`）节点弱化沉底。轮询更新时行序永不跳动，活跃节点通过脉冲绿点与柔和行高亮一目了然。每行展示 `@rosterName`、柔和工作树标签（`share` / `branch`）、路由模型标签、截断任务摘要、对齐等宽指标、最近发言 `#seq`，悬停可查看最新公告板摘录与阅读进度（`lastReadSeq / boardSeq`）。
+- **持久化按线程分组**：当 `plan.json` 定义了多个并行线程时，自动显示 **`平铺 | 按线程`** 切换胶囊（偏好持久化到 `localStorage`），支持折叠/展开各工作线程。
 - **工作节点面包屑（`ModelBar`、`SessionRelBar` 与会话切换器）**：主会话下将 `MAIN` / `SWARM` 状态折叠进模型栏，保持顶部克制精简；点击进入任意工作节点后自动展示专属面包屑（`← @coordinator · <蜂群标题>`）与当前 `@rosterName` 状态徽章，并在顶部弹出选择器中清晰标注 `[Swarm @rosterName]`。
 
 ---
@@ -145,17 +145,17 @@ AGY-HUD 在所有已发现的 `appDataDir` 根目录下以**严格只读模式**
 
 ## 4. 实时页签、宿主主题同步与视觉细节
 
-- **主速度卡片（`HeroSpeedCards.tsx`）**：以紧凑等宽数字呈现实时 `GEN TPS` 与 `E2E TPS`、相对会话均值的**涨跌幅百分比徽章**、**铺满底部的平滑渐变面积迷你折线图**，并在流式生成期间（`stepType === 15`）呈现柔和顶部呼吸光晕。
-- **一体化指标条（`KpiGrid.tsx`）**：将 4 项关键指标合并为一张以极淡细线分隔的统一卡片（窄栏 `2×2`，宽栏 `4×1`）。
+- **主速度卡片（`HeroSpeedCards.tsx`）**：以紧凑等宽数字呈现实时 `GEN TPS` 与 `E2E TPS`、相对会话均值的**涨跌幅百分比徽章**、**铺满底部的平滑渐变面积迷你折线图**（窄栏下绝不遮挡速率数字），在 `E2E` 卡片内直接展示最近一次调用的**缓存命中率**以便一眼理解首字快慢原因，并在流式生成期间（`stepType === 15`）呈现柔和顶部呼吸光晕。
+- **一体化指标条（`KpiGrid.tsx`）**：将 4 项关键指标合并为一张以极淡细线分隔的统一卡片（窄栏 `2×2`，宽栏 `4×1`），每格均提供通俗悬停说明（明确解释按输出 Token 加权的持续 `加权 Gen` 公式 `Σ outputTokens / Σ genSec`、`峰值 TPS / 缓存`、`均值 TTFT / 输出` 及 `模型 / 工具耗时`）。
 - **上下文窗口透视（`ContextWindowCard.tsx`）**：
   - 顶部简洁展示 `上下文窗口` 与 `已用 / 上限 · %`，下方为带 `1px` 分段间隙的圆角进度条，悬停任意色段自动高亮下方**双列对齐明细表**中的对应项（`系统提示`、`工具定义`、`工具返回`含单工具占用排行、`模型回复`、`用户 / 检查点`，并在可解析时补充 MCP 工具 / Skills / Rules / 检查点细项）。
   - 底部无框 **4 列微指标条**整齐展示**剩余可用轮次（`~Nt`）**、**缓存命中率**、实时**缓存 TTL 存活状态**与**本场费用 / `5h` 配额消耗**。
-- **智能滚动感知 `PulseBar`（`PulseBar.tsx`）**：在**实时（Live）**页签中通过 `IntersectionObserver` 监听主速度卡片可见性——位于顶部时自动隐藏以避免重复展示同一组数字，向下滚动后平滑浮现；在**调用**与**账户**页签常驻顶部保持状态感知。
+- **智能滚动感知 `PulseBar`（`PulseBar.tsx`）与折叠状态记忆**：在**实时（Live）**页签中通过 `IntersectionObserver` 监听主速度卡片可见性——位于顶部时自动隐藏以避免重复展示同一组数字，向下滚动后平滑浮现；在**调用**与**账户**页签常驻顶部保持状态感知。各可折叠卡片（`QuotaRulesCard`、`CacheTtlCard`、`SessionModelMix`、`RecentCallsCard`、`SubagentsCard`）的展开/收起状态均自动持久化至 `localStorage`。
 - **条件式会话模型构成卡（`LiveTab.tsx`）**：当同一会话中出现 **2 个及以上实际路由模型**（如 `gemini-4-carbon` 与 `gemini-3.8-flash-k`）时，自动浮现可折叠的模型构成对比表，横向比较各模型的调用次数、持续 `GEN TPS`、平均 `TTFT`、缓存命中率、美元成本与 `5h` 配额消耗。
 - **原生宿主主题、字号与高对比度同步（`web/src/hooks/useThemeSync.ts`）**：
   - 通过离屏 Canvas 采样 + `MutationObserver` + 宿主 `theme-change` 消息，实时读取 Antigravity 的 `--background`、`--card`、`--border`、`--primary` 与 `--primary-foreground`。
   - 按相对亮度自动切换 `data-theme="dark|light"`、识别强对比度模式（`data-contrast="strong"`）、自动修复扁平或反相的 `--card` 层次、保障主题色文字可读性，并同步宿主 `--font-family` 与 `--hud-font-scale`。
-  - 全面采用去线框化多层卡片、自绘统一轻量化 SVG 图标（`Icons.tsx`）与键盘可访问弹出选择器（`SelectPopover.tsx`），并在 `<= 250px` 超窄侧边栏下优雅降级不溢出。
+  - 全面采用去线框化多层卡片、自绘统一轻量化 SVG 图标（`Icons.tsx`）与视口边界钳制弹出菜单（`SelectPopover.tsx`、`⋯` 菜单、导出菜单），即便在 `240px` 超窄侧边栏下也绝不溢出裁切。
 
 <div align="center">
   <img src="assets/screenshots/hud-calls-light-en.png" alt="AGY-HUD 浅色主题同步" width="52%" />
@@ -262,10 +262,14 @@ Antigravity 按模型池（`gemini` 与 `claude_gpt`）实施滚动 **5 小时�
 4. **鲁棒 IRLS 回归与异常值剔除**：
    - 采用对称 Huber/Tukey 迭代加权最小二乘法（IRLS）与自适应 **MAD `6σ` 异常值剔除**，避免配额扣减边界抖动或缓存刷新毛刺拉偏拟合结果。
    - 对 Claude 系列（`claude-opus-5-5`、`claude-sonnet-5-5`）启用三参数正则化岭回归 `[w_in, w_cache, w_out]`（%/M tokens），在满足 `≥ 20` 个干净短窗口、`≥ 5` 个留出验证样本且**样本外误差（OOS）`≤ 2%`** 之前均稳健标注为 **`预估 (provisional)`**（`~-X%`）。
-5. **斜纹续航条（`QuotaPoolsList.tsx`）**：
-   - 直接在配额进度条内融合剩余百分比、重置倒计时与近期消耗速率：实心段为预计重置时的结余，**斜纹段**为当前到重置前的预计消耗（若将提前耗尽则自动转为琥珀/红色警示斜纹），底轨为已用部分。
-6. **16w / 52w 活跃热力图与单色 Token 冰山图（`ActivityHeatmapCard.tsx`）**：
+5. **贝叶斯历史作息收缩与斜纹续航条（`lib/quota-budget.ts`、`QuotaPoolsList.tsx`）**：
+   - 为避免配额重置初期因短暂高频输出而被线性外推成“很快耗尽”，`computeWindowRunway` 从该配额池过去 14–30 天本地历史中学习真实节奏（需满足 `≥ 2` 个活跃日与 `≥ 2` 个独立活跃小时；冷启动则保持原公式不变），并通过贝叶斯收缩 $w_{\text{cur}} = \text{elapsed} / (\text{elapsed} + \tau)$ 与当前窗口平滑融合：
+     - **`7d` 池（`τ = 24h`）**：融合实测日历日均消耗速率（自然体现日常作息与非编码时段，并在悬停提示中透明展示 `activeHoursPerDay`）。
+     - **`5h` 池（`τ = 1.0h`）**：融合实测活跃小时消耗速率，让重置初期的短时突发平稳收敛到个人常态强度。
+   - 直接在配额进度条内呈现：实心段为预计重置时的结余，**斜纹段**为当前到重置前的预计消耗（若将提前耗尽则自动转为琥珀/红色警示斜纹），底轨为已用部分。
+6. **16w / 52w 活跃热力图、冰山图与本机/他机消费边界（`ActivityHeatmapCard.tsx`、`SpendGrid.tsx`、`AccountTab.tsx`）**：
    - 统一汇总 App、CLI（`agy`）、ACP 与 IDE 的每日活跃数据，支持 `16w | 52w` 跨度切换，并提供**单色 Token 冰山图**——基准线上方绘制**新增 Token**（非缓存输入 + 输出 + 思考），基准线下方绘制**缓存读取 Token**，让每日缓存复用杠杆直观可见。
+   - `SpendGrid` 通过悬停提示与远程差额说明明确区分**本机汇总**（本机 App + CLI + IDE）与**他机 / 云端活跃窗口估算差额**；**插件与更新**卡片也为普通安装用户提供按系统自适应的单行更新命令（仅在 `--link` 开发模式展示 `git pull && node plugin/install.mjs --update`）。
 
 ---
 
