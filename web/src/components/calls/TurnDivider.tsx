@@ -1,6 +1,7 @@
 import type { Translations } from '../../i18n';
 import type { CallDetailPayload, TurnSummary } from '../../types/telemetry';
 import { fmtClock, fmtNum, fmtQuotaPct, fmtSec } from '../../utils/format';
+import { IconChevronDown, IconChevronRight } from '../common/Icons';
 
 interface TurnDividerProps {
   turn: TurnSummary;
@@ -61,8 +62,8 @@ export function TurnDivider({
       className={`turn-divider${isCompactTurn ? ' is-compact-turn' : ''}${collapsed ? ' is-collapsed' : ''}`}
     >
       <span className="turn-divider-badge">
-        <span className="text-[9px] leading-none">{collapsed ? '▸' : '▾'}</span>
-        {t.turnDividerBadge(turn.turnIndex)}
+        {collapsed ? <IconChevronRight size={10} /> : <IconChevronDown size={10} />}
+        <span>{t.turnDividerBadge(turn.turnIndex)}</span>
       </span>
       {tm && <span className="shrink-0 tabular-nums">{tm}</span>}
       {turn.promptPreview && (

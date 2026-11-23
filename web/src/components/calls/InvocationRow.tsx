@@ -15,6 +15,7 @@ import {
   formatModelTag,
   ttftTier,
 } from '../../utils/format';
+import { IconCheck, IconChevronDown, IconChevronRight, IconCopy } from '../common/Icons';
 import { ReplyPane, ThinkingPane, ToolsPane } from './ContentBlocks';
 
 type InspectorTab = 'overview' | 'thinking' | 'tools' | 'reply' | 'raw';
@@ -242,15 +243,15 @@ export function InvocationRow({
             </span>
           )}
         </div>
-        <div className="flex items-baseline gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           <span className="font-hud-mono text-[12px] font-semibold tabular-nums whitespace-nowrap">
             {primary}
           </span>
           <span className="history-e2e font-hud-mono text-[10.5px] text-hud-muted tabular-nums whitespace-nowrap">
             E2E {fmtTps(r.e2eTps)}
           </span>
-          <span className="font-hud-mono text-[10px] text-hud-muted opacity-75">
-            {expanded ? '▾' : '▸'}
+          <span className="text-hud-muted opacity-70 inline-flex items-center">
+            {expanded ? <IconChevronDown size={11} /> : <IconChevronRight size={11} />}
           </span>
         </div>
       </div>
@@ -278,16 +279,17 @@ export function InvocationRow({
         </div>
       )}
 
-      {/* Expanded OpenRouter-Style Tabbed Call Detail Inspector */}
+      {/* Expanded Tabbed Call Detail Inspector */}
       {expanded && (
         <div
-          className="mt-1.5 pt-2 border-t border-hud-border flex flex-col gap-2 cursor-default select-text min-w-0"
+          className="hud-expand-anim mt-1.5 pt-2 border-t border-hud-hairline flex flex-col gap-2 cursor-default select-text min-w-0"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Compact Tab Bar + Quick Copy */}
           <div className="flex flex-wrap items-center justify-between gap-1.5 min-w-0">
             <div
-              className="inline-flex flex-wrap items-center gap-0.5 p-[2px] rounded-md bg-hud-tab-track border border-hud-border min-w-0"
+              className="inline-flex flex-wrap items-center gap-0.5 p-[2px] rounded-md bg-hud-tab-track min-w-0"
+              style={{ border: '1px solid var(--hud-hairline)' }}
               role="tablist"
             >
               <button
@@ -308,7 +310,7 @@ export function InvocationRow({
                   onClick={() => setActiveTab('thinking')}
                 >
                   <span>{t.inspTabThinking}</span>
-                  {thinkingChars > 0 && <span className="opacity-75 font-medium text-[9px]">{fmtNum(thinkingChars)}</span>}
+                  {thinkingChars > 0 && <span className="opacity-70 font-hud-mono text-[9px]">{fmtNum(thinkingChars)}</span>}
                 </button>
               )}
               {hasToolsTab && (
@@ -320,7 +322,7 @@ export function InvocationRow({
                   onClick={() => setActiveTab('tools')}
                 >
                   <span>{t.inspTabTools}</span>
-                  <span className="opacity-75 font-medium text-[9px]">{toolCount}</span>
+                  <span className="opacity-70 font-hud-mono text-[9px]">{toolCount}</span>
                 </button>
               )}
               {hasReplyTab && (
@@ -332,7 +334,7 @@ export function InvocationRow({
                   onClick={() => setActiveTab('reply')}
                 >
                   <span>{t.inspTabReply}</span>
-                  {replyChars > 0 && <span className="opacity-75 font-medium text-[9px]">{fmtNum(replyChars)}</span>}
+                  {replyChars > 0 && <span className="opacity-70 font-hud-mono text-[9px]">{fmtNum(replyChars)}</span>}
                 </button>
               )}
               <button
@@ -353,7 +355,8 @@ export function InvocationRow({
                 data-tip={t.inspCopyMdReport}
                 onClick={() => void triggerCopy('md')}
               >
-                {copiedBtn === 'md' ? '✓' : t.inspCopyMd}
+                {copiedBtn === 'md' ? <IconCheck size={10} /> : <IconCopy size={10} />}
+                <span>{t.inspCopyMd}</span>
               </button>
               <button
                 type="button"
@@ -361,7 +364,8 @@ export function InvocationRow({
                 data-tip={t.inspCopyFullJson}
                 onClick={() => void triggerCopy('json')}
               >
-                {copiedBtn === 'json' ? '✓' : t.inspCopyJson}
+                {copiedBtn === 'json' ? <IconCheck size={10} /> : <IconCopy size={10} />}
+                <span>{t.inspCopyJson}</span>
               </button>
             </div>
           </div>
@@ -412,19 +416,19 @@ export function InvocationRow({
               </div>
 
               {/* 2. Proportional Timing Waterfall Bar */}
-              <div className="rounded-md border border-hud-border bg-hud-surface-2 px-2 py-1.5 flex flex-col gap-1.5 min-w-0">
+              <div className="rounded-md bg-hud-card px-2.5 py-2 flex flex-col gap-1.5 min-w-0" style={{ border: '1px solid var(--hud-hairline)' }}>
                 <div className="flex items-center justify-between gap-2 font-hud-mono text-[9.5px] text-hud-muted tabular-nums">
-                  <span className="font-semibold uppercase tracking-[0.04em]">{t.inspWaterfallTitle}</span>
+                  <span className="font-hud font-semibold uppercase tracking-[0.04em]">{t.inspWaterfallTitle}</span>
                   <span>
                     0s — {fmtSec(displayTotalSec / 2)} — {fmtSec(displayTotalSec)}
                   </span>
                 </div>
 
-                <div className="w-full h-[10px] rounded-[4px] flex overflow-hidden gap-[1px] bg-hud-fill">
+                <div className="w-full h-[9px] rounded-full flex overflow-hidden gap-[1.5px] bg-hud-fill">
                   {waterfallSegments.map((seg) => (
                     <span
                       key={seg.key}
-                      className={`insp-wf-seg h-full transition-opacity hover:opacity-85 ${seg.colorClass}${seg.extraClass ? ` ${seg.extraClass}` : ''}`}
+                      className={`insp-wf-seg h-full first:rounded-l-full last:rounded-r-full transition-opacity hover:opacity-85 ${seg.colorClass}${seg.extraClass ? ` ${seg.extraClass}` : ''}`}
                       style={{ width: `${seg.widthPct.toFixed(2)}%` }}
                       data-tip={seg.tip}
                     />
@@ -435,7 +439,7 @@ export function InvocationRow({
                   {waterfallSegments.map((seg) => (
                     <span key={seg.key} className="inline-flex items-center gap-1">
                       <span className={`inline-block w-[7px] h-[7px] rounded-[2px] shrink-0 ${seg.colorClass}`} />
-                      <span className="text-hud-fg font-medium">{seg.label}</span>
+                      <span className="font-hud text-hud-fg font-medium">{seg.label}</span>
                       <span>
                         {fmtSec(seg.value)} ({seg.pct.toFixed(0)}%)
                       </span>
@@ -445,11 +449,11 @@ export function InvocationRow({
               </div>
 
               {/* 3. Token & Cost Composition Bar + Metadata Footer */}
-              <div className="rounded-md border border-hud-border bg-hud-surface-2 px-2 py-1.5 flex flex-col gap-1.5 min-w-0">
+              <div className="rounded-md bg-hud-card px-2.5 py-2 flex flex-col gap-1.5 min-w-0" style={{ border: '1px solid var(--hud-hairline)' }}>
                 <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 font-hud-mono text-[9.5px] text-hud-muted tabular-nums">
-                  <span className="font-semibold uppercase tracking-[0.04em]">{t.inspTokenCompTitle}</span>
+                  <span className="font-hud font-semibold uppercase tracking-[0.04em]">{t.inspTokenCompTitle}</span>
                   <span>
-                    {t.inspPromptLbl(fmtNum(promptTotal), cPct)} → {t.inspOutputLbl(fmtNum(outTotal), thkSharePct)}
+                    {t.inspPromptLbl(fmtNum(promptTotal), cPct)} · {t.inspOutputLbl(fmtNum(outTotal), thkSharePct)}
                   </span>
                 </div>
 
@@ -563,21 +567,23 @@ export function InvocationRow({
 
           {/* TAB 5: RAW / EXPORT */}
           {activeTab === 'raw' && (
-            <div className="rounded-md border border-hud-border bg-hud-surface-2 px-2 py-[7px] flex flex-col gap-1.5 min-w-0">
+            <div className="rounded-md bg-hud-card px-2.5 py-2 flex flex-col gap-1.5 min-w-0" style={{ border: '1px solid var(--hud-hairline)' }}>
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
                   className={`insp-copy-btn${copiedBtn === 'raw-md' ? ' is-copied' : ''}`}
                   onClick={() => void triggerCopy('raw-md')}
                 >
-                  {copiedBtn === 'raw-md' ? t.copied : t.inspCopyMdReport}
+                  {copiedBtn === 'raw-md' ? <IconCheck size={10} /> : <IconCopy size={10} />}
+                  <span>{copiedBtn === 'raw-md' ? t.copied : t.inspCopyMdReport}</span>
                 </button>
                 <button
                   type="button"
                   className={`insp-copy-btn${copiedBtn === 'raw-json' ? ' is-copied' : ''}`}
                   onClick={() => void triggerCopy('raw-json')}
                 >
-                  {copiedBtn === 'raw-json' ? t.copied : t.inspCopyFullJson}
+                  {copiedBtn === 'raw-json' ? <IconCheck size={10} /> : <IconCopy size={10} />}
+                  <span>{copiedBtn === 'raw-json' ? t.copied : t.inspCopyFullJson}</span>
                 </button>
               </div>
               <pre className="m-0 font-hud-mono text-[10.5px] text-hud-fg leading-[1.42] whitespace-pre-wrap break-words max-h-[280px] overflow-y-auto tabular-nums">

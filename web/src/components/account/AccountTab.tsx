@@ -7,6 +7,7 @@ import type {
 } from '../../types/telemetry';
 import { copyText } from '../../utils/clipboard';
 import { fmtClock, fmtNum, fmtUsdWithBand } from '../../utils/format';
+import { IconArrowRight, IconCheck, IconCopy, IconExternalLink, IconRefresh } from '../common/Icons';
 import { ActivityHeatmapCard } from './ActivityHeatmapCard';
 import { CacheTtlCard } from './CacheTtlCard';
 import { QuotaPoolsList } from './QuotaPoolsList';
@@ -28,7 +29,15 @@ interface AccountTabProps {
   onApplyUpdate: (force?: boolean) => Promise<UpdateApplyResponse | null>;
 }
 
-const CLI_UPDATE_CMD = 'node plugin/install.mjs --update';
+const INSTALL_CMD_UNIX = 'curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | bash';
+const INSTALL_CMD_WIN = 'irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex';
+const DEV_UPDATE_CMD = 'git pull && node plugin/install.mjs --update';
+
+function detectWindowsClient(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = `${navigator.userAgent || ''} ${navigator.platform || ''}`;
+  return /win/i.test(ua);
+}
 
 export function AccountTab({
   snap,
@@ -52,14 +61,6 @@ export function AccountTab({
       if (cliTimerRef.current) clearTimeout(cliTimerRef.current);
     };
   }, []);
-
-  const handleCopyCli = async () => {
-    const ok = await copyText(CLI_UPDATE_CMD);
-    if (!ok) return;
-    if (cliTimerRef.current) clearTimeout(cliTimerRef.current);
-    setCopiedCli(true);
-    cliTimerRef.current = setTimeout(() => setCopiedCli(false), 1100);
-  };
 
   const q = snap?.accountQuota;
   const s = snap?.summary;
@@ -98,6 +99,20 @@ export function AccountTab({
       (isAvailable && !updateStatus?.canSelfUpdate),
   );
 
+  const manualUpdateCmd = isLinked
+    ? DEV_UPDATE_CMD
+    : detectWindowsClient()
+      ? INSTALL_CMD_WIN
+      : INSTALL_CMD_UNIX;
+
+  const handleCopyCli = async () => {
+    const ok = await copyText(manualUpdateCmd);
+    if (!ok) return;
+    if (cliTimerRef.current) clearTimeout(cliTimerRef.current);
+    setCopiedCli(true);
+    cliTimerRef.current = setTimeout(() => setCopiedCli(false), 1100);
+  };
+
   return (
     <section id="tab-account" className="flex flex-col gap-2.5 min-w-0">
       <section className="hud-card">
@@ -105,7 +120,7 @@ export function AccountTab({
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">
             <span className="card-k">{t.accountTitle}</span>
             {tierLabel && (
-              <span className="inline-flex items-center px-1.5 py-[1px] rounded-full font-hud-mono text-[10px] font-medium text-hud-muted bg-hud-fill border border-hud-border whitespace-nowrap max-w-full truncate">
+              <span className="inline-flex items-center px-1.5 py-[1px] rounded-full font-hud text-[10px] font-medium text-hud-muted bg-hud-fill whitespace-nowrap max-w-full truncate">
                 {tierLabel}
               </span>
             )}
@@ -114,7 +129,7 @@ export function AccountTab({
           <div className="flex items-center gap-1.5 min-w-0">
             {creditsStr && (
               <span
-                className="card-sub !mt-0 cursor-help"
+                className="font-hud-mono text-[10.5px] text-hud-muted tabular-nums cursor-help"
                 data-tip={t.creditsRealTip(creditsStr)}
               >
                 {t.creditsRealMini(creditsStr)}
@@ -127,17 +142,17 @@ export function AccountTab({
               data-tip={t.quotaRefreshTip(q?.fetchedAtMs ? fmtClock(q.fetchedAtMs) : '')}
               onClick={onRefreshQuota}
             >
-              ↻
+              <IconRefresh size={12} />
             </button>
           </div>
         </div>
 
-        <div className="mt-2 flex flex-col gap-2 min-w-0">
+        <div className="mt-2.5 flex flex-col gap-2.5 min-w-0">
           <QuotaPoolsList quota={q} nowMs={nowMs} t={t} />
           <SpendGrid summary={s} history={h} t={t} />
           {remoteActiveUsd > 0 && (
             <div
-              className="flex items-center justify-between gap-2 px-2 py-1 rounded-[5px] bg-hud-fill border border-hud-border font-hud-mono text-[10px] text-hud-muted cursor-help"
+              className="l2-well flex items-center justify-between gap-2 px-2.5 py-1.5 font-hud text-[10px] text-hud-muted cursor-help"
               data-tip={t.remoteWinBannerTip}
             >
               <span className="truncate">
@@ -145,7 +160,7 @@ export function AccountTab({
               </span>
             </div>
           )}
-          <div className="text-[10px] text-hud-muted leading-[1.35] break-words">{footnote}</div>
+          <div className="text-[10px] font-hud text-hud-muted leading-[1.38] break-words">{footnote}</div>
         </div>
       </section>
 
@@ -161,14 +176,12 @@ export function AccountTab({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-1.5 min-w-0">
             <span className="card-k">{t.updateCardTitle}</span>
-            <span className="inline-flex items-center px-1.5 py-[1px] rounded-full font-hud-mono text-[10px] font-semibold text-hud-fg bg-hud-surface-2 border border-hud-border tabular-nums">
+            <span className="inline-flex items-center px-1.5 py-[1px] rounded-full font-hud-mono text-[10px] font-semibold text-hud-fg bg-hud-surface-2 tabular-nums">
               v{curVer}
             </span>
             <span
-              className={`inline-flex items-center px-1.5 py-[1px] rounded-full font-hud-mono text-[9.5px] font-semibold border ${
-                isLinked
-                  ? 'text-hud-warn border-hud-border bg-hud-surface-2'
-                  : 'text-hud-muted border-hud-border bg-hud-surface-2'
+              className={`inline-flex items-center px-1.5 py-[1px] rounded-full font-hud text-[9.5px] font-medium ${
+                isLinked ? 'text-hud-warn bg-tint-warn' : 'text-hud-muted bg-hud-fill'
               }`}
             >
               {isLinked ? t.updateModeDev : t.updateModeInstalled}
@@ -184,7 +197,7 @@ export function AccountTab({
             <button
               type="button"
               disabled={updateChecking || updateApplying}
-              className="hud-btn !py-[2px] !px-2 !text-[10px]"
+              className="hud-btn !py-[2.5px] !px-2 !text-[10px]"
               onClick={() => void onCheckUpdates(true)}
             >
               {updateChecking ? t.updateBtnChecking : t.updateBtnCheck}
@@ -192,16 +205,17 @@ export function AccountTab({
           </div>
         </div>
 
-        <div className="mt-2 rounded-md border border-hud-border bg-hud-surface-2 px-2.5 py-2 flex flex-col gap-1.5 min-w-0">
+        <div className="l2-well mt-2 px-2.5 py-2 flex flex-col gap-1.5 min-w-0">
           {updateApplying ? (
-            <div className="flex items-center gap-2 font-hud-mono text-[11px] text-hud-accent-ink">
+            <div className="flex items-center gap-2 font-hud text-[11px] text-hud-accent-ink">
               <span className="inline-block w-2 h-2 rounded-full bg-hud-accent animate-pulse" />
               <span>{t.updateBtnUpdating}</span>
             </div>
           ) : isApplied ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-hud-mono text-[11px] text-hud-ok font-semibold">
-                ✓ {t.updateAppliedMsg(updateApplyResult?.newVersion || latestVer || curVer)}
+              <span className="inline-flex items-center gap-1 font-hud text-[11px] text-hud-ok font-semibold">
+                <IconCheck size={12} />
+                <span>{t.updateAppliedMsg(updateApplyResult?.newVersion || latestVer || curVer)}</span>
               </span>
               <button
                 type="button"
@@ -212,26 +226,28 @@ export function AccountTab({
               </button>
             </div>
           ) : effectiveError ? (
-            <div className="font-hud-mono text-[11px] text-hud-bad break-words">
+            <div className="font-hud text-[11px] text-hud-bad break-words">
               {updateApplyResult && !updateApplyResult.ok
                 ? t.updateApplyFailed(effectiveError)
                 : t.updateStatusError(effectiveError)}
             </div>
           ) : isLinked ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-hud-mono text-[10.5px] text-hud-muted">
+              <span className="font-hud text-[10.5px] text-hud-muted">
                 {t.updateDevHint}
               </span>
               {updateStatus?.updateAvailable && latestVer && (
-                <span className="font-hud-mono text-[10px] text-hud-accent-ink tabular-nums">
-                  v{curVer} → v{latestVer}
+                <span className="inline-flex items-center gap-1 font-hud-mono text-[10px] text-hud-accent-ink tabular-nums">
+                  <span>v{curVer}</span>
+                  <IconArrowRight size={10} />
+                  <span>v{latestVer}</span>
                 </span>
               )}
             </div>
           ) : isAvailable && latestVer ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2 min-w-0">
-                <span className="font-hud-mono text-[11px] font-semibold text-hud-fg tabular-nums">
+                <span className="font-hud text-[11px] font-semibold text-hud-fg tabular-nums">
                   {t.updateStatusAvailable(curVer, latestVer)}
                 </span>
                 {updateStatus?.releaseUrl && (
@@ -239,9 +255,10 @@ export function AccountTab({
                     href={updateStatus.releaseUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-hud-mono text-[10.5px] text-hud-accent-ink no-underline hover:underline"
+                    className="inline-flex items-center gap-0.5 font-hud text-[10.5px] text-hud-accent-ink no-underline hover:underline"
                   >
-                    {t.updateReleaseNotes}
+                    <span>{t.updateReleaseNotes}</span>
+                    <IconExternalLink size={10} />
                   </a>
                 )}
               </div>
@@ -257,31 +274,36 @@ export function AccountTab({
               )}
             </div>
           ) : updateStatus?.status === 'offline' ? (
-            <div className="font-hud-mono text-[10.5px] text-hud-warn">{t.updateStatusOffline}</div>
+            <div className="font-hud text-[10.5px] text-hud-warn">{t.updateStatusOffline}</div>
           ) : updateStatus?.status === 'rate_limited' ? (
-            <div className="font-hud-mono text-[10.5px] text-hud-warn">{t.updateStatusRateLimited}</div>
+            <div className="font-hud text-[10.5px] text-hud-warn">{t.updateStatusRateLimited}</div>
           ) : updateStatus?.status === 'ahead' ? (
-            <div className="font-hud-mono text-[10.5px] text-hud-ok">✓ {t.updateStatusAhead}</div>
+            <div className="inline-flex items-center gap-1.5 font-hud text-[10.5px] text-hud-fg-2">
+              <IconCheck size={11} className="text-hud-ok" />
+              <span>{t.updateStatusAhead}</span>
+            </div>
           ) : (
-            <div className="font-hud-mono text-[10.5px] text-hud-ok">
-              ✓ {t.updateStatusUpToDate}
+            <div className="inline-flex items-center gap-1.5 font-hud text-[10.5px] text-hud-fg-2">
+              <IconCheck size={11} className="text-hud-ok" />
+              <span>{t.updateStatusUpToDate}</span>
             </div>
           )}
 
           {showCliFallback && (
-            <div className="pt-1.5 border-t border-hud-border/70 flex flex-wrap items-center justify-between gap-1.5 font-hud-mono text-[10px] text-hud-muted">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span>{t.updateCliFallback}</span>
-                <code className="px-1.5 py-[1px] rounded bg-hud-card border border-hud-border text-hud-fg truncate">
-                  {CLI_UPDATE_CMD}
+            <div className="pt-1.5 border-t border-hud-hairline flex flex-wrap items-center justify-between gap-1.5 font-hud text-[10px] text-hud-muted">
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                <span className="shrink-0">{t.updateCliFallback}</span>
+                <code className="px-1.5 py-[1.5px] rounded bg-hud-card font-hud-mono text-[9.5px] text-hud-fg truncate">
+                  {manualUpdateCmd}
                 </code>
               </div>
               <button
                 type="button"
-                className={`insp-copy-btn${copiedCli ? ' is-copied' : ''}`}
+                className={`insp-copy-btn shrink-0${copiedCli ? ' is-copied' : ''}`}
                 onClick={() => void handleCopyCli()}
               >
-                {copiedCli ? t.copied : t.inspCopy}
+                {copiedCli ? <IconCheck size={10} /> : <IconCopy size={10} />}
+                <span>{copiedCli ? t.copied : t.inspCopy}</span>
               </button>
             </div>
           )}

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'preact/hooks';
+import { usePersistedOpen } from '../../hooks/usePersistedOpen';
 import type { Translations } from '../../i18n';
 import { getSwarmStrings, type SwarmStrings } from '../../i18n/swarm';
 import type {
@@ -19,6 +20,7 @@ import {
   kindBadgeClass,
   kindBadgeText,
 } from '../../utils/format';
+import { IconArrowRight, IconChevronDown, IconChevronRight, IconX } from '../common/Icons';
 
 export interface SubagentsCardProps {
   found: boolean;
@@ -30,14 +32,21 @@ export interface SubagentsCardProps {
   onJumpConversation: (convId: string) => void;
 }
 
-const STATE_RANK: Record<SwarmMemberState, number> = {
-  working: 0,
-  waiting: 1,
-  stopped: 2,
-  killed: 3,
-};
-
 const REAL_UUID_RE = /^[0-9a-f-]{8,}$/i;
+const INFRA_ROLE_RE = /^(?:monitor|narrator)(?:-|$)/i;
+const SWARM_GROUP_MODE_KEY = 'agy-hud:swarm-group-mode';
+
+function readPersistedGroupMode(): 'flat' | 'thread' {
+  try {
+    return localStorage.getItem(SWARM_GROUP_MODE_KEY) === 'thread' ? 'thread' : 'flat';
+  } catch {
+    return 'flat';
+  }
+}
+
+function isInfraRoster(rosterName: string | undefined): boolean {
+  return Boolean(rosterName && INFRA_ROLE_RE.test(rosterName.trim()));
+}
 
 function parseTimeMs(raw: string | undefined): number {
   if (!raw) return 0;
@@ -106,7 +115,7 @@ function StateIndicator({ state }: { state: SwarmMemberState }) {
   if (state === 'waiting') {
     return (
       <span
-        className="w-[7px] h-[7px] rounded-full border-[1.5px] border-hud-muted shrink-0"
+        className="w-[7px] h-[7px] rounded-full border-[1.5px] border-hud-muted shrink-0 opacity-75"
         aria-hidden="true"
       />
     );
@@ -114,11 +123,7 @@ function StateIndicator({ state }: { state: SwarmMemberState }) {
   if (state === 'stopped') {
     return <span className="w-[6px] h-[6px] rounded-[1.5px] bg-hud-warn shrink-0" aria-hidden="true" />;
   }
-  return (
-    <span className="font-hud-mono text-[10px] leading-none text-hud-muted shrink-0" aria-hidden="true">
-      ×
-    </span>
-  );
+  return <IconX size={10} className="text-hud-muted" />;
 }
 
 function buildMemberTooltip(
@@ -160,7 +165,7 @@ interface MemberRowProps {
   onJumpConversation: (convId: string) => void;
 }
 
-function SwarmMemberCard({ item: c, boardSeq, sw, t, onJumpConversation }: MemberRowProps) {
+function SwarmMemberRow({ item: c, boardSeq, sw, t, onJumpConversation }: MemberRowProps) {
   const m = c.swarm;
   const isRealConv = REAL_UUID_RE.test(c.id);
   const state: SwarmMemberState = m?.swarmState || 'waiting';
@@ -181,23 +186,24 @@ function SwarmMemberCard({ item: c, boardSeq, sw, t, onJumpConversation }: Membe
         type="button"
         onClick={() => onJumpConversation(c.id)}
         data-tip={tip}
-        className="swarm-member-card w-full text-left px-2.5 py-2 rounded-md border border-hud-border text-inherit cursor-pointer flex flex-col gap-1 transition-colors"
+        className="swarm-member-card w-full text-left px-2.5 py-2 text-inherit cursor-pointer flex flex-col gap-1"
       >
         <div className="flex items-center justify-between gap-1.5 min-w-0">
           <div className="flex items-center gap-1.5 min-w-0 flex-1">
             <span className={`rel-kind-pill ${cls}`}>{badge}</span>
             {c.subagentType && c.subagentType !== 'worker' && (
-              <span className="px-1.5 py-[0.5px] rounded border border-hud-border bg-hud-card font-hud-mono text-[9.5px] text-hud-muted shrink-0">
+              <span className="px-1.5 py-[0.5px] rounded bg-hud-card font-hud-mono text-[9.5px] text-hud-muted shrink-0">
                 {c.subagentType}
               </span>
             )}
             <span className="text-[11.5px] font-semibold text-hud-fg truncate">{lbl}</span>
           </div>
-          <span className="font-hud-mono text-[10.5px] font-semibold text-hud-accent shrink-0">
-            {t.jumpAction}
+          <span className="inline-flex items-center gap-0.5 font-hud text-[10.5px] font-medium text-hud-accent-ink shrink-0">
+            <span>{t.jumpAction}</span>
+            <IconArrowRight size={11} />
           </span>
         </div>
-        <div className="flex items-center justify-between gap-2 font-hud-mono text-[10.5px] text-hud-muted tabular-nums">
+        <div className="flex items-center justify-between gap-2 font-hud-mono text-[10px] text-hud-muted tabular-nums">
           <span className="truncate">{fullMeta}</span>
           {clockStr && <span className="shrink-0 text-hud-faint">{clockStr}</span>}
         </div>
@@ -207,9 +213,8 @@ function SwarmMemberCard({ item: c, boardSeq, sw, t, onJumpConversation }: Membe
 
   const showWorkspacePill = m.workspaceMode === 'share' || m.workspaceMode === 'branch';
   const taskLine = m.taskTitle || (c.title && c.title !== `@${m.rosterName}` ? c.title : '');
-  const metricsText = c.calls > 0
-    ? sw.memberMeta(c.calls, fmtNum(c.outputTokens || 0), costStr)
-    : sw.memberCallsZero;
+  const metricsText =
+    c.calls > 0 ? sw.memberMeta(c.calls, fmtNum(c.outputTokens || 0), costStr) : sw.memberCallsZero;
 
   return (
     <button
@@ -219,16 +224,21 @@ function SwarmMemberCard({ item: c, boardSeq, sw, t, onJumpConversation }: Membe
         if (isRealConv) onJumpConversation(c.id);
       }}
       data-tip={tip}
-      className={`swarm-member-card w-full text-left px-2.5 py-2 rounded-md border border-hud-border text-inherit flex flex-col gap-1 transition-colors ${
+      className={`swarm-member-card w-full text-left px-2.5 py-2 text-inherit flex flex-col gap-1 ${
         isRealConv ? 'cursor-pointer' : 'cursor-default opacity-80'
-      } ${isKilled ? 'opacity-65' : ''}`}
+      } ${isKilled ? 'opacity-55' : ''}`}
+      style={
+        state === 'working'
+          ? { background: 'color-mix(in srgb, var(--hud-ok) 5%, transparent)' }
+          : undefined
+      }
     >
       {/* Row 1: State dot + @rosterName + workspace + model + Jump */}
       <div className="flex items-center justify-between gap-1.5 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
           <StateIndicator state={state} />
           <span
-            className={`font-hud-mono text-[11.5px] font-bold tracking-[-0.01em] truncate ${
+            className={`font-hud-mono text-[11.5px] font-semibold tracking-[-0.01em] truncate ${
               isKilled ? 'text-hud-muted line-through' : 'text-hud-fg'
             }`}
           >
@@ -236,7 +246,7 @@ function SwarmMemberCard({ item: c, boardSeq, sw, t, onJumpConversation }: Membe
           </span>
           {showWorkspacePill && m.workspaceMode && (
             <span
-              className={`px-1.5 py-[0.5px] rounded-full border font-hud-mono text-[9.5px] font-semibold leading-[1.35] shrink-0 ${
+              className={`px-1.5 py-[0.5px] rounded font-hud-mono text-[9px] font-semibold leading-[1.35] shrink-0 border ${
                 m.workspaceMode === 'share' ? 'swarm-pill-share' : 'swarm-pill-branch'
               }`}
             >
@@ -244,36 +254,33 @@ function SwarmMemberCard({ item: c, boardSeq, sw, t, onJumpConversation }: Membe
             </span>
           )}
           {m.model && (
-            <span className="px-1.5 py-[0.5px] rounded border border-hud-border bg-hud-card font-hud-mono text-[9.5px] text-hud-muted truncate max-w-[136px]">
+            <span className="px-1.5 py-[0.5px] rounded bg-hud-card font-hud-mono text-[9.5px] text-hud-muted truncate max-w-[136px]">
               {m.model}
             </span>
           )}
         </div>
         <span
-          className={`font-hud-mono text-[10.5px] font-semibold shrink-0 ${
-            isRealConv ? 'text-hud-accent' : 'text-hud-muted'
+          className={`inline-flex items-center gap-0.5 font-hud text-[10.5px] font-medium shrink-0 ${
+            isRealConv ? 'text-hud-accent-ink' : 'text-hud-muted'
           }`}
         >
-          {isRealConv ? t.jumpAction : sw.pendingConv}
+          <span>{isRealConv ? t.jumpAction : sw.pendingConv}</span>
+          {isRealConv && <IconArrowRight size={11} />}
         </span>
       </div>
 
-      {/* Row 2: Clamped taskTitle from plan.json or brief fallback */}
+      {/* Row 2: Clamped taskTitle */}
       {taskLine && (
-        <div className="text-[11px] leading-[1.38] text-hud-fg-2 line-clamp-2 break-words">
+        <div className="text-[11px] font-hud leading-[1.4] text-hud-fg-2 line-clamp-2 break-words pl-[13px]">
           {taskLine}
         </div>
       )}
 
       {/* Row 3: Aligned tabular metrics + quota + last post #seq / clock */}
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 font-hud-mono text-[10px] text-hud-muted tabular-nums">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 font-hud-mono text-[10px] text-hud-muted tabular-nums pl-[13px]">
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
           <span>{metricsText}</span>
-          {qStr && (
-            <span className="text-hud-accent-ink font-semibold">
-              {qStr}
-            </span>
-          )}
+          {qStr && <span className="text-hud-accent-ink font-semibold">{qStr}</span>}
         </div>
         <div className="flex items-center gap-1.5 shrink-0 text-hud-faint">
           {m.lastPostSeq !== undefined && m.lastPostSeq > 0 && (
@@ -295,23 +302,63 @@ export function SubagentsCard({
   t,
   onJumpConversation,
 }: SubagentsCardProps) {
-  const [groupMode, setGroupMode] = useState<'flat' | 'thread'>('flat');
+  const [cardOpen, toggleCardOpen] = usePersistedOpen('subagents', true);
+  const [groupMode, setGroupModeState] = useState<'flat' | 'thread'>(() => readPersistedGroupMode());
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(() => new Set());
+
+  const setGroupMode = (next: 'flat' | 'thread') => {
+    setGroupModeState(next);
+    try {
+      localStorage.setItem(SWARM_GROUP_MODE_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const sw = getSwarmStrings(lang);
   const swarm = sessionInfo?.swarm || null;
   const isSwarmCockpit = Boolean(swarm?.isCoordinatorView);
 
+  // 100% stable, non-jumping sort order:
+  // 1) Regular workers (in deterministic plan/thread order, then alphabetical rosterName)
+  // 2) Infrastructure roles (monitor / narrator) pinned below regular workers
+  // 3) Killed members pinned last
+  // Never sorts by working/waiting or live updatedMs so rows never jump under the cursor.
   const sortedChildren = useMemo(() => {
+    const planOrder = new Map<string, number>();
+    let orderIdx = 0;
+    for (const th of swarm?.threads || []) {
+      for (const memberName of th.members || []) {
+        const key = String(memberName).toLowerCase();
+        if (!planOrder.has(key)) {
+          planOrder.set(key, orderIdx++);
+        }
+      }
+    }
+
+    const bucketRank = (c: ChildSessionItem): number => {
+      const st = c.swarm?.swarmState;
+      if (st === 'killed') return 2;
+      if (isInfraRoster(c.swarm?.rosterName)) return 1;
+      return 0;
+    };
+
     return [...children].sort((a, b) => {
-      const rankA = a.swarm ? STATE_RANK[a.swarm.swarmState] : 4;
-      const rankB = b.swarm ? STATE_RANK[b.swarm.swarmState] : 4;
-      if (rankA !== rankB) return rankA - rankB;
-      const timeDiff = memberActivityMs(b) - memberActivityMs(a);
-      if (timeDiff !== 0) return timeDiff;
-      return String(a.swarm?.rosterName || a.id).localeCompare(String(b.swarm?.rosterName || b.id));
+      const bA = bucketRank(a);
+      const bB = bucketRank(b);
+      if (bA !== bB) return bA - bB;
+
+      const nameA = String(a.swarm?.rosterName || a.title || a.id).toLowerCase();
+      const nameB = String(b.swarm?.rosterName || b.title || b.id).toLowerCase();
+      const idxA = planOrder.has(nameA) ? planOrder.get(nameA)! : Number.MAX_SAFE_INTEGER;
+      const idxB = planOrder.has(nameB) ? planOrder.get(nameB)! : Number.MAX_SAFE_INTEGER;
+      if (idxA !== idxB) return idxA - idxB;
+
+      const cmp = nameA.localeCompare(nameB);
+      if (cmp !== 0) return cmp;
+      return a.id.localeCompare(b.id);
     });
-  }, [children]);
+  }, [children, swarm?.threads]);
 
   const canGroupByThread = Boolean(
     isSwarmCockpit && swarm && (swarm.threads?.length || 0) >= 2 && sortedChildren.length >= 3,
@@ -346,20 +393,22 @@ export function SubagentsCard({
     return null;
   }
 
-  // Non-coordinator views (including Swarm workers) only show this card when they have their own child subagents.
   if (!isSwarmCockpit && children.length === 0) {
     return null;
   }
 
-  // Non-Swarm Subagents / Side-Q mode (or worker with helper subagents)
+  // Non-Swarm Subagents / Side-Q mode
   if (!isSwarmCockpit || !swarm) {
     const totalChildQuota = mergeSessionQuotas(children.map((c) => c.quotaUsage));
     const totalChildQuotaStr = formatSessionQuotaCompact(totalChildQuota);
     const totalChildQuotaTip = totalChildQuotaStr ? formatSessionQuotaTip(totalChildQuota, t) : undefined;
 
     return (
-      <section id="child-sessions-card" className="hud-card">
-        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+      <section id="child-sessions-card" className="hud-card flex flex-col gap-2">
+        <div
+          className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 cursor-pointer select-none"
+          onClick={toggleCardOpen}
+        >
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">
             <span className="card-k">{t.linkedTitle}</span>
             <span className="micro-badge">{children.length}</span>
@@ -369,21 +418,36 @@ export function SubagentsCard({
               </span>
             )}
           </div>
-          <span className="card-sub !mt-0">{t.linkedHint}</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[10.5px] font-hud text-hud-muted">{t.linkedHint}</span>
+            <button
+              type="button"
+              className="collapse-btn"
+              aria-expanded={cardOpen}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleCardOpen();
+              }}
+            >
+              {cardOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+            </button>
+          </div>
         </div>
 
-        <div className="mt-2 flex flex-col gap-1.5">
-          {sortedChildren.map((c) => (
-            <SwarmMemberCard
-              key={c.id}
-              item={c}
-              boardSeq={swarm?.boardSeq || 0}
-              sw={sw}
-              t={t}
-              onJumpConversation={onJumpConversation}
-            />
-          ))}
-        </div>
+        {cardOpen && (
+          <div className="hud-expand-anim swarm-member-list flex flex-col">
+            {sortedChildren.map((c) => (
+              <SwarmMemberRow
+                key={c.id}
+                item={c}
+                boardSeq={swarm?.boardSeq || 0}
+                sw={sw}
+                t={t}
+                onJumpConversation={onJumpConversation}
+              />
+            ))}
+          </div>
+        )}
       </section>
     );
   }
@@ -421,53 +485,70 @@ export function SubagentsCard({
     <section id="child-sessions-card" className="hud-card flex flex-col gap-2">
       {/* Swarm Header Strip */}
       <div className="flex flex-col gap-1.5 min-w-0">
-        <div className="flex items-start justify-between gap-2 min-w-0">
+        <div
+          className="flex items-start justify-between gap-2 min-w-0 cursor-pointer select-none"
+          onClick={toggleCardOpen}
+        >
           <div className="flex flex-col gap-0.5 min-w-0">
             <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-              <span className="card-k uppercase">{sw.cockpitTitle}</span>
-              <span className="text-[12.5px] font-bold text-hud-fg truncate">
+              <span className="card-k">{sw.cockpitTitle}</span>
+              <span className="text-[12px] font-hud font-semibold text-hud-fg truncate">
                 {swarm.swarmTitle}
               </span>
             </div>
             {(swarm.goalTitle || swarm.goalLine) && (
               <div
-                className="text-[11px] text-hud-muted truncate"
+                className="text-[11px] font-hud text-hud-muted truncate"
                 data-tip={swarm.goalTitle && swarm.goalLine ? `${swarm.goalTitle}\n${swarm.goalLine}` : undefined}
               >
                 {swarm.goalTitle || swarm.goalLine}
               </div>
             )}
           </div>
-          {swarm.boardSeq > 0 && (
-            <span className="px-1.5 py-[1px] rounded-full border border-hud-border bg-hud-fill font-hud-mono text-[10px] font-semibold text-hud-muted tabular-nums shrink-0">
-              {sw.boardBadge(swarm.boardSeq)}
-            </span>
-          )}
+          <div className="flex items-center gap-1 shrink-0">
+            {swarm.boardSeq > 0 && (
+              <span className="px-1.5 py-[1px] rounded-full bg-hud-fill font-hud-mono text-[9.5px] font-medium text-hud-muted tabular-nums">
+                {sw.boardBadge(swarm.boardSeq)}
+              </span>
+            )}
+            <button
+              type="button"
+              className="collapse-btn"
+              aria-expanded={cardOpen}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleCardOpen();
+              }}
+            >
+              {cardOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+            </button>
+          </div>
         </div>
 
         {/* Live state pills + optional [Flat | By Thread] toggle */}
         <div className="flex flex-wrap items-center justify-between gap-1.5">
           <div className="flex flex-wrap items-center gap-1">
             {swarm.workingCount > 0 && (
-              <span className="swarm-pill-working inline-flex items-center gap-1.5 px-2 py-[1px] rounded-full border font-hud-mono text-[10px] font-semibold tabular-nums">
-                <span className="swarm-dot-working w-[6px] h-[6px] rounded-full shrink-0" />
+              <span className="swarm-pill-working inline-flex items-center gap-1.5 px-2 py-[1px] rounded-full border font-hud text-[10px] font-semibold tabular-nums">
+                <span className="swarm-dot-working w-[5.5px] h-[5.5px] rounded-full shrink-0" />
                 {sw.workingPill(swarm.workingCount)}
               </span>
             )}
             {swarm.waitingCount > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-[1px] rounded-full border border-hud-border bg-hud-fill font-hud-mono text-[10px] font-medium text-hud-muted tabular-nums">
-                <span className="w-[6px] h-[6px] rounded-full border border-hud-muted shrink-0" />
+              <span className="inline-flex items-center gap-1 px-2 py-[1px] rounded-full bg-hud-fill font-hud text-[10px] font-medium text-hud-muted tabular-nums">
+                <span className="w-[5.5px] h-[5.5px] rounded-full border border-hud-muted shrink-0" />
                 {sw.waitingPill(swarm.waitingCount)}
               </span>
             )}
             {swarm.stoppedCount > 0 && (
-              <span className="swarm-pill-stopped inline-flex items-center gap-1 px-2 py-[1px] rounded-full border font-hud-mono text-[10px] font-semibold tabular-nums">
+              <span className="swarm-pill-stopped inline-flex items-center gap-1 px-2 py-[1px] rounded-full border font-hud text-[10px] font-semibold tabular-nums">
                 {sw.stoppedPill(swarm.stoppedCount)}
               </span>
             )}
             {swarm.killedCount > 0 && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full border border-hud-border bg-hud-fill font-hud-mono text-[10px] text-hud-faint tabular-nums opacity-80">
-                × {sw.killedPill(swarm.killedCount)}
+              <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full bg-hud-fill font-hud text-[10px] text-hud-faint tabular-nums opacity-80">
+                <IconX size={9} />
+                <span>{sw.killedPill(swarm.killedCount)}</span>
               </span>
             )}
           </div>
@@ -492,10 +573,10 @@ export function SubagentsCard({
           )}
         </div>
 
-        {/* Rolled-up Swarm Total strip */}
-        <div className="swarm-surface-well flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2.5 py-1.5 rounded-md border border-hud-border font-hud-mono text-[10.5px] tabular-nums">
+        {/* Rolled-up Swarm Total strip (borderless recessed well) */}
+        <div className="swarm-surface-well flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2.5 py-1.5 rounded-lg font-hud-mono text-[10.5px] tabular-nums">
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
-            <span className="font-semibold text-hud-fg">{sw.swarmTotalLabel}</span>
+            <span className="font-hud font-semibold text-hud-fg">{sw.swarmTotalLabel}</span>
             <span className="text-hud-muted">
               {sw.swarmTotalMeta(totalCalls, fmtNum(totalOutput), totalCostStr)}
             </span>
@@ -508,26 +589,26 @@ export function SubagentsCard({
         </div>
       </div>
 
-      {/* Member Cards: Flat or Grouped by Thread */}
-      {effectiveGroupMode === 'thread' && threadGroups ? (
-        <div className="flex flex-col gap-2">
+      {/* Member Rows: Flat or Grouped by Thread */}
+      {cardOpen && (effectiveGroupMode === 'thread' && threadGroups ? (
+        <div className="hud-expand-anim flex flex-col gap-2">
           {threadGroups.map((group) => {
             const isCollapsed = collapsedThreads.has(group.id);
             const activeInGroup = group.items.filter((i) => i.swarm?.swarmState === 'working').length;
             return (
-              <div key={group.id} className="flex flex-col gap-1.5 min-w-0">
+              <div key={group.id} className="flex flex-col gap-1 min-w-0">
                 <button
                   type="button"
                   onClick={() => toggleThread(group.id)}
                   data-tip={group.goal}
                   aria-expanded={!isCollapsed}
-                  className="swarm-interactive-pill flex items-center justify-between gap-2 px-1.5 py-1 rounded bg-hud-fill border border-hud-border/70 text-left cursor-pointer hover:border-hud-accent transition-colors"
+                  className="swarm-interactive-pill flex items-center justify-between gap-2 px-2 py-1 rounded-md bg-hud-fill border-0 text-left cursor-pointer hover:text-hud-fg transition-colors"
                 >
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="font-hud-mono text-[10px] text-hud-muted shrink-0">
-                      {isCollapsed ? '▸' : '▾'}
+                    <span className="text-hud-muted shrink-0">
+                      {isCollapsed ? <IconChevronRight size={11} /> : <IconChevronDown size={11} />}
                     </span>
-                    <span className="text-[11px] font-semibold text-hud-fg truncate">
+                    <span className="text-[11px] font-hud font-semibold text-hud-fg truncate">
                       {group.title}
                     </span>
                     <span className="font-hud-mono text-[10px] text-hud-muted shrink-0">
@@ -542,9 +623,9 @@ export function SubagentsCard({
                   )}
                 </button>
                 {!isCollapsed && (
-                  <div className="flex flex-col gap-1.5 pl-1.5 border-l border-hud-border/80">
+                  <div className="swarm-member-list flex flex-col">
                     {group.items.map((c) => (
-                      <SwarmMemberCard
+                      <SwarmMemberRow
                         key={c.id}
                         item={c}
                         boardSeq={swarm.boardSeq}
@@ -560,9 +641,9 @@ export function SubagentsCard({
           })}
         </div>
       ) : (
-        <div className="flex flex-col gap-1.5">
+        <div className="hud-expand-anim swarm-member-list flex flex-col">
           {sortedChildren.map((c) => (
-            <SwarmMemberCard
+            <SwarmMemberRow
               key={c.id}
               item={c}
               boardSeq={swarm.boardSeq}
@@ -572,7 +653,7 @@ export function SubagentsCard({
             />
           ))}
         </div>
-      )}
+      ))}
     </section>
   );
 }

@@ -9,10 +9,10 @@ export const en: Translations = {
   tabLive: 'Live',
   tabCalls: 'Calls',
   tabAccount: 'Account',
-  genLabel: 'GEN SPEED (EX-TTFT)',
+  genLabel: 'GEN SPEED',
   livePill: 'GEN',
-  e2eLabel: 'E2E TPS (W/ TTFT)',
-  ctxLabel: 'CTX WINDOW',
+  e2eLabel: 'E2E SPEED',
+  ctxLabel: 'CONTEXT WINDOW',
   kCache: 'CACHE',
   kIn: 'IN',
   kThk: 'THK',
@@ -42,7 +42,7 @@ export const en: Translations = {
   avgTtft: 'AVG TTFT',
   totOut: 'OUT ',
   recentTitle: 'RECENT CALLS',
-  viewAll: 'View all →',
+  viewAll: 'View all',
   chartTitle: 'TREND',
   tabTps: 'TPS',
   tabTtft: 'TTFT',
@@ -76,8 +76,8 @@ export const en: Translations = {
   chartMeta: (n) => `${n} calls`,
   genSubSust: (sust, ms, tok) => `LAST STR ${sust} · BUF ${ms}ms (${tok} tok)`,
   genSubBuf: (ms, tok) => `BUF ${ms}ms · OUT ${tok} tok`,
-  genSubOk: (tok, sec) => `OUT ${tok} · GEN ${sec}`,
-  e2eSub: (ttft, tot) => `TTFT ${ttft} · TOT ${tot}`,
+  genSubOk: (tok, sec) => `${tok} tok · ${sec}`,
+  e2eSub: (ttft, tot) => `TTFT ${ttft} · ${tot}`,
   cacheBadge: (pct) => (pct === null ? 'CACHE --' : `CACHE ${pct.toFixed(1)}%`),
   headroomLabel: (n) => `~${n}t left`,
   headroomTip: (n, avgDelta) =>
@@ -124,7 +124,7 @@ export const en: Translations = {
   lblChars: (c, trunc) => (trunc ? ` · latest · ${c} chars` : ` · ${c} chars`),
   lblToolCalls: 'TOOL CALLS',
   lblSummary: 'COMPACTED SUMMARY',
-  compactFilterBtn: (n, on) => (on ? `Compacts (${n}) ✓` : `Compacts (${n})`),
+  compactFilterBtn: (n, on) => (on ? `Compacts (${n})` : `Compacts (${n})`),
   compactBadge: 'COMPACT',
   compactLiveBadge: 'COMPACTING',
   compactLiveDetail: (sec, startTm, ctxStr) =>
@@ -160,11 +160,11 @@ export const en: Translations = {
   kindMain: 'MAIN',
   kindSq: 'SIDE Q',
   kindSub: 'SUBAGENT',
-  backParent: (lbl) => `← Parent · ${lbl}`,
+  backParent: (lbl) => `Parent · ${lbl}`,
   linkedCount: (n) => `${n} Linked`,
   linkedTitle: 'SUBAGENTS / SIDE Q',
   linkedHint: 'Click to inspect',
-  jumpAction: 'Open →',
+  jumpAction: 'Open',
   linkedMeta: (calls, outStr, costStr, quotaStr = '') =>
     `${calls} calls · ${outStr} out${costStr ? ` · ${costStr}` : ''}${quotaStr ? ` · quota ${quotaStr}` : ''}`,
   cacheAgeLabel: (ageStr) => `AGE ${ageStr}`,
@@ -185,7 +185,7 @@ export const en: Translations = {
     return `${poolName} pool${tag}:\n  • Current 5h window: ${cur5}${cur7}${exp}`;
   },
   sessionQuotaTip: (lines) => `Current quota occupied by this conversation:\n${lines}`,
-  accountTitle: 'ACCOUNT QUOTA & COST',
+  accountTitle: 'QUOTA & SPEND',
   creditsRealMini: (c) => `Credits: ${c}`,
   creditsRealTip: (c) => `Available extra credits: ${c}`,
   quotaRefreshTip: (tm) => `Force refresh quota now (auto-cached 5m; only fetched when viewing Account)${tm ? `\nLast synced: ${tm}` : ''}`,
@@ -194,21 +194,27 @@ export const en: Translations = {
   heldByWeeklyTag: 'WEEKLY CAP',
   winMeta: (pct, resetStr) => `${pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)}%${resetStr ? ` · ${resetStr}` : ''}`,
   winBudgetEst: (spent, full, lowSample, remote, effSpent) =>
-    `List-eq cap ~${full}${lowSample ? ' (prov.)' : ''} · local ${spent}${effSpent ? ` (pool-eq ${effSpent})` : ''}${remote ? ` + ~${remote} unattrib.` : ''}`,
+    `Pool ~${full}${lowSample ? ' (prov.)' : ''} · local ${spent}${effSpent ? ` (eq ${effSpent})` : ''}${remote ? ` + ~${remote} other` : ''}`,
   winSpentOnly: (spent, minPct = '0.5%') => `Win spent ${spent} (<${minPct} sample)`,
-  winRunwayWarn: (dur, clock) => `⚡ Est. cap hit in ~${dur} (${clock})`,
-  winRunwaySafe: (remAtReset) => `✓ Safe · ~${remAtReset} left at reset`,
+  winRunwayWarn: (dur, clock) => `Est. cap in ~${dur} (${clock})`,
+  winRunwaySafe: (remAtReset) => `~${remAtReset} left at reset`,
   winRunwayExhausted: 'Cap reached · waiting for reset',
-  winRunwayTip: (burnPerHr, exhaustDur, exhaustClock, remAtReset, willExhaust, isRecent) =>
-    `Burn pace: -${burnPerHr}/hr (${isRecent ? 'recent active + window blend' : 'window average'})\n${
+  winRunwayTip: (burnPerHr, exhaustDur, exhaustClock, remAtReset, willExhaust, isRecent, habitBlended, activeHoursPerDay) => {
+    const basisNote = habitBlended
+      ? `blended with your learned historical rhythm${activeHoursPerDay ? ` (~${activeHoursPerDay.toFixed(1)}h active/day)` : ''} so early-cycle projections stay steady`
+      : isRecent
+        ? 'recent active + window blend'
+        : 'window average';
+    return `Burn pace: -${burnPerHr}/hr (${basisNote})\n${
       willExhaust
         ? `Projected to hit 0% in ~${exhaustDur} (around ${exhaustClock}) before reset`
         : `Projected ~${remAtReset} remaining when window resets (at current pace)`
-    }`,
-  rulesTitle: 'HOW QUOTA POOLS WORK',
-  rulesAccHigh: (errStr, wins) => `✓ ${wins}w verified · ${errStr} err`,
+    }`;
+  },
+  rulesTitle: 'QUOTA MECHANICS',
+  rulesAccHigh: (errStr, wins) => `${wins}w verified · ${errStr} err`,
   rulesAccProv: (wins) => `Calibrating (${wins}w)`,
-  rulesDriftBadge: '⚠ Rule shift',
+  rulesDriftBadge: 'Rule shift',
   rules5hTankLabel: '5h Pool Tank',
   rules7dTankLabel: (ratioStr) => `7d Weekly (${ratioStr ? `${ratioStr}× 5h` : '7d'})`,
   rulesTankRemSub: (remPct, remUsd) => `${remPct} left (~${remUsd})`,
@@ -227,7 +233,7 @@ export const en: Translations = {
   rulesTokCapSub: (tok) => `~${tok} fills 5h`,
   rulesModelTip: (family, kStr, deductUsd, usableApiUsd, obsCalls, isFitted) =>
     `${family}\nEvery $1 of published API price deducts ${deductUsd} from the pool (${kStr}× rate).\nUsing only this model, a full 5h pool equals ~${usableApiUsd} of API list usage.\nSource: ${isFitted ? `verified across ${obsCalls} local calls` : 'published 1:1 API list price baseline'}`,
-  heatmapTitle: 'DAILY ACTIVITY (16W)',
+  heatmapTitle: 'ACTIVITY',
   heatmapSummary: (activeDays, streakDays, peakUsd) =>
     `${activeDays}d active${streakDays > 1 ? ` · ${streakDays}d streak` : ''}${peakUsd ? ` · peak ${peakUsd}` : ''}`,
   heatmapLess: 'Less',
@@ -238,12 +244,12 @@ export const en: Translations = {
     `${dateStr}\nAPI-eq spend: ${costStr} · ${calls} calls${cliCalls > 0 ? ` (App ${appCalls} / CLI ${cliCalls})` : ''}\nOutput: ${outStr} tok`,
   heatmapEmptyTip: (dateStr) => `${dateStr}\nNo local calls recorded`,
   poolTip: (label, winsText, held, fitNotes, driftWarn) =>
-    `${label}\n${winsText}${held ? '\nHeld at weekly cap until weekly window resets' : ''}${fitNotes ? `\n${fitNotes}` : ''}${driftWarn ? `\n⚠ Platform billing weights may have changed (>3σ from prior or OOS >0.5%; downgraded to provisional)` : ''}\nList-eq cap F = 100 / beta_ref is projected onto pricing.json reference list prices (not a billed dollar charge, and independent of GA display-price cutoffs)`,
+    `${label}\n${winsText}${held ? '\nHeld at weekly cap until weekly window resets' : ''}${fitNotes ? `\n${fitNotes}` : ''}${driftWarn ? `\nPlatform billing weights may have changed (>3σ from prior or OOS >0.5%; downgraded to provisional)` : ''}\nRead-only local telemetry: cap F = 100 / beta_ref is projected onto published API reference prices (not an actual card charge).`,
   poolFitTipLine: (modelsStr, gammaStr, shortCount, errLabel) =>
     `Fit: ${modelsStr}${gammaStr ? ` · 7d/5h=${gammaStr}` : ''} (${shortCount} short win · ${errLabel})`,
-  remoteWinBanner: (remoteUsd) => `Unattributed quota gap (active window): +~${remoteUsd} est.`,
+  remoteWinBanner: (remoteUsd) => `Other devices / cloud (not in local totals): ~+${remoteUsd}`,
   remoteWinBannerTip:
-    'Signed window quota residual minus modelled local App+CLI spend and noise band (may reflect other devices, remote sessions, or unlogged calls)',
+    'Estimated active-window quota usage outside this machine (e.g. another laptop, cloud/web sessions, or unlogged calls). Local totals above only count App + CLI DBs stored on this computer.',
   spendSession: 'SESSION',
   spendToday: 'TODAY',
   spendMonth: 'MONTH',
@@ -343,7 +349,7 @@ export const en: Translations = {
   updateBtnNow: 'Update Now',
   updateBtnUpdating: 'Updating…',
   updateBtnReload: 'Reload Now',
-  updateReleaseNotes: 'Release Notes ↗',
+  updateReleaseNotes: 'Release Notes',
   updateStatusUpToDate: 'Up to date',
   updateStatusAhead: 'Ahead of latest release',
   updateStatusAvailable: (cur, next) => `Update available: v${cur} → v${next}`,
@@ -403,14 +409,14 @@ export const en: Translations = {
     }
     return lines.join('\n');
   },
-  cacheTtlCardTitle: 'CACHE SURVIVAL & EXPIRATION',
+  cacheTtlCardTitle: 'CACHE SURVIVAL',
   cacheTtlHeaderSummary: (pairs, missUsdStr) =>
-    `${pairs.toLocaleString()} pairs${missUsdStr ? ` · miss +${missUsdStr}` : ''}`,
+    `${pairs.toLocaleString()} pairs${missUsdStr ? ` · +${missUsdStr}` : ''}`,
   cacheTtlEmpty: 'Collecting consecutive same-model call intervals…',
   cacheTtlKindLru: 'LRU decay',
   cacheTtlKindHard: 'Hard TTL',
   cacheTtlKindMixed: 'Empirical',
-  cacheTtlConfFitted: (longN) => `✓ Fitted (${longN} ≥3m)`,
+  cacheTtlConfFitted: (longN) => `Fitted (${longN} ≥3m)`,
   cacheTtlConfProv: (longN) => `Calibrating (${longN} ≥3m)`,
   cacheTtlConfPrior: 'Prior est.',
   cacheTtlP80Label: 'Safe (P80)',
@@ -423,5 +429,45 @@ export const en: Translations = {
       ? `Idle ${label}\nObserved: ${hits}/${count} hits (${empPct})\nModel curve: ${predPct}`
       : `Idle ${label}\nNo observed samples yet\nModel curve: ${predPct}`,
   cacheTtlFootnote:
-    'Log-logistic survival fit across deduplicated same-model intervals (excluding /compact & rewinds). Bars show observed hit rate; dots show fitted curve.',
+    'Log-logistic survival fit across deduplicated local same-model intervals (excluding /compact & rewinds).',
+  cacheTtlHeaderSummaryTip: (pairs, missUsdStr) =>
+    `${pairs.toLocaleString()} consecutive same-model intervals observed across local history${
+      missUsdStr ? `\nExtra re-prefill API-eq cost from expired cache misses: +${missUsdStr}` : ''
+    }`,
+  cacheTtlP80Tip: (dur) =>
+    `P80 Safe Window (~${dur}):\nIdle duration where prompt cache hit probability stays at or above 80%. Sending your next turn within this window usually avoids full re-prefill.`,
+  cacheTtlP50Tip: (dur) =>
+    `P50 Half-Life (~${dur}):\nIdle duration where cache hit probability drops to ~50%. Past this point, the prefix is likely evicted or expired.`,
+  cacheTtlBgMissTip: (pct) =>
+    `Short-Gap Noise (${pct}):\nBaseline cache miss rate even within <1m idle gaps, caused by backend replica switches or system-prompt prefix changes.`,
+  cacheTtlLegendObserved: 'Observed',
+  cacheTtlLegendFitted: 'Fitted curve',
+
+  ctxMicroHeadroom: 'Headroom',
+  ctxMicroCacheHit: 'Cache Hit',
+  ctxMicroCacheTtl: 'Cache TTL',
+  ctxMicroSpendQuota: 'Spend / 5h',
+  heroCachePill: (pct) => `Cache ${pct}`,
+  heroCacheTip: (pct, cached, newIn) =>
+    `Latest call prompt cache hit: ${pct}\nCached: ${cached} tok · New input: ${newIn} tok\nHigher cache hit reduces prefill work and speeds up TTFT.`,
+  kpiAvgGenTip: (avgGen, avgE2e) =>
+    `Output-token-weighted average generation speed: ${avgGen} tok/s\nComputed as Σ outputTokens / Σ genSec across sustained (non-buffered) calls, so tiny 20-token replies don't distort sustained throughput.\nWeighted E2E (including TTFT): ${avgE2e} tok/s.`,
+  kpiPeakCacheTip: (peak, avgCache) =>
+    `Peak sustained generation speed: ${peak} tok/s\nSession average prompt cache hit rate: ${avgCache}`,
+  kpiTtftOutTip: (avgTtft, totalOut) =>
+    `Average Time-To-First-Token (TTFT): ${avgTtft}\nTotal generated output tokens (thinking + visible): ${totalOut} tok`,
+  kpiTimeTip: (modelSec, toolSec, toolSteps) =>
+    `Cumulative model time (TTFT + generation): ${modelSec}\nCumulative tool execution wall time: ${toolSec}${toolSteps > 0 ? ` (${toolSteps} tool steps)` : ''}`,
+  spendScopeLabel: 'LOCAL (APP + CLI)',
+  spendSessionTip:
+    'API-equivalent list-price estimate for this active conversation only (100% local read-only telemetry; not billed to your card).',
+  spendLocalScopeTip:
+    'Local-only telemetry (Antigravity App + CLI + IDE on this machine). Usage on other devices is not stored in local DBs — active-window cross-device usage is estimated separately via the account quota delta.',
+  activityViewHeatmap: 'Heatmap',
+  activityViewIceberg: 'Iceberg',
+  icebergNewLabel: 'New',
+  icebergCachedLabel: 'Cached',
+  icebergHint: 'New above · Cached below',
+  icebergBarTip: (dateStr, newStr, cachedStr, hitPct, calls, costStr) =>
+    `${dateStr}\nNew tokens (in+out): ${newStr}\nCached read: ${cachedStr} (Cache ${hitPct})\n${calls} calls · API-eq ${costStr}`,
 };

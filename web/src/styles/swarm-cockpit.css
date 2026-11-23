@@ -1,27 +1,17 @@
-/* Dedicated stylesheet for Swarm & Subagents Cockpit (owned by @swarm-telemetry).
- * Follows Tailwind-first hygiene: only semantic design tokens, host-contrast overrides,
- * and keyframe animations live here; layout & utility styling lives in TSX via Tailwind v4. */
+/* Dedicated stylesheet for Swarm & Subagents Cockpit
+ * Clean borderless recessed list wells + restrained status chips.
+ */
 
 :root {
-  --swarm-surface: color-mix(in srgb, var(--hud-fg) 3.2%, var(--hud-card));
-  --swarm-working-bg: color-mix(in srgb, var(--hud-ok) 13%, transparent);
-  --swarm-working-border: color-mix(in srgb, var(--hud-ok) 36%, var(--hud-border));
-  --swarm-stopped-bg: color-mix(in srgb, var(--hud-warn) 13%, transparent);
-  --swarm-stopped-border: color-mix(in srgb, var(--hud-warn) 38%, var(--hud-border));
-  --swarm-share-bg: color-mix(in srgb, var(--hud-accent) 12%, transparent);
-  --swarm-share-border: color-mix(in srgb, var(--hud-accent) 36%, var(--hud-border));
-  --swarm-branch-bg: color-mix(in srgb, var(--seg-think) 13%, transparent);
-  --swarm-branch-border: color-mix(in srgb, var(--seg-think) 38%, var(--hud-border));
-}
-
-:root[data-theme="dark"] {
-  --swarm-surface: color-mix(in srgb, var(--hud-fg) 4.8%, var(--hud-card));
-  --swarm-working-bg: color-mix(in srgb, var(--hud-ok) 16%, transparent);
-  --swarm-working-border: color-mix(in srgb, var(--hud-ok) 44%, var(--hud-border));
-  --swarm-share-bg: color-mix(in srgb, var(--hud-accent) 16%, transparent);
-  --swarm-share-border: color-mix(in srgb, var(--hud-accent) 44%, var(--hud-border));
-  --swarm-branch-bg: color-mix(in srgb, var(--seg-think) 17%, transparent);
-  --swarm-branch-border: color-mix(in srgb, var(--seg-think) 46%, var(--hud-border));
+  --swarm-surface: var(--hud-surface-2);
+  --swarm-working-bg: var(--tint-ok);
+  --swarm-working-border: var(--tint-ok-border);
+  --swarm-stopped-bg: var(--tint-warn);
+  --swarm-stopped-border: var(--tint-warn-border);
+  --swarm-share-bg: var(--tint-accent);
+  --swarm-share-border: var(--tint-accent-border);
+  --swarm-branch-bg: var(--tint-think);
+  --swarm-branch-border: var(--tint-think-border);
 }
 
 :root[data-contrast="strong"] {
@@ -58,47 +48,73 @@
 .swarm-pill-working {
   color: var(--hud-ok);
   background: var(--swarm-working-bg);
-  border-color: var(--swarm-working-border);
+  border-color: transparent;
 }
 
 .swarm-pill-stopped {
   color: var(--hud-warn);
   background: var(--swarm-stopped-bg);
-  border-color: var(--swarm-stopped-border);
+  border-color: transparent;
 }
 
 .swarm-pill-share {
   color: var(--hud-accent-ink);
   background: var(--swarm-share-bg);
-  border-color: var(--swarm-share-border);
+  border-color: transparent;
 }
 
 .swarm-pill-branch {
   color: var(--seg-think);
   background: var(--swarm-branch-bg);
-  border-color: var(--swarm-branch-border);
+  border-color: transparent;
 }
 
 .swarm-surface-well {
   background: var(--swarm-surface);
+  border: 1px solid transparent;
+}
+
+.swarm-member-list {
+  background: var(--swarm-surface);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .swarm-member-card {
-  background: var(--swarm-surface);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  transition: background-color 0.14s ease;
+}
+
+.swarm-member-card + .swarm-member-card {
+  border-top: 1px solid var(--hud-hairline);
 }
 
 .swarm-member-card:hover:not(:disabled) {
-  border-color: var(--hud-accent);
-  background: color-mix(in srgb, var(--hud-accent) 6%, var(--swarm-surface));
+  background: color-mix(in srgb, var(--hud-accent) 6.5%, transparent);
 }
 
 .swarm-member-card:focus-visible,
 .swarm-interactive-pill:focus-visible {
   outline: 1.5px solid var(--hud-accent);
-  outline-offset: 1px;
+  outline-offset: -1px;
 }
 
-:root[data-contrast="strong"] .swarm-member-card,
+:root[data-contrast="strong"] .swarm-member-list,
 :root[data-contrast="strong"] .swarm-surface-well {
   border-color: color-mix(in srgb, var(--hud-border) 70%, var(--hud-fg) 30%);
+}
+:root[data-contrast="strong"] .swarm-pill-working {
+  border-color: var(--swarm-working-border);
+}
+:root[data-contrast="strong"] .swarm-pill-stopped {
+  border-color: var(--swarm-stopped-border);
+}
+:root[data-contrast="strong"] .swarm-pill-share {
+  border-color: var(--swarm-share-border);
+}
+:root[data-contrast="strong"] .swarm-pill-branch {
+  border-color: var(--swarm-branch-border);
 }

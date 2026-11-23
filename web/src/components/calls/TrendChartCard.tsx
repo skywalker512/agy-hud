@@ -14,6 +14,7 @@ import {
   formatModelTag,
   ttftTier,
 } from '../../utils/format';
+import { IconClock, IconFastForward, IconMinus, IconPlus } from '../common/Icons';
 import {
   TREND_RANGE_STORAGE_KEY,
   advanceRangeOnDataUpdate,
@@ -379,18 +380,28 @@ export function TrendChartCard({
     return keys.size >= 2;
   }, [visible]);
 
-  const svgH = isWide ? 148 : isNarrow ? 118 : 132;
+  // Nice Y-axis scale + dynamic gutter width so Y labels NEVER collide with plot curve or ref labels
+  const yMax = useMemo(() => computeYAxisCeiling(visible, metric), [visible, metric]);
+  const yTickLabels = useMemo(
+    () => [formatYTick(yMax, metric), formatYTick(yMax * 0.5, metric), formatYTick(0, metric)],
+    [yMax, metric],
+  );
+  const maxYTickChars = useMemo(
+    () => yTickLabels.reduce((acc, s) => Math.max(acc, s.length), 2),
+    [yTickLabels],
+  );
+
+  const svgH = isWide ? 148 : isNarrow ? 120 : 134;
   const minimapH = isWide ? 26 : isNarrow ? 22 : 24;
-  const padLeft = isNarrow ? 6 : isWide ? 34 : 30;
+  const padLeft = Math.max(isNarrow ? 28 : 34, Math.ceil(maxYTickChars * 5.8) + 10);
   const padRight = 10;
-  const padTop = 12;
+  const padTop = 14;
   const padBottom = isMultiInView ? 25 : 21;
   const chartH = Math.max(48, svgH - padTop - padBottom);
   const yBase = padTop + chartH;
   const plotW = Math.max(60, svgW - padLeft - padRight);
 
-  // Nice Y-axis scale + viewport summary stats
-  const yMax = useMemo(() => computeYAxisCeiling(visible, metric), [visible, metric]);
+  // Viewport summary stats & X layout
   const stats = useMemo(
     () => computeViewportStats(visible, metric, compactions),
     [visible, metric, compactions],
@@ -1212,149 +1223,154 @@ export function TrendChartCard({
   };
 
   return (
-    <section className={`hud-card relative flex flex-col gap-1.5 ${sizeClass}`}>
-      {/* Row 1: Title + Total Count + Metric Tabs */}
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 min-w-0">
-        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-          <span className="card-k">{t.chartTitle}</span>
-          <span className="trend-count-badge inline-flex items-center px-1.5 py-px rounded-full font-hud-mono tabular-nums font-semibold text-hud-muted bg-hud-fill border border-hud-border">
-            {t.chartMeta(invocations.length)}
-          </span>
-        </div>
-
-        <div className="metric-tabs" role="tablist" aria-label={t.chartTitle}>
-          {METRICS.map((m) => (
-            <button
-              key={m}
-              type="button"
-              role="tab"
-              aria-selected={metric === m}
-              className={`metric-tab${metric === m ? ' is-active' : ''}`}
-              onClick={() => onSelectMetric(m)}
-            >
-              {metricLabel(m)}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Row 2: Model Pills + Range Presets + Zoom Micro-Buttons + Dual X-Axis Toggle */}
-      {(showModelPills || totalCount > 0) && (
+    <section className={`hud-card relative flex flex-col gap-2 ${sizeClass}`}>
+      {/* Sleek 2-Row Instrument Header */}
+      <div className="flex flex-col gap-1.5 min-w-0">
+        {/* Row 1: Title + Total Count + Metric Tabs */}
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 min-w-0">
-          {showModelPills && (
-            <div className="flex flex-wrap items-center gap-1 min-w-0">
-              <button
-                type="button"
-                className={`trend-model-pill${activeModel === 'all' ? ' is-active' : ''}`}
-                onClick={() => setActiveModel('all')}
-              >
-                {t.chartAllModels(invocations.length)}
-              </button>
-              {sessionModels.map((m) => {
-                const active = activeModel === m.key;
-                return (
-                  <button
-                    key={m.key}
-                    type="button"
-                    className={`trend-model-pill${active ? ' is-active' : ''}`}
-                    data-tip={t.chartModelFilterTip(m.label, m.count, m.avgBadge, active)}
-                    onClick={() => setActiveModel(active ? 'all' : m.key)}
-                  >
-                    <span
-                      className="inline-block w-[6px] h-[6px] rounded-full shrink-0"
-                      style={{ backgroundColor: m.color }}
-                    />
-                    <span>{m.label}</span>
-                    {!isNarrow && m.avgBadge && <span className="text-hud-fg/75">{m.avgBadge}</span>}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+            <span className="card-k">{t.chartTitle}</span>
+            <span className="trend-count-badge inline-flex items-center px-1.5 py-px rounded-full font-hud-mono tabular-nums font-medium text-hud-muted bg-hud-fill">
+              {t.chartMeta(invocations.length)}
+            </span>
+          </div>
 
-          {totalCount > 0 && (
-            <div className="inline-flex flex-wrap items-center gap-1 ml-auto min-w-0">
-              {/* Quick Range Presets */}
-              <div
-                className="trend-seg-group inline-flex items-center p-[1.5px] gap-px rounded-md bg-hud-tab-track border border-hud-border"
-                role="group"
+          <div className="metric-tabs" role="tablist" aria-label={t.chartTitle}>
+            {METRICS.map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={metric === m}
+                className={`metric-tab${metric === m ? ' is-active' : ''}`}
+                onClick={() => onSelectMetric(m)}
               >
-                {visiblePresets.map((p) => {
-                  const isAll = p === 'all';
-                  const num = isAll ? 0 : Number(p);
-                  const available = isAll || totalCount > num;
-                  const active = followLive && rangePreset === p;
-                  const label = isAll ? tt.rangeAll : p;
+                {metricLabel(m)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Row 2: Model Pills + Unified Range / Zoom / Axis Strip */}
+        {(showModelPills || totalCount > 0) && (
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 min-w-0">
+            {showModelPills && (
+              <div className="flex flex-wrap items-center gap-1 min-w-0">
+                <button
+                  type="button"
+                  className={`trend-model-pill${activeModel === 'all' ? ' is-active' : ''}`}
+                  onClick={() => setActiveModel('all')}
+                >
+                  {t.chartAllModels(invocations.length)}
+                </button>
+                {sessionModels.map((m) => {
+                  const active = activeModel === m.key;
                   return (
                     <button
-                      key={p}
+                      key={m.key}
                       type="button"
-                      disabled={!available}
-                      className={`trend-seg-btn border-0 bg-transparent text-hud-muted hover:enabled:text-hud-fg font-hud-mono tabular-nums font-semibold leading-tight px-[5px] py-0.5 rounded cursor-pointer whitespace-nowrap transition-colors${active ? ' is-active' : ''}`}
-                      title={isAll ? tt.rangeAll : tt.rangePresetTip(p, available)}
-                      onClick={() => handleSelectPreset(p)}
+                      className={`trend-model-pill${active ? ' is-active' : ''}`}
+                      data-tip={t.chartModelFilterTip(m.label, m.count, m.avgBadge, active)}
+                      onClick={() => setActiveModel(active ? 'all' : m.key)}
                     >
-                      {label}
+                      <span
+                        className="inline-block w-[6px] h-[6px] rounded-full shrink-0"
+                        style={{ backgroundColor: m.color }}
+                      />
+                      <span>{m.label}</span>
+                      {!isNarrow && m.avgBadge && (
+                        <span className="font-hud-mono text-hud-muted">{m.avgBadge}</span>
+                      )}
                     </button>
                   );
                 })}
               </div>
+            )}
 
-              {/* Micro Zoom [-] / [+] Buttons */}
-              {totalCount > minSpan && (
+            {totalCount > 0 && (
+              <div className="inline-flex flex-wrap items-center gap-1 ml-auto min-w-0">
+                {/* Quick Range Presets */}
                 <div
-                  className="trend-seg-group inline-flex items-center p-[1.5px] gap-px rounded-md bg-hud-tab-track border border-hud-border"
+                  className="trend-seg-group inline-flex items-center p-[1.5px] gap-px rounded-md bg-hud-tab-track"
+                  role="group"
+                >
+                  {visiblePresets.map((p) => {
+                    const isAll = p === 'all';
+                    const num = isAll ? 0 : Number(p);
+                    const available = isAll || totalCount > num;
+                    const active = followLive && rangePreset === p;
+                    const label = isAll ? tt.rangeAll : p;
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        disabled={!available}
+                        className={`trend-seg-btn border-0 bg-transparent text-hud-muted hover:enabled:text-hud-fg font-hud-mono tabular-nums font-semibold leading-tight px-[5px] py-0.5 rounded cursor-pointer whitespace-nowrap transition-colors${active ? ' is-active' : ''}`}
+                        title={isAll ? tt.rangeAll : tt.rangePresetTip(p, available)}
+                        onClick={() => handleSelectPreset(p)}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Micro Zoom [-] / [+] Buttons */}
+                {totalCount > minSpan && (
+                  <div
+                    className="trend-seg-group inline-flex items-center p-[1.5px] gap-px rounded-md bg-hud-tab-track"
+                    role="group"
+                  >
+                    <button
+                      type="button"
+                      className="trend-seg-btn trend-icon-btn w-[20px] h-[18px] inline-flex items-center justify-center border-0 bg-transparent text-hud-muted hover:enabled:text-hud-fg rounded cursor-pointer transition-colors"
+                      disabled={!canZoomOut}
+                      title={tt.zoomOutTip}
+                      aria-label={tt.zoomOutTip}
+                      onClick={() => handleZoomButton('out')}
+                    >
+                      <IconMinus size={10} />
+                    </button>
+                    <button
+                      type="button"
+                      className="trend-seg-btn trend-icon-btn w-[20px] h-[18px] inline-flex items-center justify-center border-0 bg-transparent text-hud-muted hover:enabled:text-hud-fg rounded cursor-pointer transition-colors"
+                      disabled={!canZoomIn}
+                      title={tt.zoomInTip}
+                      aria-label={tt.zoomInTip}
+                      onClick={() => handleZoomButton('in')}
+                    >
+                      <IconPlus size={10} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Dual X-Axis Toggle (#Seq vs Time) */}
+                <div
+                  className="trend-seg-group inline-flex items-center p-[1.5px] gap-px rounded-md bg-hud-tab-track"
                   role="group"
                 >
                   <button
                     type="button"
-                    className="trend-seg-btn trend-icon-btn min-w-[20px] border-0 bg-transparent text-hud-muted hover:enabled:text-hud-fg font-hud-mono font-bold leading-tight px-[5px] py-0.5 rounded cursor-pointer text-center transition-colors"
-                    disabled={!canZoomOut}
-                    title={tt.zoomOutTip}
-                    aria-label={tt.zoomOutTip}
-                    onClick={() => handleZoomButton('out')}
+                    className={`trend-seg-btn border-0 bg-transparent text-hud-muted hover:text-hud-fg font-hud-mono tabular-nums font-semibold leading-tight px-[5px] py-0.5 rounded cursor-pointer whitespace-nowrap transition-colors${axisMode === 'seq' ? ' is-active' : ''}`}
+                    title={tt.axisSeqTip}
+                    onClick={() => setAxisMode('seq')}
                   >
-                    −
+                    {isNarrow ? tt.axisSeqShort : tt.axisSeq}
                   </button>
                   <button
                     type="button"
-                    className="trend-seg-btn trend-icon-btn min-w-[20px] border-0 bg-transparent text-hud-muted hover:enabled:text-hud-fg font-hud-mono font-bold leading-tight px-[5px] py-0.5 rounded cursor-pointer text-center transition-colors"
-                    disabled={!canZoomIn}
-                    title={tt.zoomInTip}
-                    aria-label={tt.zoomInTip}
-                    onClick={() => handleZoomButton('in')}
+                    className={`trend-seg-btn border-0 bg-transparent text-hud-muted hover:text-hud-fg font-hud tabular-nums font-semibold leading-tight px-[5px] py-0.5 rounded cursor-pointer whitespace-nowrap inline-flex items-center justify-center transition-colors${axisMode === 'time' ? ' is-active' : ''}`}
+                    title={tt.axisTimeTip}
+                    onClick={() => setAxisMode('time')}
                   >
-                    +
+                    {isNarrow ? <IconClock size={10} /> : tt.axisTime}
                   </button>
                 </div>
-              )}
-
-              {/* Dual X-Axis Toggle (#Seq vs Time) */}
-              <div
-                className="trend-seg-group inline-flex items-center p-[1.5px] gap-px rounded-md bg-hud-tab-track border border-hud-border"
-                role="group"
-              >
-                <button
-                  type="button"
-                  className={`trend-seg-btn border-0 bg-transparent text-hud-muted hover:text-hud-fg font-hud-mono tabular-nums font-semibold leading-tight px-[5px] py-0.5 rounded cursor-pointer whitespace-nowrap transition-colors${axisMode === 'seq' ? ' is-active' : ''}`}
-                  title={tt.axisSeqTip}
-                  onClick={() => setAxisMode('seq')}
-                >
-                  {isNarrow ? tt.axisSeqShort : tt.axisSeq}
-                </button>
-                <button
-                  type="button"
-                  className={`trend-seg-btn border-0 bg-transparent text-hud-muted hover:text-hud-fg font-hud-mono tabular-nums font-semibold leading-tight px-[5px] py-0.5 rounded cursor-pointer whitespace-nowrap transition-colors${axisMode === 'time' ? ' is-active' : ''}`}
-                  title={tt.axisTimeTip}
-                  onClick={() => setAxisMode('time')}
-                >
-                  {isNarrow ? tt.axisTimeShort : tt.axisTime}
-                </button>
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Conditional Historical / Paused Follow-Live Banner */}
       {isZoomedOrHistorical && (
@@ -1372,27 +1388,28 @@ export function TrendChartCard({
           </span>
           <button
             type="button"
-            className="trend-follow-btn inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[5px] border font-hud-mono font-bold text-hud-accent-ink cursor-pointer whitespace-nowrap transition-colors"
+            className="trend-follow-btn inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[5px] border font-hud font-semibold text-hud-accent-ink cursor-pointer whitespace-nowrap transition-colors"
             title={tt.followLiveTip}
             onClick={handleFollowLive}
           >
-            {tt.followLiveBtn}
+            <span>{tt.followLiveBtn}</span>
+            <IconFastForward size={10} />
           </button>
         </div>
       )}
 
-      {/* Row 3: 4-Cell Metric-Aware Viewport Summary Stat Strip */}
+      {/* 4-Cell Borderless Recessed Viewport Summary Strip */}
       {statCells.length > 0 && (
-        <div className={`grid gap-[5px] ${isNarrow ? 'grid-cols-2' : 'grid-cols-4'}`}>
+        <div className={`grid gap-1.5 ${isNarrow ? 'grid-cols-2' : 'grid-cols-4'}`}>
           {statCells.map((cell, ci) => (
             <div
               key={ci}
-              className="trend-stat-cell flex flex-col gap-px min-w-0 px-[7px] py-[5px] rounded-md border border-hud-border tabular-nums"
+              className="trend-stat-cell flex flex-col gap-px min-w-0 px-2 py-[5px] rounded-lg tabular-nums"
             >
-              <div className="trend-stat-label flex items-center justify-between gap-1 font-hud-mono font-semibold tracking-[0.04em] text-hud-muted whitespace-nowrap overflow-hidden text-ellipsis">
+              <div className="trend-stat-label flex items-center justify-between gap-1 font-hud font-semibold tracking-[0.04em] text-hud-muted whitespace-nowrap overflow-hidden text-ellipsis">
                 <span>{cell.label}</span>
                 {cell.badge && (
-                  <span className="trend-stat-buf-tag inline-flex items-center px-1 rounded-[3px] font-hud-mono font-bold text-hud-muted border border-hud-border bg-hud-card">
+                  <span className="trend-stat-buf-tag inline-flex items-center px-1 rounded-[3px] font-hud-mono font-bold text-hud-muted bg-hud-card">
                     {cell.badge}
                   </span>
                 )}
@@ -1455,18 +1472,22 @@ export function TrendChartCard({
           >
             <defs>
               <linearGradient id={`${gradPrefix}-ctx`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--seg-input)" stopOpacity="0.26" />
-                <stop offset="100%" stopColor="var(--seg-input)" stopOpacity="0.02" />
+                <stop offset="0%" stopColor="var(--seg-input)" stopOpacity="0.22" />
+                <stop offset="100%" stopColor="var(--seg-input)" stopOpacity="0" />
               </linearGradient>
-              {singleCurveSeries && (
-                <linearGradient id={`${gradPrefix}-area-${metric}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={singleCurveSeries.color} stopOpacity="0.24" />
-                  <stop offset="100%" stopColor={singleCurveSeries.color} stopOpacity="0.02" />
+              {seriesList.map((s, si) => (
+                <linearGradient key={`grad-${si}`} id={`${gradPrefix}-area-${si}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop
+                    offset="0%"
+                    stopColor={s.color}
+                    stopOpacity={seriesList.length === 1 ? '0.2' : '0.1'}
+                  />
+                  <stop offset="100%" stopColor={s.color} stopOpacity="0" />
                 </linearGradient>
-              )}
+              ))}
               <linearGradient id={`${gradPrefix}-danger`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--hud-bad)" stopOpacity="0.16" />
-                <stop offset="100%" stopColor="var(--hud-bad)" stopOpacity="0.04" />
+                <stop offset="0%" stopColor="var(--hud-bad)" stopOpacity="0.14" />
+                <stop offset="100%" stopColor="var(--hud-bad)" stopOpacity="0.02" />
               </linearGradient>
             </defs>
 
@@ -1503,10 +1524,10 @@ export function TrendChartCard({
               </g>
             )}
 
-            {/* Nice Y-axis horizontal gridlines & labels */}
+            {/* Nice Y-axis horizontal gridlines (~6% soft) & non-overlapping left gutter labels */}
             {yTicks.map((tickVal, gi) => {
               const gy = valY(tickVal);
-              const label = formatYTick(tickVal, metric);
+              const label = yTickLabels[gi];
               return (
                 <g key={`grid-${gi}`}>
                   <line
@@ -1514,40 +1535,19 @@ export function TrendChartCard({
                     y1={gy.toFixed(1)}
                     x2={(padLeft + plotW).toFixed(1)}
                     y2={gy.toFixed(1)}
-                    stroke="var(--hud-border)"
+                    stroke="var(--hud-fg)"
                     strokeWidth="1"
                     strokeDasharray={gi === 2 ? undefined : '2 3'}
-                    opacity={gi === 2 ? 0.78 : 0.62}
+                    opacity={gi === 2 ? 0.12 : 0.06}
                   />
-                  {isNarrow ? (
-                    <g>
-                      <rect
-                        className="trend-y-pill-bg"
-                        x={(padLeft + 1).toFixed(1)}
-                        y={(gi === 0 ? gy + 1 : gy - 9.5).toFixed(1)}
-                        width={Math.max(18, label.length * 5.6 + 6)}
-                        height="10"
-                        rx="2"
-                      />
-                      <text
-                        x={(padLeft + 4).toFixed(1)}
-                        y={(gi === 0 ? gy + 8.5 : gy - 2).toFixed(1)}
-                        textAnchor="start"
-                        className="trend-axis-label"
-                      >
-                        {label}
-                      </text>
-                    </g>
-                  ) : (
-                    <text
-                      x={(padLeft - 5).toFixed(1)}
-                      y={(gy + 3).toFixed(1)}
-                      textAnchor="end"
-                      className="trend-axis-label"
-                    >
-                      {label}
-                    </text>
-                  )}
+                  <text
+                    x={(padLeft - 6).toFixed(1)}
+                    y={(gy + 3).toFixed(1)}
+                    textAnchor="end"
+                    className="trend-axis-label"
+                  >
+                    {label}
+                  </text>
                 </g>
               );
             })}
@@ -1611,11 +1611,19 @@ export function TrendChartCard({
                   stroke="var(--hud-fg)"
                   strokeWidth="1"
                   strokeDasharray="4 3"
-                  opacity="0.34"
+                  opacity="0.28"
+                />
+                <rect
+                  className="trend-y-pill-bg"
+                  x={(padLeft + 3).toFixed(1)}
+                  y={(Math.max(padTop + 1, ttftP95Y - 10.5)).toFixed(1)}
+                  width={Math.max(38, `${tt.refP95} ${fmtSec(stats.p95)}`.length * 5.2 + 6)}
+                  height="10"
+                  rx="2.5"
                 />
                 <text
-                  x={(padLeft + 3).toFixed(1)}
-                  y={(ttftP95Y - 2.5).toFixed(1)}
+                  x={(padLeft + 6).toFixed(1)}
+                  y={(Math.max(padTop + 8.5, ttftP95Y - 2.5)).toFixed(1)}
                   textAnchor="start"
                   className="trend-ref-label"
                   fill="var(--hud-muted)"
@@ -1858,7 +1866,7 @@ export function TrendChartCard({
               metric !== 'ctx' &&
               metric !== 'quota' && (
                 <g>
-                  {seriesList.map((s) => {
+                  {seriesList.map((s, si) => {
                     const curve = s.points.length >= 2 ? buildMonotonePath(s.points, padTop, yBase) : '';
                     const meanVal = s.points.reduce((acc, p) => acc + p.val, 0) / Math.max(1, s.points.length);
                     const meanY = valY(meanVal);
@@ -1875,13 +1883,13 @@ export function TrendChartCard({
                             stroke={s.color}
                             strokeWidth="1"
                             strokeDasharray="3 3"
-                            opacity="0.3"
+                            opacity="0.26"
                           />
                         )}
-                        {curve && singleCurveSeries?.key === s.key && (
+                        {curve && (
                           <path
                             d={`${curve} L ${s.points[s.points.length - 1].x.toFixed(1)} ${yBase.toFixed(1)} L ${s.points[0].x.toFixed(1)} ${yBase.toFixed(1)} Z`}
-                            fill={`url(#${gradPrefix}-area-${metric})`}
+                            fill={`url(#${gradPrefix}-area-${si})`}
                           />
                         )}
                         {curve && (

@@ -1,7 +1,8 @@
-import { useState } from 'preact/hooks';
+import { usePersistedOpen } from '../../hooks/usePersistedOpen';
 import type { Translations } from '../../i18n';
 import type { AccountQuota, QuotaPool } from '../../types/telemetry';
 import { fmtNum, fmtUsd, friendlyFamilyName } from '../../utils/format';
+import { IconAlert, IconCheck, IconChevronDown, IconChevronRight } from '../common/Icons';
 
 interface QuotaRulesCardProps {
   quota: AccountQuota | undefined;
@@ -23,7 +24,7 @@ function fmtPctClean(v: number): string {
 }
 
 export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
-  const [open, setOpen] = useState(true);
+  const [open, toggleOpen] = usePersistedOpen('quota-rules', true);
 
   if (!quota?.available || !Array.isArray(quota.pools)) {
     return null;
@@ -40,7 +41,7 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
     <section className="hud-card">
       <div
         className="card-head flex items-center justify-between gap-2 cursor-pointer select-none"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleOpen}
       >
         <span className="card-k">{t.rulesTitle}</span>
         <button
@@ -49,15 +50,15 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
           aria-expanded={open}
           onClick={(e) => {
             e.stopPropagation();
-            setOpen((v) => !v);
+            toggleOpen();
           }}
         >
-          {open ? '▾' : '▸'}
+          {open ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
         </button>
       </div>
 
       {open && (
-        <div className="mt-2 flex flex-col gap-3 min-w-0">
+        <div className="hud-expand-anim mt-2.5 flex flex-col gap-3 min-w-0">
           {fittedPools.map((p, idx) => {
             const fs = p.fitSummary!;
             const gamma = fs.gamma && fs.gamma > 0 ? fs.gamma : null;
@@ -88,42 +89,38 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
             return (
               <div
                 key={`${p.label}:${idx}`}
-                className={`${idx > 0 ? 'pt-2.5 border-t border-hud-border ' : ''}flex flex-col gap-1.5 min-w-0`}
+                className={`${idx > 0 ? 'pt-2.5 border-t border-hud-hairline ' : ''}flex flex-col gap-2 min-w-0`}
               >
                 {/* Pool Header */}
                 <div className="flex flex-wrap items-center justify-between gap-1.5 min-w-0">
-                  <span className="font-hud-mono text-[11.5px] font-bold text-hud-fg">{p.label}</span>
+                  <span className="font-hud text-[11.5px] font-semibold text-hud-fg">{p.label}</span>
 
                   {fs.driftWarning ? (
-                    <span
-                      className="px-1.5 py-[0.5px] rounded-full font-hud-mono text-[9.5px] font-semibold text-hud-warn whitespace-nowrap"
-                      style={{ background: 'color-mix(in srgb, var(--hud-warn) 15%, transparent)' }}
-                    >
-                      {t.rulesDriftBadge}
+                    <span className="inline-flex items-center gap-1 px-1.5 py-[0.5px] rounded-full font-hud text-[9.5px] font-semibold text-hud-warn bg-tint-warn whitespace-nowrap">
+                      <IconAlert size={10} />
+                      <span>{t.rulesDriftBadge}</span>
                     </span>
                   ) : fs.quality === 'high' ? (
-                    <span
-                      className="px-1.5 py-[0.5px] rounded-full font-hud-mono text-[9.5px] font-semibold text-hud-ok whitespace-nowrap"
-                      style={{ background: 'color-mix(in srgb, var(--hud-ok) 13%, transparent)' }}
-                    >
-                      {t.rulesAccHigh(errStr, fs.shortCleanCount)}
+                    <span className="inline-flex items-center gap-1 px-1.5 py-[0.5px] rounded-full font-hud text-[9.5px] font-medium text-hud-fg-2 bg-hud-fill whitespace-nowrap tabular-nums">
+                      <IconCheck size={10} className="text-hud-ok" />
+                      <span>{t.rulesAccHigh(errStr, fs.shortCleanCount)}</span>
                     </span>
                   ) : (
-                    <span className="px-1.5 py-[0.5px] rounded-full font-hud-mono text-[9.5px] text-hud-muted bg-hud-fill border border-hud-border whitespace-nowrap">
+                    <span className="px-1.5 py-[0.5px] rounded-full font-hud text-[9.5px] text-hud-muted bg-hud-fill whitespace-nowrap">
                       {t.rulesAccProv(fs.shortCleanCount)}
                     </span>
                   )}
                 </div>
 
-                {/* Pool Credit Tank Boxes (5h vs 7d) */}
+                {/* Pool Credit Tank Boxes (5h vs 7d) - Borderless Recessed Wells */}
                 {full5h > 0 && (
                   <div
                     className={`grid ${full7d > 0 ? 'grid-cols-2' : 'grid-cols-1'} gap-1.5 cursor-help`}
                     data-tip={t.rulesTankTip(cap5hStr, cap7dStr)}
                   >
-                    <div className="px-2 py-1.5 rounded-md bg-hud-fill border border-hud-border flex flex-col gap-[2px] min-w-0">
+                    <div className="l2-well px-2.5 py-1.5 flex flex-col gap-[2px] min-w-0">
                       <div className="flex items-baseline justify-between gap-1 min-w-0">
-                        <span className="text-[9.5px] font-semibold text-hud-muted truncate">
+                        <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">
                           {t.rules5hTankLabel}
                         </span>
                         <span className="font-hud-mono text-[12px] font-bold text-hud-fg tabular-nums shrink-0">
@@ -138,9 +135,9 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
                     </div>
 
                     {full7d > 0 && (
-                      <div className="px-2 py-1.5 rounded-md bg-hud-fill border border-hud-border flex flex-col gap-[2px] min-w-0">
+                      <div className="l2-well px-2.5 py-1.5 flex flex-col gap-[2px] min-w-0">
                         <div className="flex items-baseline justify-between gap-1 min-w-0">
-                          <span className="text-[9.5px] font-semibold text-hud-muted truncate">
+                          <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">
                             {t.rules7dTankLabel(gammaStr)}
                           </span>
                           <span className="font-hud-mono text-[12px] font-bold text-hud-fg tabular-nums shrink-0">
@@ -174,23 +171,20 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
                       return (
                         <div
                           key={m.family}
-                          className="px-2 py-1.5 rounded-md bg-hud-card border border-hud-border flex flex-col gap-1.5 min-w-0"
+                          className="l2-well px-2.5 py-2 flex flex-col gap-1.5 min-w-0"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-1 min-w-0">
                             <span className="font-hud-mono text-[10.5px] font-semibold text-hud-fg truncate">
                               {name}
                             </span>
-                            <span
-                              className="px-1.5 py-[0.5px] rounded font-hud-mono text-[9.5px] font-semibold text-seg-think whitespace-nowrap"
-                              style={{ background: 'color-mix(in srgb, var(--seg-think) 14%, transparent)' }}
-                            >
+                            <span className="px-1.5 py-[0.5px] rounded font-hud-mono text-[9.5px] font-semibold text-seg-think bg-tint-think whitespace-nowrap">
                               {t.rulesPerTokCapBadge(capOutTok)}
                             </span>
                           </div>
 
-                          <div className="grid grid-cols-3 gap-1 min-w-0">
-                            <div className="px-1.5 py-1 rounded bg-hud-fill flex flex-col gap-[1px] min-w-0">
-                              <span className="text-[9px] text-hud-muted truncate">{t.rulesTokInLabel}</span>
+                          <div className="grid grid-cols-3 gap-1.5 min-w-0">
+                            <div className="px-2 py-1 rounded-md bg-hud-card flex flex-col gap-[1px] min-w-0">
+                              <span className="font-hud text-[9px] text-hud-muted truncate">{t.rulesTokInLabel}</span>
                               <span className="font-hud-mono text-[10.5px] font-bold text-hud-fg tabular-nums">
                                 -{fmtPctClean(wIn)}%/M
                               </span>
@@ -199,8 +193,8 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
                               </span>
                             </div>
 
-                            <div className="px-1.5 py-1 rounded bg-hud-fill flex flex-col gap-[1px] min-w-0">
-                              <span className="text-[9px] text-hud-muted truncate">{t.rulesTokCacheLabel}</span>
+                            <div className="px-2 py-1 rounded-md bg-hud-card flex flex-col gap-[1px] min-w-0">
+                              <span className="font-hud text-[9px] text-hud-muted truncate">{t.rulesTokCacheLabel}</span>
                               <span className="font-hud-mono text-[10.5px] font-bold text-hud-ok tabular-nums">
                                 -{fmtPctClean(wCa)}%/M
                               </span>
@@ -209,8 +203,8 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
                               </span>
                             </div>
 
-                            <div className="px-1.5 py-1 rounded bg-hud-fill flex flex-col gap-[1px] min-w-0">
-                              <span className="text-[9px] text-hud-muted truncate">{t.rulesTokOutLabel}</span>
+                            <div className="px-2 py-1 rounded-md bg-hud-card flex flex-col gap-[1px] min-w-0">
+                              <span className="font-hud text-[9px] text-hud-muted truncate">{t.rulesTokOutLabel}</span>
                               <span className="font-hud-mono text-[10.5px] font-bold text-seg-out tabular-nums">
                                 -{fmtPctClean(wOut)}%/M
                               </span>
@@ -241,7 +235,7 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
                     return (
                       <div
                         key={m.family}
-                        className="px-2 py-1.5 rounded-md bg-hud-card border border-hud-border flex flex-col gap-1 min-w-0 cursor-help"
+                        className="l2-well px-2.5 py-2 flex flex-col gap-1.5 min-w-0 cursor-help"
                         data-tip={t.rulesModelTip(
                           name,
                           kClean,
@@ -257,36 +251,28 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
                             <span className="font-hud-mono text-[10.5px] font-semibold text-hud-fg truncate">
                               {name}
                             </span>
-                            <span className="font-hud-mono text-[9px] text-hud-muted shrink-0">
+                            <span className="font-hud text-[9.5px] text-hud-muted shrink-0">
                               · {t.rulesSourceTag(isFitted)}
                             </span>
                           </div>
 
                           <span
-                            className={`px-1.5 py-[1px] rounded font-hud-mono text-[9.5px] font-bold tabular-nums whitespace-nowrap ${
-                              isHighMult ? 'text-seg-out' : 'text-hud-ok'
+                            className={`px-1.5 py-[1px] rounded font-hud-mono text-[9.5px] font-semibold tabular-nums whitespace-nowrap ${
+                              isHighMult ? 'text-seg-out bg-tint-out' : 'text-hud-fg-2 bg-hud-card'
                             }`}
-                            style={{
-                              background: isHighMult
-                                ? 'color-mix(in srgb, var(--seg-out) 14%, transparent)'
-                                : 'color-mix(in srgb, var(--hud-ok) 13%, transparent)',
-                            }}
                           >
                             {t.rulesFormulaPill(kClean, deductUsdStr)}
                           </span>
                         </div>
 
-                        {/* Row 2: Usable API Capacity Gauge (100% full for 1x, shrunk to 1/3 for 3x!) */}
+                        {/* Row 2: Usable API Capacity Gauge */}
                         <div className="flex flex-col gap-[3px] min-w-0">
                           <div className="flex items-center justify-between gap-1 font-hud-mono text-[9.5px] text-hud-fg/90 tabular-nums">
                             <span className="truncate">
                               {t.rulesEffectiveApiCap(usableApiStr, cap5hStr, isHighMult)}
                             </span>
                           </div>
-                          <div
-                            className="h-1.5 rounded-full overflow-hidden border border-dashed border-hud-border"
-                            style={{ background: 'var(--hud-fill)' }}
-                          >
+                          <div className="h-1.5 rounded-full overflow-hidden bg-hud-fill">
                             <div
                               className="h-full rounded-full transition-[width] duration-200"
                               style={{

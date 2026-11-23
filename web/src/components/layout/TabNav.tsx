@@ -1,5 +1,6 @@
 import type { Translations } from '../../i18n';
 import type { HudTab } from '../../types/telemetry';
+import { IconAccount, IconCalls, IconPulse } from '../common/Icons';
 
 interface TabNavProps {
   tab: HudTab;
@@ -18,7 +19,8 @@ export function TabNav({ tab, totalCalls, t, onSwitchTab }: TabNavProps) {
         className={`hud-tab-btn${tab === 'live' ? ' is-active' : ''}`}
         onClick={() => onSwitchTab('live')}
       >
-        {t.tabLive}
+        <IconPulse size={12} className="hud-tab-icon opacity-80" />
+        <span>{t.tabLive}</span>
       </button>
       <button
         type="button"
@@ -27,6 +29,7 @@ export function TabNav({ tab, totalCalls, t, onSwitchTab }: TabNavProps) {
         className={`hud-tab-btn${tab === 'calls' ? ' is-active' : ''}`}
         onClick={() => onSwitchTab('calls')}
       >
+        <IconCalls size={12} className="hud-tab-icon opacity-80" />
         <span>{t.tabCalls}</span>
         {totalCalls > 0 && <span className="micro-badge">{totalCalls}</span>}
       </button>
@@ -37,7 +40,8 @@ export function TabNav({ tab, totalCalls, t, onSwitchTab }: TabNavProps) {
         className={`hud-tab-btn${tab === 'account' ? ' is-active' : ''}`}
         onClick={() => onSwitchTab('account')}
       >
-        {t.tabAccount}
+        <IconAccount size={12} className="hud-tab-icon opacity-80" />
+        <span>{t.tabAccount}</span>
       </button>
     </nav>
   );

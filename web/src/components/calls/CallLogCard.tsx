@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import type {
   ActiveStep,
@@ -13,6 +13,16 @@ import type {
 import { copyText } from '../../utils/clipboard';
 import { downloadOrCopyJson, formatSessionJson, formatSessionMarkdown } from '../../utils/exportReport';
 import { formatModelTag } from '../../utils/format';
+import { FixedPopover } from '../common/FixedPopover';
+import {
+  IconArrowRight,
+  IconChevronDown,
+  IconChevronRight,
+  IconDownload,
+  IconSearch,
+  IconX,
+} from '../common/Icons';
+import { SelectPopover, type SelectPopoverOption } from '../common/SelectPopover';
 import { CompactCard } from './CompactCard';
 import { InvocationRow } from './InvocationRow';
 import { LiveCallRow } from './LiveCallRow';
@@ -160,9 +170,10 @@ export function CallLogCard({
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
 
-  const exportWrapRef = useRef<HTMLDivElement>(null);
+  const exportBtnRef = useRef<HTMLButtonElement>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleCloseExport = useCallback(() => setExportMenuOpen(false), []);
 
   // Reset local filters when conversation changes
   useEffect(() => {
@@ -191,25 +202,6 @@ export function CallLogCard({
     window.addEventListener('agy-hud-esc', onGlobalEsc);
     return () => window.removeEventListener('agy-hud-esc', onGlobalEsc);
   }, [isFull]);
-
-  // Close export dropdown on outside click / Escape
-  useEffect(() => {
-    if (!exportMenuOpen) return;
-    const onDocDown = (e: MouseEvent) => {
-      if (exportWrapRef.current && !exportWrapRef.current.contains(e.target as Node)) {
-        setExportMenuOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setExportMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onDocDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDocDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [exportMenuOpen]);
 
   const activeModelFilter = selectedModel && selectedModel !== 'all' ? selectedModel : '';
   const turnByIdx = useMemo(() => new Map(turns.map((u) => [u.turnIndex, u])), [turns]);
@@ -620,6 +612,17 @@ export function CallLogCard({
     }
   }
 
+  const sortOptions = useMemo<SelectPopoverOption[]>(
+    () => [
+      { value: 'timeline', label: t.sortTimeline },
+      { value: 'slowest', label: t.sortSlowest },
+      { value: 'ttft', label: t.sortTtft },
+      { value: 'low_tps', label: t.sortLowTps },
+      { value: 'cost', label: t.sortCost },
+    ],
+    [t.sortTimeline, t.sortSlowest, t.sortTtft, t.sortLowTps, t.sortCost],
+  );
+
   const shouldScrollInline = isRecent && (showAllHistory || (compactOnly && compactions.length > limit));
 
   const showSlowChip = anomalyCounts.slowTtft > 0 || slowTtftOnly;
@@ -659,44 +662,57 @@ export function CallLogCard({
             </button>
           )}
           {isFull && snap?.found && invocations.length > 0 && (
-            <div ref={exportWrapRef} className="relative">
+            <div className="relative">
               <button
+                ref={exportBtnRef}
                 type="button"
                 className="insp-copy-btn"
                 aria-expanded={exportMenuOpen}
                 onClick={() => setExportMenuOpen((p) => !p)}
               >
-                {exportFeedback || `${t.btnExport} ▾`}
+                {exportFeedback ? (
+                  <span>{exportFeedback}</span>
+                ) : (
+                  <>
+                    <IconDownload size={10} />
+                    <span>{t.btnExport}</span>
+                    <IconChevronDown size={10} />
+                  </>
+                )}
               </button>
-              {exportMenuOpen && (
-                <div
-                  role="menu"
-                  className="more-popover absolute right-0 top-[calc(100%+4px)] z-30 min-w-[186px] p-1 rounded-lg bg-hud-card border border-hud-border shadow-xl flex flex-col gap-0.5"
+              <FixedPopover
+                open={exportMenuOpen}
+                triggerRef={exportBtnRef}
+                onClose={handleCloseExport}
+                align="right"
+                role="menu"
+                minWidthPx={184}
+                maxWidthPx={232}
+              >
+                <button
+                  type="button"
+                  onClick={() => void handleExportMd()}
+                  className="w-full text-left px-2 py-[5px] border-0 rounded-[6px] bg-transparent text-hud-fg-2 text-[11px] cursor-pointer hover:bg-hud-fill hover:text-hud-fg transition-colors"
                 >
-                  <button
-                    type="button"
-                    onClick={() => void handleExportMd()}
-                    className="w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-hud-fg text-[11px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors"
-                  >
-                    {t.btnCopyReportMd}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleExportJson()}
-                    className="w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-hud-fg text-[11px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors"
-                  >
-                    {t.btnExportJson}
-                  </button>
-                </div>
-              )}
+                  {t.btnCopyReportMd}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleExportJson()}
+                  className="w-full text-left px-2 py-[5px] border-0 rounded-[6px] bg-transparent text-hud-fg-2 text-[11px] cursor-pointer hover:bg-hud-fill hover:text-hud-fg transition-colors"
+                >
+                  {t.btnExportJson}
+                </button>
+              </FixedPopover>
             </div>
           )}
           {onViewAll ? (
             <button type="button" className="link-btn" onClick={onViewAll}>
-              {t.viewAll}
+              <span>{t.viewAll}</span>
+              <IconArrowRight size={11} />
             </button>
           ) : (
-            <span className="card-sub !mt-0">{t.histHint}</span>
+            <span className="text-[10.5px] font-hud text-hud-muted">{t.histHint}</span>
           )}
           {isCollapsible && (
             <button
@@ -705,7 +721,7 @@ export function CallLogCard({
               aria-expanded={isOpen}
               onClick={onToggleOpen}
             >
-              {isOpen ? '▾' : '▸'}
+              {isOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
             </button>
           )}
         </div>
@@ -714,14 +730,14 @@ export function CallLogCard({
       {/* Call Explorer Toolbar (full view only) */}
       {isFull && isOpen && (invocations.length > 0 || compactions.length > 0) && (
         <div className="call-toolbar mt-2 flex flex-col gap-1.5 min-w-0">
-          {/* Row 1: Instant Search + Metric Sort */}
+          {/* Row 1: Instant Search + Custom SelectPopover Metric Sort */}
           <div className="flex flex-wrap items-center gap-1.5 min-w-0">
             <div className="relative flex items-center flex-1 min-w-[140px]">
               <span
-                className="pointer-events-none absolute left-[7px] text-hud-muted font-hud-mono text-[11px]"
+                className="pointer-events-none absolute left-[8px] text-hud-muted inline-flex items-center"
                 aria-hidden="true"
               >
-                ⌕
+                <IconSearch size={11} />
               </span>
               <input
                 id="call-log-search"
@@ -744,25 +760,23 @@ export function CallLogCard({
                   type="button"
                   aria-label={t.filterClear}
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-[5px] border-0 bg-transparent text-hud-muted hover:text-hud-fg font-hud-mono text-[12px] leading-none px-1 cursor-pointer"
+                  className="absolute right-[6px] border-0 bg-transparent text-hud-muted hover:text-hud-fg inline-flex items-center justify-center p-0.5 cursor-pointer"
                 >
-                  ×
+                  <IconX size={11} />
                 </button>
               )}
             </div>
 
-            <select
-              aria-label="Sort calls"
+            <SelectPopover
+              ariaLabel="Sort calls"
               value={sortBy}
-              onChange={(e) => setSortBy((e.currentTarget as HTMLSelectElement).value as CallSortMode)}
-              className="call-sort-select"
-            >
-              <option value="timeline">{t.sortTimeline}</option>
-              <option value="slowest">{t.sortSlowest}</option>
-              <option value="ttft">{t.sortTtft}</option>
-              <option value="low_tps">{t.sortLowTps}</option>
-              <option value="cost">{t.sortCost}</option>
-            </select>
+              options={sortOptions}
+              onChange={(val) => setSortBy(val as CallSortMode)}
+              align="right"
+              size="sm"
+              className="w-auto min-w-[126px] shrink-0"
+              popoverClassName="min-w-[172px]"
+            />
           </div>
 
           {/* Row 2: Anomaly & Synced Model Filter Chips */}
@@ -775,7 +789,7 @@ export function CallLogCard({
                   onClick={() => onClearModel?.()}
                 >
                   <span>{t.chipModelFilter(activeModelFilter)}</span>
-                  <span aria-hidden="true">×</span>
+                  <IconX size={10} />
                 </button>
               )}
               {showSlowChip && (
@@ -828,7 +842,7 @@ export function CallLogCard({
 
           {/* Active Filter Count Banner */}
           {hasAnyActiveFilter && (
-            <div className="flex items-center justify-between gap-2 px-2 py-[3px] rounded-md bg-hud-surface-2 border border-hud-border font-hud-mono text-[10px] text-hud-muted tabular-nums">
+            <div className="l2-well flex items-center justify-between gap-2 px-2.5 py-[4px] font-hud-mono text-[10px] text-hud-muted tabular-nums">
               <span>
                 {compactOnly
                   ? t.compactFilterBtn(compactions.length, true)

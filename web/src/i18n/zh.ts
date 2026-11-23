@@ -9,9 +9,9 @@ export const zh: Translations = {
   tabLive: '实时',
   tabCalls: '调用',
   tabAccount: '账户',
-  genLabel: '生成速度 (Gen TPS)',
+  genLabel: '生成速度',
   livePill: '生成中',
-  e2eLabel: '端到端速度 (含 TTFT)',
+  e2eLabel: '端到端速度',
   ctxLabel: '上下文窗口',
   kCache: '缓存',
   kIn: '新输入',
@@ -42,7 +42,7 @@ export const zh: Translations = {
   avgTtft: '平均 TTFT',
   totOut: '输出 ',
   recentTitle: '最近调用',
-  viewAll: '查看全部 →',
+  viewAll: '查看全部',
   chartTitle: '调用趋势',
   tabTps: '速度',
   tabTtft: '首字',
@@ -76,8 +76,8 @@ export const zh: Translations = {
   chartMeta: (n) => `${n} 次调用`,
   genSubSust: (sust, ms, tok) => `上次流式 ${sust} · 本次单包 ${ms}ms (${tok} tok)`,
   genSubBuf: (ms, tok) => `单包缓冲 ${ms}ms · 输出 ${tok} tok`,
-  genSubOk: (tok, sec) => `输出 ${tok} tok · 生成 ${sec}`,
-  e2eSub: (ttft, tot) => `TTFT ${ttft} · 总计 ${tot}`,
+  genSubOk: (tok, sec) => `${tok} tok · ${sec}`,
+  e2eSub: (ttft, tot) => `TTFT ${ttft} · 共 ${tot}`,
   cacheBadge: (pct) => (pct === null ? '缓存 --' : `缓存 ${pct.toFixed(1)}%`),
   headroomLabel: (n) => `约余 ${n} 轮`,
   headroomTip: (n, avgDelta) =>
@@ -124,7 +124,7 @@ export const zh: Translations = {
   lblChars: (c, trunc) => (trunc ? ` · 最新段 · ${c} 字` : ` · ${c} 字`),
   lblToolCalls: '工具调用',
   lblSummary: '压缩摘要内容',
-  compactFilterBtn: (n, on) => (on ? `压缩记录 (${n}) ✓` : `含 ${n} 次压缩`),
+  compactFilterBtn: (n, on) => (on ? `压缩记录 (${n})` : `含 ${n} 次压缩`),
   compactBadge: '上下文压缩',
   compactLiveBadge: '压缩中',
   compactLiveDetail: (sec, startTm, ctxStr) =>
@@ -160,11 +160,11 @@ export const zh: Translations = {
   kindMain: '主会话',
   kindSq: 'SIDE Q',
   kindSub: '子会话',
-  backParent: (lbl) => `← 返回父会话 · ${lbl}`,
+  backParent: (lbl) => `返回父会话 · ${lbl}`,
   linkedCount: (n) => `${n} 个关联会话`,
-  linkedTitle: '挂载子会话 / Side Question',
+  linkedTitle: '挂载子会话 / Side Q',
   linkedHint: '点击跳转查看',
-  jumpAction: '进入 →',
+  jumpAction: '进入',
   linkedMeta: (calls, outStr, costStr, quotaStr = '') =>
     `${calls} 次调用 · 输出 ${outStr}${costStr ? ` · ${costStr}` : ''}${quotaStr ? ` · 配额 ${quotaStr}` : ''}`,
   cacheAgeLabel: (ageStr) => `距上次 ${ageStr}`,
@@ -185,7 +185,7 @@ export const zh: Translations = {
     return `${poolName} 池${tag}:\n  • 当前 5h 窗口占用: ${cur5}${cur7}${exp}`;
   },
   sessionQuotaTip: (lines) => `本对话当前实际占用的额度比例:\n${lines}`,
-  accountTitle: '账户配额与成本',
+  accountTitle: '配额与消耗',
   creditsRealMini: (c) => `额外积分: ${c}`,
   creditsRealTip: (c) => `当前可用额外积分 (Credits): ${c}`,
   quotaRefreshTip: (tm) => `强制刷新配额（默认 5 分钟缓存，且仅在打开账户页时请求）${tm ? `\n上次同步: ${tm}` : ''}`,
@@ -194,21 +194,27 @@ export const zh: Translations = {
   heldByWeeklyTag: '受周限锁定',
   winMeta: (pct, resetStr) => `${pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)}%${resetStr ? ` · ${resetStr}` : ''}`,
   winBudgetEst: (spent, full, lowSample, remote, effSpent) =>
-    `列表价满额 ~${full}${lowSample ? ' (初估)' : ''} · 本机 ${spent}${effSpent ? ` (折算 ${effSpent})` : ''}${remote ? ` + 约${remote} 未归因` : ''}`,
+    `满额 ~${full}${lowSample ? ' (初估)' : ''} · 本机 ${spent}${effSpent ? ` (折算 ${effSpent})` : ''}${remote ? ` + 约${remote} 他端` : ''}`,
   winSpentOnly: (spent, minPct = '0.5%') => `窗内已用 ${spent} (<${minPct} 样本)`,
-  winRunwayWarn: (dur, clock) => `⚡ 照此速度约 ${dur} 后刷满 (${clock})`,
-  winRunwaySafe: (remAtReset) => `✓ 安全 · 重置前预计余 ~${remAtReset}`,
+  winRunwayWarn: (dur, clock) => `照此速度约 ${dur} 后触顶 (${clock})`,
+  winRunwaySafe: (remAtReset) => `重置前预计余 ~${remAtReset}`,
   winRunwayExhausted: '额度已耗尽 · 等待窗口重置',
-  winRunwayTip: (burnPerHr, exhaustDur, exhaustClock, remAtReset, willExhaust, isRecent) =>
-    `当前消耗节奏: 约 -${burnPerHr}/小时（${isRecent ? '近期活跃速率 + 窗口均速加权' : '按当前窗口平均速率'}）\n${
+  winRunwayTip: (burnPerHr, exhaustDur, exhaustClock, remAtReset, willExhaust, isRecent, habitBlended, activeHoursPerDay) => {
+    const basisNote = habitBlended
+      ? `融合了你的历史作息节奏${activeHoursPerDay ? `（日均活跃约 ${activeHoursPerDay.toFixed(1)} 小时）` : ''}，避免周期初期短时冲高导致预测失真`
+      : isRecent
+        ? '近期活跃速率 + 窗口均速加权'
+        : '按当前窗口平均速率';
+    return `当前消耗节奏: 约 -${burnPerHr}/小时（${basisNote}）\n${
       willExhaust
         ? `预计在重置前约 ${exhaustDur} 后（${exhaustClock} 左右）触及上限`
         : `若维持当前节奏，等到窗口重置时预计还剩 ~${remAtReset}`
-    }`,
-  rulesTitle: '额度池面值与扣费规则',
-  rulesAccHigh: (errStr, wins) => `✓ ${wins}窗实测 · 误差 ${errStr}`,
+    }`;
+  },
+  rulesTitle: '配额扣费规则',
+  rulesAccHigh: (errStr, wins) => `${wins}窗实测 · 误差 ${errStr}`,
   rulesAccProv: (wins) => `校准积累中 (${wins}窗)`,
-  rulesDriftBadge: '⚠ 计费变动重算中',
+  rulesDriftBadge: '计费变动重算中',
   rules5hTankLabel: '5h 充值池面值',
   rules7dTankLabel: (ratioStr) => `7d 周池面值 (${ratioStr ? `${ratioStr}× 5h池` : '7d'})`,
   rulesTankRemSub: (remPct, remUsd) => `剩 ${remPct}（约余 ${remUsd}）`,
@@ -227,7 +233,7 @@ export const zh: Translations = {
   rulesTokCapSub: (tok) => `满池 ~${tok}`,
   rulesModelTip: (family, kStr, deductUsd, usableApiUsd, obsCalls, isFitted) =>
     `${family}\n扣池规则：每产生 $1 官网公开 API 价格，从额度池中扣掉 ${deductUsd}（即 ${kStr}× 倍率）。\n满池体感：如果 5h 内只用该模型，100% 额度大约等于跑了 ${usableApiUsd} 的官网 API 调用量。\n数据来源：${isFitted ? `本机 ${obsCalls} 次调用微窗实测对账` : '按公开 API 价格 1:1 基准对齐'}`,
-  heatmapTitle: '每日消耗热力图 (近 16 周)',
+  heatmapTitle: '活跃趋势',
   heatmapSummary: (activeDays, streakDays, peakUsd) =>
     `活跃 ${activeDays} 天${streakDays > 1 ? ` · 连续 ${streakDays} 天` : ''}${peakUsd ? ` · 单日最高 ${peakUsd}` : ''}`,
   heatmapLess: '少',
@@ -238,12 +244,12 @@ export const zh: Translations = {
     `${dateStr}\nAPI 等价消耗: ${costStr} · 共 ${calls} 次调用${cliCalls > 0 ? `（App ${appCalls} / CLI ${cliCalls}）` : ''}\n输出生成: ${outStr} tok`,
   heatmapEmptyTip: (dateStr) => `${dateStr}\n当日无本地调用记录`,
   poolTip: (label, winsText, held, fitNotes, driftWarn) =>
-    `${label}\n${winsText}${held ? '\n周限 (7d) 已耗尽，需等待周重置后解锁 5h 额度' : ''}${fitNotes ? `\n${fitNotes}` : ''}${driftWarn ? `\n⚠ 平台计费口径可能变化（偏离先验 >3σ 或区间外误差超标，已自动降为初估）` : ''}\n满额 F = 100 / beta_ref 为按 pricing.json 参考列表价投影的等效满额（非真实扣款账单价，亦不受 GA 展示单价切换影响）`,
+    `${label}\n${winsText}${held ? '\n周限 (7d) 已耗尽，需等待周重置后解锁 5h 额度' : ''}${fitNotes ? `\n${fitNotes}` : ''}${driftWarn ? `\n平台计费口径可能变化（偏离先验 >3σ 或区间外误差超标，已自动降为初估）` : ''}\n纯本地只读统计：满额 F = 100 / beta_ref 按公开 API 参考价折算（并非向银行卡真实扣费）。`,
   poolFitTipLine: (modelsStr, gammaStr, shortCount, errLabel) =>
     `模型拟合: ${modelsStr}${gammaStr ? ` · 7d/5h=${gammaStr}` : ''}（${shortCount} 短窗 · ${errLabel}）`,
-  remoteWinBanner: (remoteUsd) => `活跃窗内未归因配额差值（他端或未记录调用）: +约 ${remoteUsd}`,
+  remoteWinBanner: (remoteUsd) => `他机/云端差额（未计入本机统计）: +约 ${remoteUsd}`,
   remoteWinBannerTip:
-    '按上次同步时的带符号窗口配额残差减去本机 App+CLI 模型折算消耗及噪声带估算（可能来自其他设备、远端会话或未落盘调用）',
+    '根据当前活跃窗口的账户配额残差推算的其他设备/云端用量（未计入上方「本月/本机全部」本地账单）。上方金额仅统计本机 App + CLI 落盘数据库。',
   spendSession: '当前会话',
   spendToday: '今日',
   spendMonth: '本月',
@@ -343,7 +349,7 @@ export const zh: Translations = {
   updateBtnNow: '立即更新',
   updateBtnUpdating: '更新中…',
   updateBtnReload: '立即重载',
-  updateReleaseNotes: '更新日志 ↗',
+  updateReleaseNotes: '更新日志',
   updateStatusUpToDate: '已是最新版本',
   updateStatusAhead: '高于最新发行版',
   updateStatusAvailable: (cur, next) => `发现新版本：v${cur} → v${next}`,
@@ -403,14 +409,14 @@ export const zh: Translations = {
     }
     return lines.join('\n');
   },
-  cacheTtlCardTitle: '缓存存活与失效统计',
+  cacheTtlCardTitle: '缓存存活曲线',
   cacheTtlHeaderSummary: (pairs, missUsdStr) =>
-    `${pairs.toLocaleString()} 对样本${missUsdStr ? ` · 失效重算 +${missUsdStr}` : ''}`,
+    `${pairs.toLocaleString()} 对样本${missUsdStr ? ` · +${missUsdStr}` : ''}`,
   cacheTtlEmpty: '正在积累同模型连续调用间隔样本…',
   cacheTtlKindLru: 'LRU 衰减',
   cacheTtlKindHard: '硬 TTL',
   cacheTtlKindMixed: '实测拟合',
-  cacheTtlConfFitted: (longN) => `✓ 实测 (${longN} 长间隔)`,
+  cacheTtlConfFitted: (longN) => `实测 (${longN} 长间隔)`,
   cacheTtlConfProv: (longN) => `校准中 (${longN} 长间隔)`,
   cacheTtlConfPrior: '先验初估',
   cacheTtlP80Label: 'P80 安全窗',
@@ -423,5 +429,45 @@ export const zh: Translations = {
       ? `空闲间隔 ${label}\n实测命中: ${hits}/${count} 次 (${empPct})\n模型拟合: ${predPct}`
       : `空闲间隔 ${label}\n暂无该区间实测样本\n模型拟合: ${predPct}`,
   cacheTtlFootnote:
-    '基于本机去重后的同模型连续调用间隔拟合生存曲线（已排除 /compact 与上下文回退）。柱状为实测命中率，圆点为拟合曲线。',
+    '基于本机去重后的同模型连续调用间隔拟合生存曲线（已排除 /compact 与上下文回退）。',
+  cacheTtlHeaderSummaryTip: (pairs, missUsdStr) =>
+    `累计统计本机 ${pairs.toLocaleString()} 对同模型连续调用间隔${
+      missUsdStr ? `\n因缓存过期触发全量重算的额外 API 等价成本：+${missUsdStr}` : ''
+    }`,
+  cacheTtlP80Tip: (dur) =>
+    `P80 安全窗（~${dur}）：\n空闲时间在此以内时，提示词缓存命中率仍可维持 ≥80%。尽量在此间隔内发下一轮，可避免重新 prefill。`,
+  cacheTtlP50Tip: (dur) =>
+    `P50 半衰期（~${dur}）：\n空闲时间达到此时，缓存存活概率降至约 50%；超过后极可能已过期或被驱逐。`,
+  cacheTtlBgMissTip: (pct) =>
+    `短间隔底噪（${pct}）：\n即便空闲 <1 分钟仍发生的基线未命中率，通常由后端节点切换或系统提示词前缀微调引起。`,
+  cacheTtlLegendObserved: '实测命中率',
+  cacheTtlLegendFitted: '拟合曲线',
+
+  ctxMicroHeadroom: '余量估算',
+  ctxMicroCacheHit: '缓存命中',
+  ctxMicroCacheTtl: '缓存存活',
+  ctxMicroSpendQuota: '消耗 / 5h',
+  heroCachePill: (pct) => `缓存 ${pct}`,
+  heroCacheTip: (pct, cached, newIn) =>
+    `最近一次调用提示词缓存命中率：${pct}\n缓存读取：${cached} tok · 新输入：${newIn} tok\n命中率越高，prefill 计算量越小，首字响应 (TTFT) 越快。`,
+  kpiAvgGenTip: (avgGen, avgE2e) =>
+    `按输出 Token 加权的平均生成速度：${avgGen} tok/s\n公式为 Σ输出Token / Σ生成耗时（仅统计持续流式调用，排除单包缓冲），避免 20 token 短回复拉偏真实吞吐。\n加权端到端速度（含 TTFT）：${avgE2e} tok/s。`,
+  kpiPeakCacheTip: (peak, avgCache) =>
+    `本会话单次最高持续生成速度：${peak} tok/s\n本会话平均提示词缓存命中率：${avgCache}`,
+  kpiTtftOutTip: (avgTtft, totalOut) =>
+    `本会话平均首字延迟 (TTFT)：${avgTtft}\n本会话累计生成输出（含思考 + 可见回复）：${totalOut} tok`,
+  kpiTimeTip: (modelSec, toolSec, toolSteps) =>
+    `累计模型等待与生成时间：${modelSec}\n累计本地工具执行墙钟时间：${toolSec}${toolSteps > 0 ? `（共 ${toolSteps} 步工具）` : ''}`,
+  spendScopeLabel: '本机消耗（APP + CLI）',
+  spendSessionTip:
+    '当前对话按公开 API 列表价折算的等价消耗（纯本地只读统计，非真实银行卡扣款）。',
+  spendLocalScopeTip:
+    '仅统计本机落盘的本地数据库（App + CLI + IDE）。其他设备或网页端的消耗不会落盘到本机；当前活跃窗口的跨设备差额已在下方单独估算。',
+  activityViewHeatmap: '热力图',
+  activityViewIceberg: '冰山图',
+  icebergNewLabel: '新 Token',
+  icebergCachedLabel: '缓存读取',
+  icebergHint: '上方新增 · 下方缓存',
+  icebergBarTip: (dateStr, newStr, cachedStr, hitPct, calls, costStr) =>
+    `${dateStr}\n新输入+输出：${newStr} tok\n缓存读取：${cachedStr} tok（命中率 ${hitPct}）\n${calls} 次调用 · API 等价 ${costStr}`,
 };

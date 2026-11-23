@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import type { StatsSnapshot } from '../../types/telemetry';
 import {
@@ -16,27 +15,10 @@ interface PulseBarProps {
   snap: StatsSnapshot | null;
   nowMs: number;
   t: Translations;
+  visible?: boolean;
 }
 
-export function PulseBar({ snap, nowMs, t }: PulseBarProps) {
-  const barRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = barRef.current;
-    if (!el) return;
-    const syncHeight = () => {
-      const h = Math.ceil(el.getBoundingClientRect().height);
-      if (h > 0) {
-        document.documentElement.style.setProperty('--hud-pulse-h', `${h}px`);
-      }
-    };
-    syncHeight();
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(syncHeight);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
+export function PulseBar({ snap, nowMs, t, visible = true }: PulseBarProps) {
   const found = Boolean(snap?.found);
   const latest = snap?.latest || null;
   const active = snap?.activeStep || null;
@@ -80,7 +62,8 @@ export function PulseBar({ snap, nowMs, t }: PulseBarProps) {
   if (found && latestMs > 0) {
     const ageSec = Math.max(0, Math.floor((nowMs - latestMs) / 1000));
     const ageStr = fmtDurationShort(ageSec);
-    const cls = ageSec >= 300 ? 'pulse-chip is-bad' : ageSec >= 120 ? 'pulse-chip is-warn' : 'pulse-chip is-ok';
+    // Restrained chrome: fresh cache stays calm neutral; warm/stale get warning colors
+    const cls = ageSec >= 300 ? 'pulse-chip is-bad' : ageSec >= 120 ? 'pulse-chip is-warn' : 'pulse-chip text-hud-muted';
     ageChip = {
       text: t.cacheAgeLabel(ageStr),
       cls,
@@ -94,32 +77,36 @@ export function PulseBar({ snap, nowMs, t }: PulseBarProps) {
   const quotaTip = quotaStr ? formatSessionQuotaTip(sessionQuota, t) : undefined;
 
   return (
-    <div ref={barRef} className="pulse-bar tabular-nums">
-      <span className={genCls}>{genText}</span>
-      <span className="text-hud-muted opacity-55" aria-hidden="true">·</span>
-      <span className={ctxCls}>{ctxText}</span>
-      {ageChip && (
-        <>
-          <span className="text-hud-muted opacity-55" aria-hidden="true">·</span>
-          <span className={ageChip.cls} data-tip={ageChip.tip}>
-            {ageChip.text}
-          </span>
-        </>
-      )}
-      {showCost && (
-        <>
-          <span className="text-hud-muted opacity-55" aria-hidden="true">·</span>
-          <span className="pulse-chip">{fmtUsd(s?.totalCostUSD || 0)}</span>
-        </>
-      )}
-      {quotaStr && (
-        <>
-          <span className="text-hud-muted opacity-55" aria-hidden="true">·</span>
-          <span className="pulse-chip text-hud-accent-ink font-semibold cursor-help" data-tip={quotaTip}>
-            {t.sessionQuotaPill(quotaStr)}
-          </span>
-        </>
-      )}
+    <div className={`pulse-bar-wrap${visible ? '' : ' is-hidden'}`} aria-hidden={!visible}>
+      <div className="pulse-bar-inner">
+        <div className="pulse-bar tabular-nums">
+          <span className={genCls}>{genText}</span>
+          <span className="text-hud-muted opacity-40" aria-hidden="true">·</span>
+          <span className={ctxCls}>{ctxText}</span>
+          {ageChip && (
+            <>
+              <span className="text-hud-muted opacity-40" aria-hidden="true">·</span>
+              <span className={ageChip.cls} data-tip={ageChip.tip}>
+                {ageChip.text}
+              </span>
+            </>
+          )}
+          {showCost && (
+            <>
+              <span className="text-hud-muted opacity-40" aria-hidden="true">·</span>
+              <span className="pulse-chip text-hud-fg-2">{fmtUsd(s?.totalCostUSD || 0)}</span>
+            </>
+          )}
+          {quotaStr && (
+            <>
+              <span className="text-hud-muted opacity-40" aria-hidden="true">·</span>
+              <span className="pulse-chip text-hud-accent-ink font-semibold cursor-help" data-tip={quotaTip}>
+                {t.sessionQuotaPill(quotaStr)}
+              </span>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

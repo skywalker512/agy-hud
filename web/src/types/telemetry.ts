@@ -174,6 +174,10 @@ export interface ContextBreakdown {
   systemPromptItems: TokenBreakdownItem[];
   toolSchemaItems: TokenBreakdownItem[];
   toolResultsByTool: TokenBreakdownItem[];
+  mcpTools?: number;
+  skills?: number;
+  rules?: number;
+  checkpointTokens?: number;
 }
 
 export interface CurrentModelInfo {
@@ -344,6 +348,10 @@ export interface QuotaWindowRunway {
   willExhaustBeforeReset: boolean;
   projectedRemAtResetPct: number;
   basis?: string;
+  habitBlended?: boolean;
+  habitWeight?: number;
+  histBurnPctPerHour?: number;
+  activeHoursPerDay?: number;
 }
 
 export interface QuotaWindow {
@@ -447,6 +455,8 @@ export interface DailyHeatmapDay {
   cliCalls: number;
   costUSD: number;
   outputTokens: number;
+  newTokens?: number;
+  cachedTokens?: number;
 }
 
 export interface DailyHeatmapSummary {
@@ -456,6 +466,11 @@ export interface DailyHeatmapSummary {
   peakCostUSD: number;
   peakDate: string;
   days: DailyHeatmapDay[];
+  days52?: DailyHeatmapDay[];
+  weeks52?: number;
+  activeDays52?: number;
+  peakCostUSD52?: number;
+  peakDate52?: string;
 }
 
 export interface AccountHistory {

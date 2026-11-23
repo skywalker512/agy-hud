@@ -104,7 +104,14 @@ export function useHudStore(): HudStore {
   const [collapsedTurns, setCollapsedTurns] = useState<Set<number>>(() => new Set());
   const [compactOnly, setCompactOnly] = useState<boolean>(false);
   const [showAllHistory, setShowAllHistory] = useState<boolean>(false);
-  const [recentOpen, setRecentOpen] = useState<boolean>(false);
+  const [recentOpen, setRecentOpen] = useState<boolean>(() => {
+    try {
+      const raw = localStorage.getItem('agy-hud:card:recent-calls');
+      return raw === '1' || raw === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   const [detailCache, setDetailCache] = useState<Map<string, CallDetailPayload>>(() => new Map());
   const [detailLoading, setDetailLoading] = useState<Set<string>>(() => new Set());
@@ -155,10 +162,6 @@ export function useHudStore(): HudStore {
       ac?.abort();
     };
   }, []);
-
-  useEffect(() => {
-    document.body.classList.toggle('calls-log-open', tab === 'calls');
-  }, [tab]);
 
   const loadCallDetail = useCallback(
     async (convId: string, kind: 'inv' | 'compact' | 'turn', id: number): Promise<CallDetailPayload | null> => {
@@ -264,22 +267,23 @@ export function useHudStore(): HudStore {
       }
 
       if (nextSnap.assetKey) {
-        if (assetKeyRef.current && assetKeyRef.current !== nextSnap.assetKey) {
+        if (!assetKeyRef.current) {
+          assetKeyRef.current = nextSnap.assetKey;
+        } else if (assetKeyRef.current !== nextSnap.assetKey) {
           let allowReload = true;
           try {
             const lastReload = Number(sessionStorage.getItem('agy_hud_last_reload') || 0);
-            if (Date.now() - lastReload < 10_000) allowReload = false;
+            if (Date.now() - lastReload < 3_000) allowReload = false;
             else sessionStorage.setItem('agy_hud_last_reload', String(Date.now()));
           } catch {
             /* ignore */
           }
-          assetKeyRef.current = nextSnap.assetKey;
           if (allowReload) {
+            assetKeyRef.current = nextSnap.assetKey;
             location.reload();
             return;
           }
         }
-        assetKeyRef.current = nextSnap.assetKey;
       }
 
       if (nextSnap.etag) etagRef.current = nextSnap.etag;
@@ -444,7 +448,15 @@ export function useHudStore(): HudStore {
   }, [triggerImmediatePoll]);
 
   const toggleRecentOpen = useCallback(() => {
-    setRecentOpen((p) => !p);
+    setRecentOpen((p) => {
+      const next = !p;
+      try {
+        localStorage.setItem('agy-hud:card:recent-calls', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
   }, []);
 
   const toggleCompactOnly = useCallback(() => {
