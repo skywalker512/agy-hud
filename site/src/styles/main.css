@@ -5,85 +5,133 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+/* ============================================================================
+ * Editorial Instrument Design Tokens (Linear / Zed / Raycast Restraint)
+ * 90% calm neutral chrome · 10% purposeful semantic color
+ * ============================================================================ */
+
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #090a0d;
-  --surface: #111318;
-  --surface-2: #171a21;
-  --surface-3: #1d212b;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --fg: #f3f5f9;
-  --fg-2: #cbd4e1;
-  --muted: #8b95a6;
-  --faint: #647082;
 
+  --bg: #0a0b0e;
+  --bg-subtle: #0e1015;
+  --surface: #12141a;
+  --surface-2: #171a22;
+  --surface-3: #1e222d;
+
+  --border: rgba(255, 255, 255, 0.075);
+  --border-subtle: rgba(255, 255, 255, 0.048);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  --fg: #f3f5f8;
+  --fg-2: #c9d1de;
+  --muted: #8b95a5;
+  --faint: #5f697a;
+
+  /* Purposeful semantic palette */
   --accent: #3b82f6;
   --accent-ink: #60a5fa;
-  --seg-cache: #7aae66;
-  --seg-input: #3b82f6;
-  --seg-think: #a985e2;
-  --seg-out: #cab43e;
-  --seg-bad: #e06c75;
+  --seg-cache: #34d399;
+  --seg-input: #60a5fa;
+  --seg-think: #a78bfa;
+  --seg-out: #f5b942;
+  --seg-bad: #f87171;
 
-  --tint-ok: rgba(122, 174, 102, 0.14);
-  --tint-ok-border: rgba(122, 174, 102, 0.36);
-  --tint-accent: rgba(59, 130, 246, 0.14);
-  --tint-accent-border: rgba(59, 130, 246, 0.38);
-  --tint-think: rgba(169, 133, 226, 0.14);
-  --tint-think-border: rgba(169, 133, 226, 0.38);
-  --tint-out: rgba(202, 180, 62, 0.14);
-  --tint-out-border: rgba(202, 180, 62, 0.38);
-  --tint-bad: rgba(224, 108, 117, 0.14);
-  --tint-bad-border: rgba(224, 108, 117, 0.38);
+  --tint-ok: rgba(52, 211, 153, 0.11);
+  --tint-ok-border: rgba(52, 211, 153, 0.28);
+  --tint-accent: rgba(59, 130, 246, 0.12);
+  --tint-accent-border: rgba(59, 130, 246, 0.30);
+  --tint-think: rgba(167, 139, 250, 0.11);
+  --tint-think-border: rgba(167, 139, 250, 0.28);
+  --tint-out: rgba(245, 185, 66, 0.12);
+  --tint-out-border: rgba(245, 185, 66, 0.30);
+  --tint-bad: rgba(248, 113, 113, 0.12);
+  --tint-bad-border: rgba(248, 113, 113, 0.30);
 
-  --glass-bg: rgba(9, 10, 13, 0.78);
-  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 10px 30px -15px rgba(0, 0, 0, 0.7);
-  --hud-frame-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 28px 65px -20px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --glow-blue: rgba(59, 130, 246, 0.09);
-  --glow-violet: rgba(169, 133, 226, 0.075);
-  --grid-line: rgba(255, 255, 255, 0.032);
+  /* Surfaces & subtle depth */
+  --glass-bg: rgba(10, 11, 14, 0.80);
+  --card-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 12px 32px -18px rgba(0, 0, 0, 0.72);
+  --card-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 18px 40px -20px rgba(0, 0, 0, 0.84);
+  --hud-frame-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 32px 72px -24px rgba(0, 0, 0, 0.88),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+
+  /* Simulator internal layered surfaces */
+  --sim-bg: #0c0e13;
+  --sim-card: #13161d;
+  --sim-well: #1a1e28;
+  --sim-well-2: #222734;
+  --sim-card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.048), 0 1px 2px rgba(0, 0, 0, 0.28);
+
+  /* Ambient radial light (very restrained) */
+  --glow-top: rgba(96, 165, 250, 0.075);
+  --glow-warm: rgba(167, 139, 250, 0.045);
+  --hatch-stripe: rgba(255, 255, 255, 0.24);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f8f9fb;
+
+  --bg: #fafafa;
+  --bg-subtle: #f4f5f7;
   --surface: #ffffff;
-  --surface-2: #f1f3f6;
-  --surface-3: #e7ebf1;
-  --border: rgba(15, 23, 42, 0.09);
-  --border-strong: rgba(15, 23, 42, 0.18);
+  --surface-2: #f3f4f6;
+  --surface-3: #e8eaef;
+
+  --border: rgba(15, 23, 42, 0.08);
+  --border-subtle: rgba(15, 23, 42, 0.05);
+  --border-strong: rgba(15, 23, 42, 0.15);
+
   --fg: #0f172a;
   --fg-2: #334155;
-  --muted: #5d6a7a;
-  --faint: #8492a6;
+  --muted: #5b6577;
+  --faint: #8691a4;
 
   --accent: #2563eb;
   --accent-ink: #1d4ed8;
-  --seg-cache: #4d8841;
+  --seg-cache: #15803d;
   --seg-input: #2563eb;
-  --seg-think: #7c56d8;
-  --seg-out: #b57b1b;
-  --seg-bad: #c74f4f;
+  --seg-think: #7c3aed;
+  --seg-out: #b45309;
+  --seg-bad: #dc2626;
 
-  --tint-ok: rgba(77, 136, 65, 0.11);
-  --tint-ok-border: rgba(77, 136, 65, 0.32);
-  --tint-accent: rgba(37, 99, 235, 0.10);
-  --tint-accent-border: rgba(37, 99, 235, 0.30);
-  --tint-think: rgba(124, 86, 216, 0.10);
-  --tint-think-border: rgba(124, 86, 216, 0.32);
-  --tint-out: rgba(181, 123, 27, 0.11);
-  --tint-out-border: rgba(181, 123, 27, 0.32);
-  --tint-bad: rgba(199, 79, 79, 0.11);
-  --tint-bad-border: rgba(199, 79, 79, 0.32);
+  --tint-ok: rgba(21, 128, 61, 0.09);
+  --tint-ok-border: rgba(21, 128, 61, 0.24);
+  --tint-accent: rgba(37, 99, 235, 0.085);
+  --tint-accent-border: rgba(37, 99, 235, 0.24);
+  --tint-think: rgba(124, 58, 237, 0.085);
+  --tint-think-border: rgba(124, 58, 237, 0.24);
+  --tint-out: rgba(180, 83, 9, 0.095);
+  --tint-out-border: rgba(180, 83, 9, 0.25);
+  --tint-bad: rgba(220, 38, 38, 0.09);
+  --tint-bad-border: rgba(220, 38, 38, 0.25);
 
-  --glass-bg: rgba(248, 249, 251, 0.84);
-  --card-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -14px rgba(15, 23, 42, 0.09);
-  --hud-frame-shadow: 0 24px 60px -22px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.06);
-  --glow-blue: rgba(37, 99, 235, 0.07);
-  --glow-violet: rgba(124, 86, 216, 0.055);
-  --grid-line: rgba(15, 23, 42, 0.04);
+  --glass-bg: rgba(250, 250, 250, 0.86);
+  --card-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 10px 26px -16px rgba(15, 23, 42, 0.10);
+  --card-shadow-hover:
+    0 2px 6px rgba(15, 23, 42, 0.06),
+    0 16px 32px -18px rgba(15, 23, 42, 0.14);
+  --hud-frame-shadow:
+    0 28px 64px -24px rgba(15, 23, 42, 0.18),
+    0 0 0 1px rgba(15, 23, 42, 0.08);
+
+  --sim-bg: #f4f5f8;
+  --sim-card: #ffffff;
+  --sim-well: #f2f4f8;
+  --sim-well-2: #e7ebf2;
+  --sim-card-shadow: 0 1px 2px rgba(15, 23, 42, 0.045), 0 0 0 1px rgba(15, 23, 42, 0.055);
+
+  --glow-top: rgba(37, 99, 235, 0.055);
+  --glow-warm: rgba(124, 58, 237, 0.035);
+  --hatch-stripe: rgba(15, 23, 42, 0.16);
 }
 
 html {
@@ -93,6 +141,7 @@ html {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
@@ -111,47 +160,67 @@ body {
   letter-spacing: -0.028em;
 }
 
+.hero-figure {
+  letter-spacing: -0.032em;
+}
+
 .site-ambient {
   background-image:
-    radial-gradient(ellipse 68% 42% at 50% -8%, var(--glow-blue), transparent 72%),
-    radial-gradient(ellipse 46% 32% at 84% 12%, var(--glow-violet), transparent 68%);
+    radial-gradient(ellipse 72% 38% at 50% -6%, var(--glow-top), transparent 72%),
+    radial-gradient(ellipse 44% 28% at 84% 10%, var(--glow-warm), transparent 68%);
 }
 
-.site-grid-bg {
-  background-size: 40px 40px;
-  background-image:
-    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-  mask-image: radial-gradient(ellipse 75% 58% at 50% 18%, #000 18%, transparent 78%);
-  -webkit-mask-image: radial-gradient(ellipse 75% 58% at 50% 18%, #000 18%, transparent 78%);
-}
-
-.etched-card {
+/* Layered borderless editorial cards */
+.surface-card {
   background-color: var(--surface);
   border: 1px solid var(--border);
   box-shadow: var(--card-shadow);
-  transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
-.etched-card-hover:hover {
+.surface-card-hover:hover {
   border-color: var(--border-strong);
+  box-shadow: var(--card-shadow-hover);
 }
 
-.inset-well {
+.recessed-well {
   background-color: var(--surface-2);
-  border: 1px solid var(--border);
 }
 
+/* Simulator L1 / L2 layered surfaces matching real AGY-HUD visual craft */
 .hud-frame {
-  background-color: var(--surface);
+  background-color: var(--sim-bg);
   border: 1px solid var(--border-strong);
   box-shadow: var(--hud-frame-shadow);
 }
 
+.sim-card {
+  background-color: var(--sim-card);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--sim-card-shadow);
+  border-radius: 10px;
+}
+
+.sim-well {
+  background-color: var(--sim-well);
+  border-radius: 7px;
+}
+
+/* Hatched diagonal runway projected-burn segment */
+.runway-hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 3px,
+    var(--hatch-stripe) 3px,
+    var(--hatch-stripe) 5.5px
+  );
+}
+
 .glass-nav {
   background-color: var(--glass-bg);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border);
 }
 
@@ -166,13 +235,13 @@ body {
     transform: scale(1);
   }
   50% {
-    opacity: 0.42;
+    opacity: 0.4;
     transform: scale(0.84);
   }
 }
 
 .animate-hud-pulse {
-  animation: hudPulse 1.8s ease-in-out infinite;
+  animation: hudPulse 2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
