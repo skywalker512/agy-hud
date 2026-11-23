@@ -534,11 +534,11 @@
   .pulse-bar {
     @apply flex flex-nowrap items-center rounded-lg font-hud-mono tabular-nums text-hud-fg overflow-x-auto whitespace-nowrap;
     scrollbar-width: none;
-    gap: 6px;
-    padding: 5px 10px;
+    gap: 5px;
+    padding: 4.5px 9px;
     background: var(--hud-surface-2);
     border: 1px solid var(--hud-hairline);
-    font-size: calc(10.5px * var(--hud-font-scale, 1));
+    font-size: calc(10px * var(--hud-font-scale, 1));
   }
   .pulse-bar::-webkit-scrollbar {
     display: none;

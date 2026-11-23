@@ -73,7 +73,7 @@ export function PulseBar({ snap, nowMs, t, visible = true }: PulseBarProps) {
 
   const showCost = Boolean(found && s && s.pricedCount > 0);
   const sessionQuota = s?.sessionQuota || snap?.sessionInfo?.quotaUsage || null;
-  const quotaStr = found ? formatSessionQuotaCompact(sessionQuota) : '';
+  const quotaStr = found ? formatSessionQuotaCompact(sessionQuota, true) : '';
   const quotaTip = quotaStr ? formatSessionQuotaTip(sessionQuota, t) : undefined;
 
   return (
@@ -101,7 +101,7 @@ export function PulseBar({ snap, nowMs, t, visible = true }: PulseBarProps) {
             <>
               <span className="text-hud-muted opacity-40" aria-hidden="true">·</span>
               <span className="pulse-chip text-hud-accent-ink font-semibold cursor-help" data-tip={quotaTip}>
-                {t.sessionQuotaPill(quotaStr)}
+                {quotaStr}
               </span>
             </>
           )}

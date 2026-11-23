@@ -174,10 +174,10 @@ export function CacheTtlCard({ cacheTtl, t }: CacheTtlCardProps) {
                       <polyline
                         fill="none"
                         stroke="var(--hud-accent-ink, var(--hud-accent))"
-                        strokeWidth="1.8"
-                        strokeLinejoin="round"
-                        strokeLinecap="round"
-                        vectorEffect="non-scaling-stroke"
+                        stroke-width="1.8"
+                        stroke-linejoin="round"
+                        stroke-linecap="round"
+                        vector-effect="non-scaling-stroke"
                         opacity="0.88"
                         points={curvePoints}
                       />
