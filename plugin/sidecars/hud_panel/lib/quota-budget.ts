@@ -7,13 +7,16 @@ import { dirname, join } from 'node:path';
 import { resolveQuotaCalibrationPath, resolveQuotaFitPath } from './constants.ts';
 import { poolKeyForGroupLabel, poolKeyForModel } from './pricing.ts';
 import {
+  buildAccountTierKey,
   evaluatePoolWindowResidual,
   getFamilyBaseRates,
   hasPoolPrior,
   ingestQuotaObservation,
+  isCallOwnedByOtherAccount,
   loadQuotaFitStore,
   predictCallQuota,
   predictFamilyAggregateQuota,
+  resolveAccountId,
   resolveActiveTierPrefix,
 } from './quota-fitter.ts';
 import type { QuotaFitStore, QuotaModelFitEntry, QuotaPoolState } from './quota-fitter.ts';
@@ -102,15 +105,25 @@ function blendPriorWithSpend(priorUSD, spentUSD, u, pricedRatio) {
   return priorUSD;
 }
 
-function sumPoolWindowSpend(summaries, poolKey, startMs, endMs) {
+function sumPoolWindowSpend(
+  summaries,
+  poolKey,
+  startMs,
+  endMs,
+  accountFilter?: { fitStore?: QuotaFitStore; activeAccountId?: string },
+) {
   let estSpentUSD = 0;
   let estPricedCalls = 0;
   let estUnpricedCalls = 0;
+  const activeAccountId = accountFilter?.activeAccountId || '';
   for (const s of summaries) {
     if (s.latestTsMs && s.latestTsMs < startMs) continue;
     for (const c of (s.recentCalls || [])) {
       if (c.ts < startMs || c.ts > endMs) continue;
       if (poolKey !== 'other' && c.poolKey !== poolKey) continue;
+      if (activeAccountId && isCallOwnedByOtherAccount(accountFilter?.fitStore, activeAccountId, c.ts, c.source)) {
+        continue;
+      }
       if (c.priced) {
         estSpentUSD += c.costUSD;
         estPricedCalls += 1;
@@ -122,13 +135,23 @@ function sumPoolWindowSpend(summaries, poolKey, startMs, endMs) {
   return { estSpentUSD, estPricedCalls, estUnpricedCalls };
 }
 
-function collectPoolWindowCalls(summaries: any[], poolKey: string, startMs: number, endMs: number): any[] {
+function collectPoolWindowCalls(
+  summaries: any[],
+  poolKey: string,
+  startMs: number,
+  endMs: number,
+  accountFilter?: { fitStore?: QuotaFitStore; activeAccountId?: string },
+): any[] {
   const out: any[] = [];
+  const activeAccountId = accountFilter?.activeAccountId || '';
   for (const s of summaries) {
     if (s.latestTsMs && s.latestTsMs < startMs) continue;
     for (const c of (s.recentCalls || [])) {
       if (c.ts < startMs || c.ts > endMs) continue;
       if (poolKey !== 'other' && c.poolKey !== poolKey) continue;
+      if (activeAccountId && isCallOwnedByOtherAccount(accountFilter?.fitStore, activeAccountId, c.ts, c.source)) {
+        continue;
+      }
       out.push(c);
     }
   }
@@ -540,10 +563,9 @@ export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: 
   const store = loadQuotaCalibration(calPath);
   const fitStore = ingestQuotaObservation(accountQuota, graph, { fitPath, nowMs: quotaSnapMs });
   const summaries = graph?.summaries || [];
-  const tierKey = [accountQuota.planName, accountQuota.tierName, accountQuota.teamsTier]
-    .filter(Boolean)
-    .join(':')
-    .toLowerCase() || 'default';
+  const activeAccountId = resolveAccountId(accountQuota);
+  const accountFilter = activeAccountId ? { fitStore, activeAccountId } : undefined;
+  const tierKey = buildAccountTierKey(accountQuota);
 
   let calDirty = false;
   const metaByWin = new WeakMap();
@@ -553,16 +575,18 @@ export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: 
     const pk = poolKeyForGroupLabel(p.label);
     const calPoolKey = pk === 'other' ? `other:${String(p.label || '').toLowerCase()}` : pk;
     const ps = fitStore?.pools?.[`${tierKey}|${calPoolKey}`];
-    const hasColdFitter = Boolean(ps?.fit && ps.fit.shortCleanCount < 2);
+    // Once the statistical fitter tracks this pool, quota-model-fit.json is the single source of truth;
+    // do not write into legacy quota-calibration.json so the two stores never fight each other.
+    const hasFitter = Boolean(ps?.fit);
 
     const windows = (p.windows || []).map((w) => {
       const spanMs = w.spanKey === '7d' ? 7 * 24 * 3_600_000 : (w.spanKey === '5h' ? 5 * 3_600_000 : 0);
       if (!spanMs || !w.resetAtMs || w.resetAtMs <= nowMs) return w;
 
       const startMs = w.resetAtMs - spanMs;
-      const winSum = sumPoolWindowSpend(summaries, pk, startMs, nowMs);
+      const winSum = sumPoolWindowSpend(summaries, pk, startMs, nowMs, accountFilter);
       const snapSum = quotaSnapMs < nowMs
-        ? sumPoolWindowSpend(summaries, pk, startMs, quotaSnapMs)
+        ? sumPoolWindowSpend(summaries, pk, startMs, quotaSnapMs, accountFilter)
         : winSum;
 
       const estSpentUSD = winSum.estSpentUSD;
@@ -582,9 +606,7 @@ export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: 
         ? priorEntry.fullUSD
         : null;
 
-      // Avoid writing an uncalibrated cold-start boot ratio into legacy quota-calibration.json
-      // when the statistical fitter is already tracking this pool with real token-level samples.
-      if (canPersistCal && !hasColdFitter && usedPct >= 3 && snapPricedRatio >= 0.85) {
+      if (canPersistCal && !hasFitter && usedPct >= 3 && snapPricedRatio >= 0.85) {
         if (updateCalibrationEntry(store, calKey, {
           rawFull,
           usedPct,
@@ -693,9 +715,9 @@ export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: 
       let callsInNow: any[] | null = null;
 
       if (ps?.fit && snapMeta) {
-        const callsInSnap = collectPoolWindowCalls(summaries, snapMeta.pk, snapMeta.startMs, quotaSnapMs);
+        const callsInSnap = collectPoolWindowCalls(summaries, snapMeta.pk, snapMeta.startMs, quotaSnapMs, accountFilter);
         callsInNow = quotaSnapMs < nowMs
-          ? collectPoolWindowCalls(summaries, snapMeta.pk, snapMeta.startMs, nowMs)
+          ? collectPoolWindowCalls(summaries, snapMeta.pk, snapMeta.startMs, nowMs, accountFilter)
           : callsInSnap;
         const fitEval = evaluatePoolWindowResidual({
           poolState: ps,
@@ -720,7 +742,7 @@ export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: 
 
       if (snapMeta) {
         if (!callsInNow) {
-          callsInNow = collectPoolWindowCalls(summaries, snapMeta.pk, snapMeta.startMs, nowMs);
+          callsInNow = collectPoolWindowCalls(summaries, snapMeta.pk, snapMeta.startMs, nowMs, accountFilter);
         }
         const rw = computeWindowRunway({
           w,

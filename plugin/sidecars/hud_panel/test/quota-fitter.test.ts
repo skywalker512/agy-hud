@@ -8,10 +8,13 @@ import { computeCallCost, getCurrentPricingSig, poolKeyForModel } from '../lib/p
 import { attachQuotaBudgetEstimates, attachTelemetryQuotaPredictions } from '../lib/quota-budget.ts';
 import {
   FAMILY_CLASSIFIER_VERSION,
+  buildAccountTierKey,
   computeBaseReferenceUSD,
   ingestQuotaObservation,
+  isCallOwnedByOtherAccount,
   loadQuotaFitStore,
   reconcilePoolSamplesPricing,
+  resolveAccountId,
   resolveModelFamily,
   solvePoolFitModel,
 } from '../lib/quota-fitter.ts';
@@ -1179,4 +1182,350 @@ test('reconcilePoolSamplesPricing and FAMILY_CLASSIFIER_VERSION heal misfiled Or
   assert.ok(Math.abs((fit.full5hUSD ?? 0) - 150) < 0.5, `expected full5hUSD ~150, got ${fit.full5hUSD}`);
   assert.ok(Math.abs(fit.models['gemini-4-neon'].k - 1.0) < 0.01);
   assert.equal(fit.models['gemini-4-carbon'], undefined);
+});
+
+test('regime-shift detection adapts 5x Ultra ($150) -> 20x Ultra ($600) despite spikes, handles multi-shift, and rejects random/reverting spikes', () => {
+  const makeSample = (idx: number, cap5h: number, gamma = 4.0, fam = 'gemini-4-neon', spikeMult = 1.0) => {
+    const usd = 0.06 + (idx % 5) * 0.03;
+    const du5 = (usd / cap5h) * 100 * spikeMult;
+    return {
+      t0: 1_900_000_000_000 + idx * 30_000,
+      t1: 1_900_000_000_000 + idx * 30_000 + 20_000,
+      dtSec: 20,
+      du5,
+      du7: du5 / gamma,
+      source: '5h_delta',
+      boundaryClean: true,
+      isShort: true,
+      tsMode: 'completed_v2',
+      pricingSig: getCurrentPricingSig(),
+      byModel: { [fam]: usd },
+      byModelTokens: { [fam]: [usd / 6, 0, usd / 30] },
+      callCount: 1,
+      totalBaseUSD: usd,
+      nominalFamilies: [],
+    };
+  };
+
+  // 1) 40 samples at $150 (5x Ultra) followed by 6 clean $600 (20x Ultra) samples + 1 mid-tail external-burn spike
+  const shiftSamples = [
+    ...Array.from({ length: 40 }, (_, i) => makeSample(i, 150, 4.0)),
+    makeSample(40, 600, 4.0),
+    makeSample(41, 600, 4.0),
+    makeSample(42, 600, 4.0),
+    makeSample(43, 600, 4.0),
+    makeSample(44, 600, 4.0, 'gemini-4-neon', 80.0), // huge external-burn spike in the middle of the new regime
+    makeSample(45, 600, 4.0),
+    makeSample(46, 600, 4.0),
+  ];
+  const shiftFit = solvePoolFitModel({ gamma: 4.0, samples: shiftSamples }, 'gemini')!;
+  assert.ok(Math.abs((shiftFit.full5hUSD ?? 0) - 600) < 1.0, `expected ~$600 after 5x->20x shift, got ${shiftFit.full5hUSD}`);
+  assert.ok(Math.abs((shiftFit.full7dUSD ?? 0) - 2400) < 4.0, `expected ~$2400 7d cap, got ${shiftFit.full7dUSD}`);
+  assert.equal(shiftFit.quality, 'high');
+  assert.equal(shiftFit.driftWarning, false);
+  assert.equal(shiftFit.regimeStartMs, shiftSamples[40].t0);
+
+  // 2) Multi-regime shift ($30 Pro -> $150 Ultra 5x -> $600 Ultra 20x) must lock onto $600, not $150
+  const multiSamples = [
+    ...Array.from({ length: 12 }, (_, i) => makeSample(i, 30, 3.5)),
+    ...Array.from({ length: 12 }, (_, i) => makeSample(12 + i, 150, 4.0)),
+    ...Array.from({ length: 6 }, (_, i) => makeSample(24 + i, 600, 4.0)),
+  ];
+  const multiFit = solvePoolFitModel({ gamma: 3.5, samples: multiSamples }, 'gemini')!;
+  assert.ok(Math.abs((multiFit.full5hUSD ?? 0) - 600) < 1.0, `expected ~$600 on multi-shift, got ${multiFit.full5hUSD}`);
+  assert.ok(Math.abs((multiFit.gamma ?? 0) - 4.0) < 0.05, `expected gamma ~4.0 from active regime, got ${multiFit.gamma}`);
+  assert.equal(multiFit.regimeStartMs, multiSamples[24].t0);
+
+  // 3) Random external-burn spikes or spikes that revert to $150 must NOT trigger a false regime shift
+  const noisySpikes = [
+    ...Array.from({ length: 20 }, (_, i) => makeSample(i, 150, 4.0)),
+    makeSample(20, 150, 4.0, 'gemini-4-neon', 2.2),
+    makeSample(21, 150, 4.0, 'gemini-4-neon', 4.7),
+    makeSample(22, 150, 4.0, 'gemini-4-neon', 1.6),
+  ];
+  const noisyFit = solvePoolFitModel({ gamma: 4.0, samples: noisySpikes }, 'gemini')!;
+  assert.ok(Math.abs((noisyFit.full5hUSD ?? 0) - 150) < 1.0, `random spikes must keep $150, got ${noisyFit.full5hUSD}`);
+  assert.equal(noisyFit.regimeStartMs, undefined);
+
+  const reverting = [
+    ...Array.from({ length: 20 }, (_, i) => makeSample(i, 150, 4.0)),
+    makeSample(20, 600, 4.0),
+    makeSample(21, 600, 4.0),
+    makeSample(22, 600, 4.0),
+    makeSample(23, 150, 4.0), // reverts to old regime
+  ];
+  const revertFit = solvePoolFitModel({ gamma: 4.0, samples: reverting }, 'gemini')!;
+  assert.ok(Math.abs((revertFit.full5hUSD ?? 0) - 150) < 1.0, `reverting tail must keep $150, got ${revertFit.full5hUSD}`);
+  assert.equal(revertFit.regimeStartMs, undefined);
+});
+
+test('buildAccountTierKey isolates distinct accounts on identical tier names without storing raw email PII', () => {
+  const baseQuota = { planName: 'Pro', tierName: 'Google AI Ultra', teamsTier: 'TEAMS_TIER_PRO' };
+  const legacyKey = buildAccountTierKey(baseQuota);
+  assert.equal(legacyKey, 'pro:google ai ultra:teams_tier_pro');
+
+  const keyA = buildAccountTierKey({ ...baseQuota, email: 'alice@example.com' });
+  const keyB = buildAccountTierKey({ ...baseQuota, email: 'bob@example.com' });
+  const keyAUpper = buildAccountTierKey({ ...baseQuota, email: '  ALICE@EXAMPLE.COM ' });
+
+  assert.notEqual(keyA, keyB);
+  assert.equal(keyA, keyAUpper);
+  assert.ok(keyA.startsWith('acct:'));
+  assert.ok(!keyA.includes('alice'));
+  assert.ok(keyA.endsWith(':pro:google ai ultra:teams_tier_pro'));
+});
+
+test('retroactive t0 boundary check flags concurrent in-flight calls straddling prev.fetchedAtMs as boundaryClean=false', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-t0-straddle-'));
+  const fitPath = join(dir, 'quota-model-fit.json');
+  try {
+    const t0 = 1_910_000_000_000;
+    const t1 = t0 + 18_000;
+    const reset5h = t0 + 4 * 3_600_000;
+    const reset7d = t0 + 6 * 24 * 3_600_000;
+    const makeQ = (ts: number, u5: number, u7: number) => ({
+      available: true,
+      planName: 'Pro',
+      tierName: 'Google AI Ultra',
+      teamsTier: 'TEAMS_TIER_PRO',
+      email: 'swarm@example.com',
+      source: 'summary',
+      reqStartedAtMs: ts - 200,
+      fetchedAtMs: ts,
+      pools: [
+        {
+          label: 'Gemini',
+          remainingPct: 100 - u5,
+          resetAtMs: reset5h,
+          windows: [
+            { spanKey: '5h', label: '5h', remainingPct: 100 - u5, resetAtMs: reset5h },
+            { spanKey: '7d', label: '7d', remainingPct: 100 - u7, resetAtMs: reset7d },
+          ],
+        },
+      ],
+    });
+
+    // At t0, the straddling swarm worker call has started (t0 - 11s) but has NOT completed yet,
+    // so it is not in recentCalls at t0 and prev.boundaryClean is initially true.
+    ingestQuotaObservation(makeQ(t0, 1.0, 0.25), { summaries: [{ latestTsMs: t0, recentCalls: [] }] }, { fitPath, nowMs: t0 });
+
+    // At t1, two calls have completed in (t0, t1]:
+    // 1) A clean call (t0 + 4s -> t0 + 12s) whose cost ($0.0622) matches du5 (0.01037% on $600 cap)
+    // 2) A straddling swarm worker call (started t0 - 11s -> finished t0 + 3s) whose quota was already deducted before t0!
+    const cleanCall = {
+      ...makeGeminiCall(t0 + 12_000, 'gemini-4-neon', 10_000, 100_000, 1_000),
+      genUncertainStartTs: t0 + 4_000,
+    };
+    const straddlingCall = {
+      ...makeGeminiCall(t0 + 3_000, 'gemini-4-neon', 10_000, 100_000, 1_000),
+      genUncertainStartTs: t0 - 11_000,
+    };
+    const du5 = (cleanCall.costUSD / 600) * 100;
+    const store = ingestQuotaObservation(
+      makeQ(t1, 1.0 + du5, 0.25 + du5 / 4),
+      { summaries: [{ latestTsMs: t1, recentCalls: [straddlingCall, cleanCall] }] },
+      { fitPath, nowMs: t1 },
+    );
+
+    const poolKey = `${buildAccountTierKey({ planName: 'Pro', tierName: 'Google AI Ultra', teamsTier: 'TEAMS_TIER_PRO', email: 'swarm@example.com' })}|gemini`;
+    const samples = store.pools[poolKey]?.samples || [];
+    const deltaSample = samples.find((s) => s.source === '5h_delta');
+    assert.ok(deltaSample, 'expected a 5h_delta sample');
+    assert.equal(deltaSample.boundaryClean, false, 'call straddling t0 must retroactively mark boundaryClean=false');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('source isolation (app vs cli) and inFlightCount gate protect IDE quota calibration', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-source-inflight-'));
+  const fitPath = join(dir, 'quota-model-fit.json');
+  try {
+    const t0 = 1_920_000_000_000;
+    const reset5h = t0 + 4 * 3_600_000;
+    const reset7d = t0 + 6 * 24 * 3_600_000;
+    const makeQ = (ts: number, u5: number, u7: number) => ({
+      available: true,
+      planName: 'Pro',
+      tierName: 'Google AI Ultra',
+      teamsTier: 'TEAMS_TIER_PRO',
+      email: 'source-test@example.com',
+      source: 'summary',
+      reqStartedAtMs: ts - 100,
+      fetchedAtMs: ts,
+      pools: [
+        {
+          label: 'Gemini',
+          remainingPct: 100 - u5,
+          resetAtMs: reset5h,
+          windows: [
+            { spanKey: '5h', label: '5h', remainingPct: 100 - u5, resetAtMs: reset5h },
+            { spanKey: '7d', label: '7d', remainingPct: 100 - u7, resetAtMs: reset7d },
+          ],
+        },
+      ],
+    });
+    const poolKey = `${buildAccountTierKey({ planName: 'Pro', tierName: 'Google AI Ultra', teamsTier: 'TEAMS_TIER_PRO', email: 'source-test@example.com' })}|gemini`;
+
+    // 1) Baseline snapshot at t0
+    ingestQuotaObservation(makeQ(t0, 2.0, 0.5), { summaries: [], inFlightCount: 0 }, { fitPath, nowMs: t0 });
+
+    // 2) CLI-only call (e.g., gcloud ADC) completes with du5 = 0: must NOT hold lastSnap open or push a sample
+    const cliCall = { ...makeGeminiCall(t0 + 10_000, 'gemini-4-neon', 20_000, 100_000, 2_000), source: 'cli' };
+    const sAfterCli = ingestQuotaObservation(
+      makeQ(t0 + 20_000, 2.0, 0.5),
+      { summaries: [{ latestTsMs: t0 + 10_000, recentCalls: [cliCall] }], inFlightCount: 0 },
+      { fitPath, nowMs: t0 + 20_000 },
+    );
+    assert.equal(sAfterCli.pools[poolKey].lastSnap?.fetchedAtMs, t0 + 20_000, 'CLI-only unbilled call must advance lastSnap');
+    assert.equal(sAfterCli.pools[poolKey].samples.length, 0, 'CLI-only du5=0 must not create a sample');
+
+    // 3) Mixed app + cli interval with positive du5: must mark boundaryClean = false so CLI cannot bias IDE fit
+    const appCall = { ...makeGeminiCall(t0 + 30_000, 'gemini-4-neon', 20_000, 100_000, 2_000), source: 'app' };
+    const cliCall2 = { ...makeGeminiCall(t0 + 32_000, 'gemini-4-neon', 20_000, 100_000, 2_000), source: 'cli' };
+    const du5Mixed = (appCall.costUSD / 600) * 100;
+    const sAfterMixed = ingestQuotaObservation(
+      makeQ(t0 + 40_000, 2.0 + du5Mixed, 0.5 + du5Mixed / 4),
+      { summaries: [{ latestTsMs: t0 + 32_000, recentCalls: [cliCall, appCall, cliCall2] }], inFlightCount: 0 },
+      { fitPath, nowMs: t0 + 40_000 },
+    );
+    const mixedSample = sAfterMixed.pools[poolKey].samples[sAfterMixed.pools[poolKey].samples.length - 1];
+    assert.ok(mixedSample, 'mixed interval should be recorded for auditability');
+    assert.equal(mixedSample.boundaryClean, false, 'mixed app+cli interval must be marked boundaryClean=false');
+    assert.equal((mixedSample as any).appCallCount, undefined, 'internal appCallCount must not be persisted');
+    assert.equal((mixedSample as any).cliCallCount, undefined, 'internal cliCallCount must not be persisted');
+
+    // 4) Pure app interval while another call is in-flight (inFlightCount > 0): must mark boundaryClean = false
+    const appCall2 = { ...makeGeminiCall(t0 + 50_000, 'gemini-4-neon', 20_000, 100_000, 2_000), source: 'app' };
+    const du5InFlight = (appCall2.costUSD / 600) * 100;
+    const sAfterInFlight = ingestQuotaObservation(
+      makeQ(t0 + 60_000, 2.0 + du5Mixed + du5InFlight, 0.5 + (du5Mixed + du5InFlight) / 4),
+      { summaries: [{ latestTsMs: t0 + 50_000, recentCalls: [cliCall, appCall, cliCall2, appCall2] }], inFlightCount: 1 },
+      { fitPath, nowMs: t0 + 60_000 },
+    );
+    const inFlightSample = sAfterInFlight.pools[poolKey].samples[sAfterInFlight.pools[poolKey].samples.length - 1];
+    assert.equal(inFlightSample.boundaryClean, false, 'inFlightCount > 0 must mark boundaryClean=false');
+    assert.equal(sAfterInFlight.pools[poolKey].lastSnap?.boundaryClean, false, 'lastSnap captured while in-flight must have boundaryClean=false');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('accountTimeline isolates prior account calls from new account local spend and 5h_boot', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-acct-timeline-'));
+  const fitPath = join(dir, 'quota-model-fit.json');
+  const calPath = join(dir, 'quota-calibration.json');
+  try {
+    const t0 = 1_930_000_000_000;
+    const reset5h = t0 + 4 * 3_600_000;
+    const reset7d = t0 + 6 * 24 * 3_600_000;
+
+    // Account A runs from t0 to t0 + 120s and spends ~$1.00 across 2 calls
+    const makeAcctQ = (email: string, ts: number, u5: number, u7: number) => ({
+      available: true,
+      planName: 'Pro',
+      tierName: 'Google AI Ultra',
+      teamsTier: 'TEAMS_TIER_PRO',
+      email,
+      source: 'summary',
+      reqStartedAtMs: ts - 100,
+      fetchedAtMs: ts,
+      pools: [
+        {
+          label: 'Gemini',
+          remainingPct: 100 - u5,
+          resetAtMs: reset5h,
+          windows: [
+            { spanKey: '5h', label: '5h', remainingPct: 100 - u5, resetAtMs: reset5h },
+            { spanKey: '7d', label: '7d', remainingPct: 100 - u7, resetAtMs: reset7d },
+          ],
+        },
+      ],
+    });
+
+    const callA1 = { ...makeGeminiCall(t0 + 20_000, 'gemini-4-neon', 100_000, 0, 10_000), source: 'app' };
+    const callA2 = { ...makeGeminiCall(t0 + 60_000, 'gemini-4-neon', 100_000, 0, 10_000), source: 'app' };
+    ingestQuotaObservation(makeAcctQ('acctA@example.com', t0, 1.0, 0.25), { summaries: [] }, { fitPath, nowMs: t0 });
+    ingestQuotaObservation(
+      makeAcctQ('acctA@example.com', t0 + 120_000, 1.6, 0.4),
+      { summaries: [{ latestTsMs: t0 + 60_000, recentCalls: [callA1, callA2] }] },
+      { fitPath, nowMs: t0 + 120_000 },
+    );
+
+    // User switches IDE login to Account B (20x Ultra, $600 cap) at t0 + 300s and makes 1 small call
+    const callB1 = { ...makeGeminiCall(t0 + 360_000, 'gemini-4-neon', 50_000, 0, 5_000), source: 'app' };
+    const qB = makeAcctQ('acctB@example.com', t0 + 400_000, (callB1.costUSD / 600) * 100, (callB1.costUSD / 2400) * 100);
+    const graphB = { summaries: [{ latestTsMs: t0 + 360_000, recentCalls: [callA1, callA2, callB1] }] };
+
+    const storeB = ingestQuotaObservation(qB, graphB, { fitPath, nowMs: t0 + 400_000 });
+    const acctBId = resolveAccountId(qB);
+    assert.equal(isCallOwnedByOtherAccount(storeB, acctBId, callA1.ts, 'app'), true);
+    assert.equal(isCallOwnedByOtherAccount(storeB, acctBId, callB1.ts, 'app'), false);
+
+    // Account B's 5h_boot sample must contain ONLY callB1, NOT Account A's calls!
+    const poolKeyB = `${buildAccountTierKey(qB)}|gemini`;
+    const bootB = storeB.pools[poolKeyB]?.samples?.[0];
+    assert.ok(bootB, 'expected 5h_boot for Account B');
+    assert.equal(bootB.callCount, 1, 'Account B 5h_boot must exclude Account A calls');
+    assert.ok(Math.abs(bootB.totalBaseUSD - callB1.costUSD) < 1e-6);
+
+    // Budget estimator local spend for Account B must also exclude Account A's calls,
+    // and must NOT write into legacy quota-calibration.json when ps.fit exists!
+    const outB = attachQuotaBudgetEstimates(qB, graphB, { fitPath, calibrationPath: calPath, nowMs: t0 + 400_000 });
+    const w5B = outB.pools[0].windows.find((w: any) => w.spanKey === '5h') as any;
+    assert.ok(Math.abs((w5B.estSpentUSD ?? 0) - callB1.costUSD) < 1e-6, `expected estSpentUSD=${callB1.costUSD}, got ${w5B.estSpentUSD}`);
+    assert.equal(existsSync(calPath), false, 'legacy quota-calibration.json must not be written when quota-model-fit.json tracks the pool');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('consensus-cluster solver and symmetric holdout filter recover $600 despite 35% bidirectional early contamination', () => {
+  const sig = getCurrentPricingSig();
+  const baseTs = 1_940_000_000_000;
+  const makeS = (idx: number, usd: number, rateMult: number) => {
+    const du5 = ((usd / 600) * 100) * rateMult;
+    return {
+      t0: baseTs + idx * 30_000,
+      t1: baseTs + idx * 30_000 + 20_000,
+      dtSec: 20,
+      du5,
+      du7: du5 / 4,
+      source: '5h_delta',
+      boundaryClean: true,
+      isShort: true,
+      tsMode: 'completed_v2',
+      pricingSig: sig,
+      byModel: { 'gemini-4-neon': usd },
+      byModelTokens: { 'gemini-4-neon': [usd / 6, 0, usd / 30] },
+      callCount: 1,
+      totalBaseUSD: usd,
+      nominalFamilies: [],
+    };
+  };
+
+  // 14 samples: 9 clean at $600 (rateMult=1.0), 3 external-burn spikes (3x..6x), 2 low-du5 straddle anomalies (0.35x, 0.45x)
+  // One low-du5 straddle is intentionally placed in the tail holdout slice to verify symmetric holdout rejection.
+  const samples = [
+    makeS(0, 0.20, 1.0),
+    makeS(1, 0.35, 5.2),   // external burn spike
+    makeS(2, 0.22, 0.42),  // low-du5 straddle anomaly (would pull cap to ~$1428 if unfiltered)
+    makeS(3, 0.18, 1.0),
+    makeS(4, 0.40, 3.8),   // external burn spike
+    makeS(5, 0.25, 1.0),
+    makeS(6, 0.30, 1.0),
+    makeS(7, 0.28, 1.0),
+    makeS(8, 0.32, 4.4),   // external burn spike
+    makeS(9, 0.24, 1.0),
+    makeS(10, 0.26, 1.0),
+    makeS(11, 0.29, 0.38), // tail holdout low-du5 straddle anomaly
+    makeS(12, 0.21, 1.0),
+    makeS(13, 0.27, 1.0),
+  ];
+
+  const fit = solvePoolFitModel({ gamma: 4.0, samples }, 'gemini')!;
+  assert.ok(Math.abs((fit.full5hUSD ?? 0) - 600) < 1.0, `expected consensus ~$600 despite 35% mixed contamination, got ${fit.full5hUSD}`);
+  assert.ok(Math.abs((fit.full7dUSD ?? 0) - 2400) < 4.0, `expected ~$2400 7d cap, got ${fit.full7dUSD}`);
+  assert.equal(fit.quality, 'high', `expected high quality (symmetric holdout ignores 0.38x straddle), got ${fit.quality} (${(fit.driftReasons || []).join(',')})`);
+  assert.equal(fit.driftWarning, false);
 });
