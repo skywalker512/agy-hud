@@ -432,3 +432,95 @@ test('resolveAllAppDataDirs discovers running agy/acp across OS command formats,
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('dailyHeatmap exposes additive newTokens/cachedTokens iceberg split and 52-week days52 history', () => {
+  const root = mkdtempSync(join(tmpdir(), 'agy-hud-iceberg-52w-'));
+  try {
+    const appConvDir = join(root, 'antigravity', 'conversations');
+    const cliConvDir = join(root, 'antigravity-cli', 'conversations');
+    mkdirSync(appConvDir, { recursive: true });
+    mkdirSync(cliConvDir, { recursive: true });
+
+    // Anchor "now" to Tue 2026-11-17 15:00 local time
+    const nowMs = new Date(2026, 10, 17, 15, 0, 0).getTime();
+    const todaySec = Math.floor(new Date(2026, 10, 17, 11, 0, 0).getTime() / 1000);
+    const old30wSec = Math.floor(new Date(2026, 3, 21, 11, 0, 0).getTime() / 1000); // ~30 weeks earlier (outside 16w, inside 52w)
+
+    const appId = 'aaaaaaaa-1111-2222-3333-444444444444';
+    const cliId = 'bbbbbbbb-1111-2222-3333-444444444444';
+
+    // App DB: one call today (newIn=10_000, cached=80_000, output=2_500 [thinking 1_000 + candidate 1_500])
+    // plus one call ~30 weeks ago (newIn=40_000, cached=200_000, output=5_000)
+    {
+      const db = createSchema(join(appConvDir, `${appId}.db`));
+      const insGm = db.prepare('INSERT INTO gen_metadata (idx, data) VALUES (?, ?)');
+      const insStep = db.prepare('INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)');
+      insGm.run(0, buildGenMetadataBlob({ newIn: 40_000, cached: 200_000, output: 5_000, thinking: 2_000, candidate: 3_000 }));
+      insStep.run(0, 15, 3, buildStepMetadata({ createdSec: old30wSec, completedSec: old30wSec + 5, gmIdx: 0 }), null);
+
+      insGm.run(1, buildGenMetadataBlob({ newIn: 10_000, cached: 80_000, output: 2_500, thinking: 1_000, candidate: 1_500 }));
+      insStep.run(1, 15, 3, buildStepMetadata({ createdSec: todaySec, completedSec: todaySec + 4, gmIdx: 1 }), null);
+      db.close();
+    }
+
+    // CLI DB: one call today (newIn=4_000, cached=20_000, output=1_000)
+    {
+      const db = createSchema(join(cliConvDir, `${cliId}.db`));
+      db.prepare('INSERT INTO gen_metadata (idx, data) VALUES (?, ?)').run(
+        0,
+        buildGenMetadataBlob({ newIn: 4_000, cached: 20_000, output: 1_000, thinking: 400, candidate: 600 }),
+      );
+      db.prepare('INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)').run(
+        0,
+        15,
+        3,
+        buildStepMetadata({ createdSec: todaySec + 60, completedSec: todaySec + 63, gmIdx: 0 }),
+        null,
+      );
+      db.close();
+    }
+
+    const roots = resolveAllAppDataDirs(join(root, 'antigravity'));
+    const convs = listConversations(roots, '', 0);
+    const graph = getConversationGraph(convs, { syncAll: true });
+    const history = buildAccountHistory(graph, nowMs);
+    const hm = history.dailyHeatmap;
+
+    // Backward-compatible 16w grid
+    assert.equal(hm.weeks, 16);
+    assert.equal(hm.activeDays, 1);
+    assert.equal(hm.days[hm.days.length - 1].date, '2026-11-17');
+
+    // Additive 52w grid
+    assert.equal(hm.weeks52, 52);
+    assert.ok(Array.isArray(hm.days52));
+    assert.ok(hm.days52.length >= 358 && hm.days52.length <= 364);
+    assert.equal(hm.days52[hm.days52.length - 1].date, '2026-11-17');
+    const [f52y, f52m, f52d] = hm.days52[0].date.split('-').map(Number);
+    assert.equal(new Date(f52y, f52m - 1, f52d, 12, 0, 0).getDay(), 1); // Monday-aligned
+    assert.deepEqual(hm.days52.slice(hm.days52.length - hm.days.length), hm.days);
+    assert.equal(hm.activeDays52, 2);
+    assert.equal(hm.peakDate52, '2026-04-21');
+    assert.ok(hm.peakCostUSD52 > hm.peakCostUSD);
+
+    // Iceberg split on today (app + cli combined):
+    // newTokens = (10_000 + 2_500) + (4_000 + 1_000) = 17_500 (no double counting of thinking)
+    // cachedTokens = 80_000 + 20_000 = 100_000
+    const todayEntry = hm.days[hm.days.length - 1];
+    assert.equal(todayEntry.calls, 2);
+    assert.equal(todayEntry.appCalls, 1);
+    assert.equal(todayEntry.cliCalls, 1);
+    assert.equal(todayEntry.outputTokens, 3_500);
+    assert.equal(todayEntry.newTokens, 17_500);
+    assert.equal(todayEntry.cachedTokens, 100_000);
+
+    // Iceberg split on 30w-old day inside days52:
+    const oldEntry = hm.days52.find((d) => d.date === '2026-04-21');
+    assert.ok(oldEntry);
+    assert.equal(oldEntry.calls, 1);
+    assert.equal(oldEntry.newTokens, 45_000);
+    assert.equal(oldEntry.cachedTokens, 200_000);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

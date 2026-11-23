@@ -10,6 +10,7 @@ import {
   extractLiveStepFromTrajectory,
   isLoopbackHost,
   iterFields,
+  parseContextBreakdown,
   parseGenRow,
   parsePlannerPayload,
   readDurationSec,
@@ -19,6 +20,7 @@ import {
 } from '../server.ts';
 import {
   bField,
+  buildContextTreeBlob,
   buildGenMetadataBlob,
   buildPlannerStepPayload,
   buildStepMetadata,
@@ -576,4 +578,97 @@ test('extractLiveStepFromTrajectory preserves model from tail steps on synthetic
   assert.equal(res.liveStep.syntheticFallback, true);
   assert.equal(res.liveStep.modelId, 'gemini-4-hydrogen-high');
   assert.equal(res.liveStep.modelDisplay, 'Gemini 4 Hydrogen (High)');
+});
+
+test('parseContextBreakdown and readTelemetry expose additive mcpTools, skills, rules, and checkpointTokens sub-counts', () => {
+  const richTree = buildContextTreeBlob([
+    {
+      name: 'System Prompt',
+      items: [
+        { name: 'identity', tokens: 300 },
+        { name: 'guidelines', tokens: 1_200 },
+        { name: 'skills', tokens: 1_850 },
+        { name: 'user_rules', tokens: 640 },
+        { name: 'workspace_rules', tokens: 260 },
+      ],
+    },
+    {
+      name: 'Tools',
+      items: [
+        { name: 'read_file', tokens: 900 },
+        { name: 'run_command', tokens: 1_100 },
+        { name: 'mcp_github_list_issues', tokens: 750 },
+        { name: 'mcp__linear__get_issue', tokens: 450 },
+        { name: 'mcp:figma:get_node', tokens: 300 },
+      ],
+    },
+    {
+      name: 'Chat Messages',
+      items: [
+        { name: 'CORTEX_STEP_TYPE_USER_INPUT', tokens: 2_000 },
+        { name: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', tokens: 5_000 },
+        { name: 'CORTEX_STEP_TYPE_CHECKPOINT', tokens: 4_200 },
+        { name: 'CORTEX_STEP_TYPE_SYSTEM_MESSAGE', tokens: 500 },
+        { name: 'CORTEX_STEP_TYPE_GENERIC', tokens: 8_000 },
+      ],
+    },
+  ]);
+
+  const blob = buildGenMetadataBlob({
+    reportedCtx: 27_450,
+    ctxLimit: 256_000,
+    contextTree: richTree,
+  });
+
+  const bd = parseContextBreakdown(blob);
+  assert.ok(bd);
+  assert.equal(bd.systemPrompt, 4_250);
+  assert.equal(bd.toolsSchema, 3_500);
+  assert.equal(bd.checkpoint, 4_200);
+  assert.equal(bd.checkpointTokens, 4_200);
+  assert.equal(bd.skills, 1_850);
+  assert.equal(bd.rules, 900); // user_rules (640) + workspace_rules (260); excludes guidelines (1200)
+  assert.equal(bd.mcpTools, 1_500); // mcp_github (750) + mcp__linear (450) + mcp:figma (300)
+
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-ctx-sub-'));
+  try {
+    const dbPath = join(dir, 'ctx.db');
+    const db = createSchema(dbPath);
+    db.prepare('INSERT INTO gen_metadata (idx, data) VALUES (?, ?)').run(0, blob);
+    db.close();
+
+    const tel = readTelemetry(dbPath);
+    assert.ok(tel.contextBreakdown);
+    assert.equal(tel.contextBreakdown.mcpTools, 1_500);
+    assert.equal(tel.contextBreakdown.skills, 1_850);
+    assert.equal(tel.contextBreakdown.rules, 900);
+    assert.equal(tel.contextBreakdown.checkpointTokens, 4_200);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // Plain session with no MCP tools, skills, rules, or checkpoints returns 0 cleanly
+  const plainTree = buildContextTreeBlob([
+    {
+      name: 'System Prompt',
+      items: [
+        { name: 'identity', tokens: 300 },
+        { name: 'guidelines', tokens: 900 },
+      ],
+    },
+    {
+      name: 'Tools',
+      items: [{ name: 'read_file', tokens: 800 }],
+    },
+    {
+      name: 'Chat Messages',
+      items: [{ name: 'CORTEX_STEP_TYPE_USER_INPUT', tokens: 1_000 }],
+    },
+  ]);
+  const plainBd = parseContextBreakdown(buildGenMetadataBlob({ reportedCtx: 3_000, contextTree: plainTree }));
+  assert.ok(plainBd);
+  assert.equal(plainBd.mcpTools, 0);
+  assert.equal(plainBd.skills, 0);
+  assert.equal(plainBd.rules, 0);
+  assert.equal(plainBd.checkpointTokens, 0);
 });

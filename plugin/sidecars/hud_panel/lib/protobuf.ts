@@ -290,6 +290,10 @@ function mapToSortedList(map: Map<string, number>) {
     .sort((a, b) => b.tokens - a.tokens);
 }
 
+const MCP_TOOL_NAME_RE = /^mcp[_:]/i;
+const SKILL_SECTION_RE = /^(?:(?:user|workspace|project|custom|global|agent)_)?skills?$|^skill[_:]/i;
+const RULE_SECTION_RE = /^(?:(?:user|workspace|project|custom|global|agent|system)_)?rules?$|^rule[_:]/i;
+
 export function parseContextBreakdown(raw: Uint8Array) {
   const f1 = iterFields(raw).find((f): f is [number, 2, Uint8Array] => f[0] === 1 && f[1] === 2);
   if (!f1) return null;
@@ -413,6 +417,18 @@ export function parseContextBreakdown(raw: Uint8Array) {
   const reportedTotal = treeTotal || contextReported || (systemPrompt + toolsSchema + chatMessages);
   if (reportedTotal <= 0) return null;
 
+  let mcpTools = 0;
+  for (const [name, tokens] of toolSchemaMap) {
+    if (MCP_TOOL_NAME_RE.test(name)) mcpTools += tokens;
+  }
+
+  let skills = 0;
+  let rules = 0;
+  for (const [name, tokens] of sysPromptMap) {
+    if (SKILL_SECTION_RE.test(name)) skills += tokens;
+    else if (RULE_SECTION_RE.test(name)) rules += tokens;
+  }
+
   return {
     reportedTotal,
     contextLimit,
@@ -426,6 +442,10 @@ export function parseContextBreakdown(raw: Uint8Array) {
     sysMsg,
     otherChat,
     userAndOther: userInput + checkpoint + sysMsg + otherChat,
+    mcpTools,
+    skills,
+    rules,
+    checkpointTokens: checkpoint,
     systemPromptItems: mapToSortedList(sysPromptMap),
     toolSchemaItems: mapToSortedList(toolSchemaMap),
     toolResultsByTool: mapToSortedList(toolResultsMap),

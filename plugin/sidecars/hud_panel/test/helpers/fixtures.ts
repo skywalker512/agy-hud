@@ -32,6 +32,28 @@ export function durationMsg(secFloat: number): Buffer {
   return Buffer.concat(parts);
 }
 
+export interface ContextTreeSectionSpec {
+  name: string;
+  tokens?: number;
+  items: { name: string; tokens: number }[];
+}
+
+export function buildContextTreeBlob(sections: ContextTreeSectionSpec[], totalTokens?: number): Buffer {
+  let computedTotal = 0;
+  const parts: Buffer[] = [];
+  for (const sec of sections) {
+    const secTok = sec.tokens ?? sec.items.reduce((acc, it) => acc + it.tokens, 0);
+    computedTotal += secTok;
+    const secParts: Buffer[] = [bField(1, sec.name), vField(4, secTok)];
+    for (const it of sec.items) {
+      secParts.push(bField(5, Buffer.concat([bField(1, it.name), vField(3, it.tokens)])));
+    }
+    parts.push(bField(1, Buffer.concat(secParts)));
+  }
+  parts.push(vField(2, totalTokens ?? computedTotal));
+  return Buffer.concat(parts);
+}
+
 export function buildGenMetadataBlob({
   modelId = 'gemini-4-carbon',
   modelDisplay = 'Gemini 4 Carbon',
@@ -45,6 +67,7 @@ export function buildGenMetadataBlob({
   ctxLimit = 256_000,
   ttftSec = 2.0,
   genSec = 4.0,
+  contextTree = null,
 }: {
   modelId?: string;
   modelDisplay?: string;
@@ -58,6 +81,7 @@ export function buildGenMetadataBlob({
   ctxLimit?: number;
   ttftSec?: number;
   genSec?: number;
+  contextTree?: Buffer | null;
 } = {}): Buffer {
   const usage = Buffer.concat([
     vField(2, newIn),
@@ -66,7 +90,9 @@ export function buildGenMetadataBlob({
     vField(9, thinking),
     vField(10, candidate),
   ]);
-  const ctxInner = Buffer.concat([vField(1, reportedCtx), vField(4, ctxLimit)]);
+  const ctxInnerParts = [vField(1, reportedCtx), vField(4, ctxLimit)];
+  if (contextTree) ctxInnerParts.push(bField(3, contextTree));
+  const ctxInner = Buffer.concat(ctxInnerParts);
   const ctxOuter = bField(10, ctxInner);
   const inner = Buffer.concat([
     vField(3, modelEnum),
