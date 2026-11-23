@@ -1,8 +1,10 @@
 # 安装、环境诊断与安全自升级指南
 
-> [English](INSTALLATION.md) · **简体中文** · [返回首页](../README.zh-CN.md) · [完整使用与技术指南](GUIDE.zh-CN.md)
+> [English](INSTALLATION.md) · **简体中文** · [返回首页](../README.zh-CN.md) · [完整使用与技术指南](GUIDE.zh-CN.md) · [AGENTS.md](../AGENTS.md)
 
 本文档详细介绍如何在 **macOS**、**Linux** 与 **Windows** 上安装、诊断、升级及排查 **AGY-HUD** 插件。
+
+> **纯官方 Antigravity Sidecar 架构 · 无需 CDP 调试端口 · 不修改 `app.asar` · 100% 本地只读 · 零运行时依赖**
 
 ---
 
@@ -39,6 +41,12 @@ curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/i
 ```powershell
 irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex
 ```
+
+### 一句话让 AI Agent 自动安装
+
+也可以直接把下面这句话发给 Antigravity、Claude Code、Codex 或任意编程助手（完整指令位于 [`AGENTS.md`](../AGENTS.md)）：
+
+> `请按照 https://github.com/skywalker512/agy-hud 仓库中的 AGENTS.md 安装 agy-hud 并验证安装结果。`
 
 ### 可选环境变量
 
