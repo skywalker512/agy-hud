@@ -4,7 +4,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { resolveQuotaCalibrationPath, resolveQuotaFitPath } from './constants.ts';
+import { localDayKey, resolveQuotaCalibrationPath, resolveQuotaFitPath } from './constants.ts';
 import { poolKeyForGroupLabel, poolKeyForModel } from './pricing.ts';
 import {
   evaluatePoolWindowResidual,
@@ -54,6 +54,11 @@ const REMOTE_GAP_RATIO_THRESHOLD = 0.72;
 const DELTA_MIN_U = 0.015;
 const COLD_PRIOR_MATCH_LO = 0.65;
 const COLD_PRIOR_MATCH_HI = 1.25;
+const HIST_LOOKBACK_DAYS = 30;
+const HIST_MIN_ACTIVE_DAYS = 2;
+const HIST_MIN_ACTIVE_HOURS = 2;
+const RUNWAY_SHRINKAGE_TAU_7D_HR = 24.0;
+const RUNWAY_SHRINKAGE_TAU_5H_HR = 1.0;
 
 const quotaCalibrationMemCache = new Map<string, CalibrationStore>();
 
@@ -369,7 +374,103 @@ function buildPoolFitSummary(ps: QuotaPoolState | undefined, calPoolKey: string)
   };
 }
 
-function computeWindowRunway({ w, heldByWeekly, startMs, usedPct, callsInNow, ps, nowMs, quotaSnapMs, fitStore, tierKey }) {
+interface HistoricalPace {
+  histRatePerHr: number;
+  activeHoursPerDay: number;
+  activeDays: number;
+  activeHours: number;
+}
+
+function computeHistoricalPace({
+  histCalls,
+  spanKey,
+  startMs,
+  callPct,
+}: {
+  histCalls: any[];
+  spanKey: string;
+  startMs: number;
+  callPct: (c: any) => number;
+}): HistoricalPace | null {
+  if (!Array.isArray(histCalls) || !histCalls.length) return null;
+
+  let totalHistPct = 0;
+  let earliestTs = Infinity;
+  const allActiveHours = new Set<number>();
+  const hoursByDay = new Map<string, Set<number>>();
+
+  for (const c of histCalls) {
+    if (!(c?.ts > 0) || c.ts >= startMs) continue;
+    const pct = callPct(c);
+    if (!(pct > 0)) continue;
+    totalHistPct += pct;
+    if (c.ts < earliestTs) earliestTs = c.ts;
+    const hourBucket = Math.floor(c.ts / 3_600_000);
+    allActiveHours.add(hourBucket);
+    const dk = localDayKey(c.ts);
+    if (dk) {
+      let daySet = hoursByDay.get(dk);
+      if (!daySet) {
+        daySet = new Set<number>();
+        hoursByDay.set(dk, daySet);
+      }
+      daySet.add(hourBucket);
+    }
+  }
+
+  const activeDays = hoursByDay.size;
+  const activeHours = allActiveHours.size;
+  if (activeDays < HIST_MIN_ACTIVE_DAYS || activeHours < HIST_MIN_ACTIVE_HOURS || !(totalHistPct > 0)) {
+    return null;
+  }
+
+  let sumDailyHours = 0;
+  for (const daySet of hoursByDay.values()) sumDailyHours += daySet.size;
+  const activeHoursPerDay = Number((sumDailyHours / activeDays).toFixed(2));
+
+  let histRatePerHr = 0;
+  if (spanKey === '7d') {
+    const earliestKey = localDayKey(earliestTs);
+    let spanFromEarliest = (startMs - earliestTs) / 86_400_000;
+    if (earliestKey) {
+      const [ey, em, ed] = earliestKey.split('-').map(Number);
+      const earliestDayStartMs = new Date(ey, em - 1, ed, 0, 0, 0).getTime();
+      if (Number.isFinite(earliestDayStartMs) && startMs > earliestDayStartMs) {
+        spanFromEarliest = (startMs - earliestDayStartMs) / 86_400_000;
+      }
+    }
+    const spanDays = Math.min(HIST_LOOKBACK_DAYS, Math.max(activeDays, spanFromEarliest));
+    const histDailyPct = totalHistPct / spanDays;
+    histRatePerHr = histDailyPct / 24;
+  } else {
+    histRatePerHr = totalHistPct / activeHours;
+  }
+
+  if (!Number.isFinite(histRatePerHr) || !(histRatePerHr > 0.005)) {
+    return null;
+  }
+
+  return {
+    histRatePerHr,
+    activeHoursPerDay,
+    activeDays,
+    activeHours,
+  };
+}
+
+function computeWindowRunway({
+  w,
+  heldByWeekly,
+  startMs,
+  usedPct,
+  callsInNow,
+  histCalls = [] as any[],
+  ps,
+  nowMs,
+  quotaSnapMs,
+  fitStore,
+  tierKey,
+}) {
   if (w.disabled || !w.resetAtMs || w.resetAtMs <= nowMs) return null;
   if (heldByWeekly && w.spanKey === '5h') return null;
 
@@ -389,32 +490,33 @@ function computeWindowRunway({ w, heldByWeekly, startMs, usedPct, callsInNow, ps
   }
 
   const tierPrefix = `${tierKey}|`;
-  const sumCallsPct = (subset) => {
-    let sum = 0;
-    for (const c of subset) {
-      const baseUSD = typeof c.baseUSD === 'number' ? c.baseUSD : 0;
-      if (baseUSD > 0) {
-        const pred = predictFamilyAggregateQuota(
-          {
-            poolKey: c.poolKey,
-            family: c.family || '',
-            baseUSD,
-            inM: (c.newInput || 0) / 1e6,
-            caM: (c.cachedInput || 0) / 1e6,
-            outM: (c.outputTokens || 0) / 1e6,
-          },
-          fitStore,
-          tierPrefix,
-        );
-        if (pred) {
-          sum += w.spanKey === '7d' ? (pred.quotaPct7d ?? 0) : pred.quotaPct5h;
-          continue;
-        }
-      }
-      if ((c.costUSD || 0) > 0 && (w.estFullUSD || 0) > 0) {
-        sum += (c.costUSD / w.estFullUSD) * 100;
+  const callPct = (c) => {
+    const baseUSD = typeof c.baseUSD === 'number' ? c.baseUSD : 0;
+    if (baseUSD > 0) {
+      const pred = predictFamilyAggregateQuota(
+        {
+          poolKey: c.poolKey,
+          family: c.family || '',
+          baseUSD,
+          inM: (c.newInput || 0) / 1e6,
+          caM: (c.cachedInput || 0) / 1e6,
+          outM: (c.outputTokens || 0) / 1e6,
+        },
+        fitStore,
+        tierPrefix,
+      );
+      if (pred) {
+        return w.spanKey === '7d' ? (pred.quotaPct7d ?? 0) : pred.quotaPct5h;
       }
     }
+    if ((c.costUSD || 0) > 0 && (w.estFullUSD || 0) > 0) {
+      return (c.costUSD / w.estFullUSD) * 100;
+    }
+    return 0;
+  };
+  const sumCallsPct = (subset) => {
+    let sum = 0;
+    for (const c of subset) sum += callPct(c);
     return sum;
   };
 
@@ -452,9 +554,27 @@ function computeWindowRunway({ w, heldByWeekly, startMs, usedPct, callsInNow, ps
   const recentBurnPct = Math.min(effectiveUsedPct, Math.max(recentLocalPct, recentObsPct));
   const recentRatePerHr = recentBurnPct / recentSpanHr;
   const isRecentActive = recentBurnPct >= (w.spanKey === '7d' ? 0.15 : 0.05);
-  const burnPctPerHour = isRecentActive
+  const curRate = isRecentActive
     ? (0.6 * recentRatePerHr + 0.4 * avgRatePerHr)
     : avgRatePerHr;
+
+  const histPace = computeHistoricalPace({
+    histCalls,
+    spanKey: w.spanKey,
+    startMs,
+    callPct,
+  });
+
+  let burnPctPerHour = curRate;
+  let habitBlended = false;
+  let habitWeight = 0;
+  if (histPace) {
+    const tauHr = w.spanKey === '7d' ? RUNWAY_SHRINKAGE_TAU_7D_HR : RUNWAY_SHRINKAGE_TAU_5H_HR;
+    const wCur = elapsedHr / (elapsedHr + tauHr);
+    habitWeight = 1 - wCur;
+    burnPctPerHour = wCur * curRate + habitWeight * histPace.histRatePerHr;
+    habitBlended = true;
+  }
 
   if (!(burnPctPerHour > 0.005)) return null;
 
@@ -473,6 +593,14 @@ function computeWindowRunway({ w, heldByWeekly, startMs, usedPct, callsInNow, ps
     willExhaustBeforeReset,
     projectedRemAtResetPct,
     basis: isRecentActive ? 'active_blend' : 'window_avg',
+    ...(habitBlended && histPace
+      ? {
+          habitBlended: true,
+          habitWeight,
+          histBurnPctPerHour: histPace.histRatePerHr,
+          activeHoursPerDay: histPace.activeHoursPerDay,
+        }
+      : {}),
   };
 }
 
@@ -677,8 +805,12 @@ export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: 
   let remote5hUSD = 0;
   let remote7dUSD = 0;
 
+  const histStartMs = nowMs - HIST_LOOKBACK_DAYS * 86_400_000;
+
   for (const p of pools) {
     const calPoolKey = poolCalKeyMap.get(p) || '';
+    const pk = poolKeyForGroupLabel(p.label);
+    const poolHistCalls = collectPoolWindowCalls(summaries, pk, histStartMs, nowMs);
     const ps = fitStore?.pools?.[`${tierKey}|${calPoolKey}`];
     let pool7d = 0;
     let pool7dErr = 0;
@@ -728,6 +860,7 @@ export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: 
           startMs: snapMeta.startMs,
           usedPct: snapMeta.usedPct,
           callsInNow,
+          histCalls: poolHistCalls,
           ps,
           nowMs,
           quotaSnapMs,

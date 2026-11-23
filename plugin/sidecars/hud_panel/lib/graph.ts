@@ -96,7 +96,7 @@ export function summarizeConversationDb(conv) {
   let latestTsMs = 0;
   const dayBuckets: Record<string, any> = Object.create(null);
   const familyUsage: Record<string, any> = Object.create(null);
-  const recentCutoffMs = Date.now() - 8 * 86_400_000;
+  const recentCutoffMs = Date.now() - 30 * 86_400_000;
   const recentCalls: any[] = [];
   const cachePairs: CacheGapSample[] = [];
 

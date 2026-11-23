@@ -372,3 +372,239 @@ test('dailyHeatmap, Runway depletion forecasts, and per-conversation/turn quota 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('computeWindowRunway applies Historical Rhythm Bayesian Shrinkage on early bursts, falls back on cold start, and converges late-cycle', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-runway-habit-'));
+  try {
+    // Fixed local anchor: Tue 2026-11-17 16:00:00
+    const fixedNow = new Date(2026, 10, 17, 16, 0, 0).getTime();
+    const DAY_MS = 86_400_000;
+    const HR_MS = 3_600_000;
+
+    // Helper: build N prior days of Gemini 4 Hydrogen calls before a cutoff day.
+    // Gemini prior cap: $150 (5h) / $600 (7d) -> baseUSD $15 = 10% (5h) / 2.5% (7d); baseUSD $9 = 6% (5h) / 1.5% (7d).
+    const makePriorHistory = (daysBackStart: number, daysBackEnd: number, hoursPerDay: number, baseUsdPerHour: number) => {
+      const calls: any[] = [];
+      for (let d = daysBackStart; d >= daysBackEnd; d--) {
+        const dayNoon = new Date(2026, 10, 17 - d, 10, 15, 0).getTime();
+        for (let h = 0; h < hoursPerDay; h++) {
+          calls.push({
+            ts: dayNoon + h * HR_MS,
+            poolKey: 'gemini',
+            family: 'gemini-4-hydrogen',
+            baseUSD: baseUsdPerHour,
+            costUSD: baseUsdPerHour,
+            priced: true,
+          });
+        }
+      }
+      return calls;
+    };
+
+    const runRunway = (
+      label: string,
+      {
+        rem5h,
+        elapsed5hHr,
+        rem7d,
+        elapsed7dHr,
+        calls,
+      }: {
+        rem5h: number;
+        elapsed5hHr: number;
+        rem7d: number;
+        elapsed7dHr: number;
+        calls: any[];
+      },
+    ) => {
+      const calPath = join(dir, `${label}-cal.json`);
+      const fitPath = join(dir, `${label}-fit.json`);
+      const reset5h = fixedNow + (5 - elapsed5hHr) * HR_MS;
+      const reset7d = fixedNow + (168 - elapsed7dHr) * HR_MS;
+      const graph = {
+        indexing: false,
+        summaries: [
+          {
+            id: '11111111-1111-1111-1111-111111111111',
+            source: 'app',
+            latestTsMs: fixedNow,
+            recentCalls: calls,
+          },
+        ],
+      };
+      const out = attachQuotaBudgetEstimates(
+        {
+          available: true,
+          planName: 'Ultra',
+          tierName: 'Ultra',
+          teamsTier: 'ULTRA',
+          fetchedAtMs: fixedNow,
+          pools: [
+            {
+              label: 'Gemini',
+              remainingPct: rem5h,
+              resetAtMs: reset5h,
+              windows: [
+                { spanKey: '5h', label: '5h', remainingPct: rem5h, resetTime: '', resetAtMs: reset5h },
+                { spanKey: '7d', label: '7d', remainingPct: rem7d, resetTime: '', resetAtMs: reset7d },
+              ],
+            },
+          ],
+        },
+        graph,
+        { calibrationPath: calPath, fitPath, nowMs: fixedNow },
+      );
+      return {
+        w5: out.pools[0].windows[0].runway,
+        w7: out.pools[0].windows[1].runway,
+      };
+    };
+
+    // 1) Cold-start fallback: only 1 prior active day -> no habit blending, legacy formula untouched
+    const oneDayCalls = [
+      ...makePriorHistory(1, 1, 4, 9),
+      {
+        ts: fixedNow - 10 * 60_000,
+        poolKey: 'gemini',
+        family: 'gemini-4-hydrogen',
+        baseUSD: 22.5, // 15% of 5h, 3.75% of 7d
+        costUSD: 22.5,
+        priced: true,
+      },
+    ];
+    const cold = runRunway('cold', {
+      rem5h: 85, // 15% burned in 0.25h -> legacy curRate = 60%/hr
+      elapsed5hHr: 0.25,
+      rem7d: 88, // 12% burned in 2h -> legacy curRate = 2.4%/hr -> warning
+      elapsed7dHr: 2,
+      calls: oneDayCalls,
+    });
+    assert.ok(cold.w5);
+    assert.equal(cold.w5.habitBlended, undefined);
+    assert.equal(cold.w5.habitWeight, undefined);
+    assert.ok(Math.abs(cold.w5.burnPctPerHour - 60) < 0.1);
+    assert.ok(cold.w7);
+    assert.equal(cold.w7.habitBlended, undefined);
+    assert.equal(cold.w7.status, 'warning');
+
+    // 2) Early-cycle burst smoothing (both 5h and 7d):
+    // 10 prior days (days -10 .. -1), 4 active hrs/day, $9/hr Hydrogen = 6%/active-hr (5h) and 1.5%/active-hr (7d)
+    // -> 7d daily pace = 6%/day = 0.25%/hr calendar avg; 5h active-hr pace = 6%/hr.
+    const steadyHist = makePriorHistory(10, 1, 4, 9);
+    const early5h = runRunway('early-5h', {
+      rem5h: 85, // 15% in 0.25h -> curRate = 60%/hr; wCur = 0.25/1.25 = 0.2, habitWeight = 0.8
+      elapsed5hHr: 0.25,
+      rem7d: 96,
+      elapsed7dHr: 2,
+      calls: [
+        ...steadyHist,
+        {
+          ts: fixedNow - 10 * 60_000,
+          poolKey: 'gemini',
+          family: 'gemini-4-hydrogen',
+          baseUSD: 22.5, // 15% of 5h inside current 5h window
+          costUSD: 22.5,
+          priced: true,
+        },
+      ],
+    });
+
+    // 5h check: 0.2 * 60 + 0.8 * 6 = 16.8%/hr (damped dramatically from 60%/hr!)
+    assert.ok(early5h.w5);
+    assert.equal(early5h.w5.habitBlended, true);
+    assert.ok(Math.abs(early5h.w5.habitWeight - 0.8) < 1e-4);
+    assert.ok(Math.abs(early5h.w5.histBurnPctPerHour - 6.0) < 0.05);
+    assert.equal(early5h.w5.activeHoursPerDay, 4);
+    assert.ok(Math.abs(early5h.w5.burnPctPerHour - 16.8) < 0.15, `expected ~16.8%/hr, got ${early5h.w5.burnPctPerHour}`);
+
+    const early7d = runRunway('early-7d', {
+      rem5h: 52,
+      elapsed5hHr: 2,
+      rem7d: 88, // 12% in 2h -> curRate = 2.4%/hr; wCur = 2/26, habitWeight = 24/26
+      elapsed7dHr: 2,
+      calls: [
+        ...steadyHist,
+        {
+          ts: fixedNow - 90 * 60_000,
+          poolKey: 'gemini',
+          family: 'gemini-4-hydrogen',
+          baseUSD: 49.5,
+          costUSD: 49.5,
+          priced: true,
+        },
+        {
+          ts: fixedNow - 10 * 60_000,
+          poolKey: 'gemini',
+          family: 'gemini-4-hydrogen',
+          baseUSD: 22.5, // + 49.5 = $72 = 12% of 7d in first 2h
+          costUSD: 22.5,
+          priced: true,
+        },
+      ],
+    });
+
+    // 7d check: calendar pace (~0.236%/hr over ~10.6d span) pulls 2.4%/hr down to ~0.40%/hr -> SAFE instead of false alarm!
+    assert.ok(early7d.w7);
+    assert.equal(early7d.w7.habitBlended, true);
+    assert.ok(Math.abs(early7d.w7.habitWeight - (24 / 26)) < 1e-4);
+    assert.equal(early7d.w7.activeHoursPerDay, 4);
+    assert.ok(early7d.w7.histBurnPctPerHour > 0.2 && early7d.w7.histBurnPctPerHour < 0.27);
+    assert.ok(early7d.w7.burnPctPerHour < 0.5, `expected damped 7d rate < 0.5%/hr, got ${early7d.w7.burnPctPerHour}`);
+    assert.equal(early7d.w7.willExhaustBeforeReset, false);
+    assert.equal(early7d.w7.status, 'safe');
+
+    // 3) Late-cycle convergence:
+    // - 5h at elapsedHr = 4.0h -> wCur = 4/5 = 0.8, habitWeight = 0.2 (converges to sustained 20%/hr burn)
+    // - 7d at elapsedHr = 120h (5 days) -> wCur = 120/144 = 5/6, habitWeight = 1/6 (converges to sustained 0.7%/hr -> warning)
+    const latePriorHist = makePriorHistory(18, 6, 4, 9); // 13 prior days strictly before start7d (day -5)
+    const late5h = runRunway('late-5h', {
+      rem5h: 20, // 80% burned in 4h -> avg=20%/hr, recent=20%/hr -> curRate=20%/hr
+      elapsed5hHr: 4.0,
+      rem7d: 50,
+      elapsed7dHr: 120.0,
+      calls: [
+        ...latePriorHist,
+        {
+          ts: fixedNow - 15 * 60_000,
+          poolKey: 'gemini',
+          family: 'gemini-4-hydrogen',
+          baseUSD: 22.5, // 15% of 5h in 45m -> 20%/hr recent
+          costUSD: 22.5,
+          priced: true,
+        },
+      ],
+    });
+    assert.ok(late5h.w5);
+    assert.equal(late5h.w5.habitBlended, true);
+    assert.ok(Math.abs(late5h.w5.habitWeight - 0.2) < 1e-4);
+    // 0.8 * 20 + 0.2 * 6 = 17.2%/hr (dominated by current cycle)
+    assert.ok(Math.abs(late5h.w5.burnPctPerHour - 17.2) < 0.2, `expected ~17.2%/hr, got ${late5h.w5.burnPctPerHour}`);
+
+    const late7d = runRunway('late-7d', {
+      rem5h: 80,
+      elapsed5hHr: 2.0,
+      rem7d: 16, // 84% burned in 120h -> avg=0.7%/hr, recent=0.7%/hr -> curRate=0.7%/hr
+      elapsed7dHr: 120.0,
+      calls: [
+        ...latePriorHist,
+        {
+          ts: fixedNow - 12 * HR_MS,
+          poolKey: 'gemini',
+          family: 'gemini-4-hydrogen',
+          baseUSD: 100.8, // 16.8% of 7d in recent 24h -> 0.7%/hr recent
+          costUSD: 100.8,
+          priced: true,
+        },
+      ],
+    });
+    assert.ok(late7d.w7);
+    assert.equal(late7d.w7.habitBlended, true);
+    assert.ok(Math.abs(late7d.w7.habitWeight - (24 / 144)) < 1e-4);
+    // 5/6 * 0.7 + 1/6 * ~0.25 ≈ 0.625%/hr -> over 48h remaining burns 30% > 16% rem -> warning!
+    assert.ok(late7d.w7.burnPctPerHour > 0.58 && late7d.w7.burnPctPerHour < 0.68);
+    assert.equal(late7d.w7.willExhaustBeforeReset, true);
+    assert.equal(late7d.w7.status, 'warning');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
