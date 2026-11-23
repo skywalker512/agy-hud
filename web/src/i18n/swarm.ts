@@ -80,7 +80,7 @@ const enSwarm: SwarmStrings = {
     return 'Shared workspace (inherit)';
   },
   pendingConv: 'Starting…',
-  backCoordinator: (swarmTitle) => `← @coordinator · ${swarmTitle}`,
+  backCoordinator: (swarmTitle) => `@coordinator · ${swarmTitle}`,
   backCoordinatorTip: (swarmTitle, coordId, quotaTip) =>
     `Jump to swarm coordinator (${coordId.slice(0, 8)}…)\nSwarm: ${swarmTitle}${quotaTip ? `\n\n${quotaTip}` : ''}`,
   coordSwarmPillWorking: (working, total) => `Swarm · ${working}/${total} working`,
@@ -147,7 +147,7 @@ const zhSwarm: SwarmStrings = {
     return '共享工作区 (inherit)';
   },
   pendingConv: '初始化中…',
-  backCoordinator: (swarmTitle) => `← @coordinator · ${swarmTitle}`,
+  backCoordinator: (swarmTitle) => `@coordinator · ${swarmTitle}`,
   backCoordinatorTip: (swarmTitle, coordId, quotaTip) =>
     `返回蜂群协调者主会话 (${coordId.slice(0, 8)}…)\n蜂群: ${swarmTitle}${quotaTip ? `\n\n${quotaTip}` : ''}`,
   coordSwarmPillWorking: (working, total) => `蜂群 · ${working}/${total} 工作中`,

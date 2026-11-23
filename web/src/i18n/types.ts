@@ -212,6 +212,8 @@ export interface Translations {
     remAtReset: string,
     willExhaust: boolean,
     isRecent: boolean,
+    habitBlended?: boolean,
+    activeHoursPerDay?: number,
   ) => string;
   rulesTitle: string;
   rulesAccHigh: (errStr: string, wins: number) => string;
@@ -409,4 +411,38 @@ export interface Translations {
     predPct: string;
   }) => string;
   cacheTtlFootnote: string;
+  cacheTtlHeaderSummaryTip: (pairs: number, missUsdStr: string) => string;
+  cacheTtlP80Tip: (dur: string) => string;
+  cacheTtlP50Tip: (dur: string) => string;
+  cacheTtlBgMissTip: (pct: string) => string;
+  cacheTtlLegendObserved: string;
+  cacheTtlLegendFitted: string;
+
+  // Context X-Ray micro-strip, Hero Cache%, KPI tooltips, Local Spend Scope & Iceberg
+  ctxMicroHeadroom: string;
+  ctxMicroCacheHit: string;
+  ctxMicroCacheTtl: string;
+  ctxMicroSpendQuota: string;
+  heroCachePill: (pct: string) => string;
+  heroCacheTip: (pct: string, cached: string, newIn: string) => string;
+  kpiAvgGenTip: (avgGen: string, avgE2e: string) => string;
+  kpiPeakCacheTip: (peak: string, avgCache: string) => string;
+  kpiTtftOutTip: (avgTtft: string, totalOut: string) => string;
+  kpiTimeTip: (modelSec: string, toolSec: string, toolSteps: number) => string;
+  spendScopeLabel: string;
+  spendSessionTip: string;
+  spendLocalScopeTip: string;
+  activityViewHeatmap: string;
+  activityViewIceberg: string;
+  icebergNewLabel: string;
+  icebergCachedLabel: string;
+  icebergHint: string;
+  icebergBarTip: (
+    dateStr: string,
+    newStr: string,
+    cachedStr: string,
+    hitPct: string,
+    calls: number,
+    costStr: string,
+  ) => string;
 }

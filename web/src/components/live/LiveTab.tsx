@@ -1,7 +1,10 @@
-import { useMemo, useState } from 'preact/hooks';
+import type { RefObject } from 'preact';
+import { useMemo } from 'preact/hooks';
+import { usePersistedOpen } from '../../hooks/usePersistedOpen';
 import type { Translations } from '../../i18n';
 import type { CallDetailPayload, Invocation, Lang, StatsSnapshot } from '../../types/telemetry';
 import { fmtCachePct, fmtQuotaPct, fmtSec, fmtTps, fmtUsd, formatModelTag } from '../../utils/format';
+import { IconChevronDown, IconChevronRight } from '../common/Icons';
 import { ContextWindowCard } from './ContextWindowCard';
 import { HeroSpeedCards } from './HeroSpeedCards';
 import { KpiGrid } from './KpiGrid';
@@ -20,6 +23,7 @@ interface LiveTabProps {
   detailCache: Map<string, CallDetailPayload>;
   detailLoading: Set<string>;
   t: Translations;
+  heroSentinelRef?: RefObject<HTMLDivElement>;
   onToggleRecentOpen: () => void;
   onViewAll: () => void;
   onJumpConversation: (convId: string) => void;
@@ -120,6 +124,7 @@ export function LiveTab({
   detailCache,
   detailLoading,
   t,
+  heroSentinelRef,
   onToggleRecentOpen,
   onViewAll,
   onJumpConversation,
@@ -129,7 +134,7 @@ export function LiveTab({
   onToggleInvocation,
   onToggleCompact,
 }: LiveTabProps) {
-  const [mixOpen, setMixOpen] = useState(false);
+  const [mixOpen, toggleMixOpen] = usePersistedOpen('model-mix', false);
 
   const found = Boolean(snap?.found);
   const latest = found ? snap?.latest || null : null;
@@ -152,6 +157,9 @@ export function LiveTab({
         t={t}
       />
 
+      {/* Sentinel right below HeroSpeedCards for smart scroll-aware PulseBar */}
+      <div ref={heroSentinelRef} className="h-0 -my-[5px] pointer-events-none" aria-hidden="true" />
+
       <ContextWindowCard snap={snap} nowMs={nowMs} t={t} />
 
       <KpiGrid
@@ -166,7 +174,7 @@ export function LiveTab({
         <section className="hud-card">
           <div
             className="flex flex-nowrap items-center justify-between gap-2 cursor-pointer select-none min-w-0"
-            onClick={() => setMixOpen((p) => !p)}
+            onClick={toggleMixOpen}
           >
             <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
               <span className="card-k">{t.modelMixTitle}</span>
@@ -176,7 +184,7 @@ export function LiveTab({
                   {modelMix.slice(0, 3).map((row) => (
                     <span
                       key={row.model}
-                      className="inline-flex items-center gap-1 px-1.5 py-[0.5px] rounded-full bg-hud-surface-2 border border-hud-border font-hud-mono text-[9.5px] text-hud-muted tabular-nums max-w-[140px] truncate"
+                      className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded-md bg-hud-surface-2 font-hud-mono text-[9.5px] text-hud-muted tabular-nums max-w-[140px] truncate"
                     >
                       <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${row.dotClass}`} />
                       <span className="truncate text-hud-fg">{row.model}</span>
@@ -192,16 +200,16 @@ export function LiveTab({
               aria-expanded={mixOpen}
               onClick={(e) => {
                 e.stopPropagation();
-                setMixOpen((p) => !p);
+                toggleMixOpen();
               }}
             >
-              {mixOpen ? '▾' : '▸'}
+              {mixOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
             </button>
           </div>
 
           {mixOpen && (
-            <div className="mt-2 rounded-md border border-hud-border bg-hud-surface-2 px-2 py-1.5 flex flex-col gap-1 min-w-0">
-              <div className="model-mix-grid text-[9px] uppercase tracking-[0.04em] text-hud-muted pb-1 border-b border-hud-border/70">
+            <div className="hud-expand-anim l2-well mt-2 px-2.5 py-2 flex flex-col gap-1 min-w-0">
+              <div className="model-mix-grid text-[9px] font-hud font-semibold uppercase tracking-[0.04em] text-hud-muted pb-1 border-b border-hud-hairline">
                 <span>{t.modelMixColModel}</span>
                 <span className="text-right">{t.modelMixColCalls}</span>
                 <span className="text-right">{t.modelMixColGen}</span>
@@ -212,7 +220,7 @@ export function LiveTab({
               {modelMix.map((row) => {
                 const qStr = fmtQuotaPct(row.quotaPct5h);
                 return (
-                  <div key={row.model} className="model-mix-grid text-hud-fg py-[1px]">
+                  <div key={row.model} className="model-mix-grid text-hud-fg py-[1.5px]">
                     <span className="inline-flex items-center gap-1.5 min-w-0 truncate">
                       <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${row.dotClass}`} />
                       <span className="truncate font-medium">{row.model}</span>

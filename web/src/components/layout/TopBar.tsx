@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import type {
   ConvMode,
@@ -10,6 +10,9 @@ import type {
 import { copyText } from '../../utils/clipboard';
 import { downloadOrCopyJson, formatSessionJson, formatSessionMarkdown } from '../../utils/exportReport';
 import { fmtClock, formatSessionQuotaCompact, shortTitleLabel } from '../../utils/format';
+import { FixedPopover } from '../common/FixedPopover';
+import { IconArrowUp, IconMore } from '../common/Icons';
+import { SelectPopover, type SelectPopoverOption } from '../common/SelectPopover';
 import { ModelBar } from './ModelBar';
 import { SessionRelBar } from './SessionRelBar';
 
@@ -52,32 +55,15 @@ export function TopBar({
   const [copiedField, setCopiedField] = useState<'id' | 'jsonl' | 'full' | 'md' | 'json-saved' | 'json-copied' | null>(
     null,
   );
-  const menuWrapRef = useRef<HTMLDivElement>(null);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleCloseMenu = useCallback(() => setMenuOpen(false), []);
 
   useEffect(() => {
     const onGlobalEsc = () => setMenuOpen(false);
     window.addEventListener('agy-hud-esc', onGlobalEsc);
     return () => window.removeEventListener('agy-hud-esc', onGlobalEsc);
   }, []);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDocDown = (e: MouseEvent) => {
-      if (menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onDocDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDocDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [menuOpen]);
 
   useEffect(() => {
     return () => {
@@ -161,8 +147,8 @@ export function TopBar({
     badgeText = t.badgeIdle;
   }
 
-  // Conversation options (with clean [Swarm @rosterName] labels)
-  const convOptions = useMemo(() => {
+  // Conversation options for custom SelectPopover
+  const convPopoverOptions = useMemo<SelectPopoverOption[]>(() => {
     const list: ConversationItem[] = [...(snap?.conversations || [])];
     const activeId = snap?.conversationId || '';
     if (activeId && !list.some((c) => c.id === activeId)) {
@@ -182,9 +168,15 @@ export function TopBar({
         kind: 'main',
       });
     }
-    return list.map((c) => {
+
+    const base: SelectPopoverOption[] = [
+      { value: 'auto', label: t.optAuto },
+      { value: 'latest', label: t.optLatest, dividerAfter: list.length > 0 },
+    ];
+
+    for (const c of list) {
       const srcTag = c.source === 'cli' ? '[CLI] ' : '';
-      const swarmTag = c.swarmRosterName ? `[Swarm @${c.swarmRosterName}] ` : '';
+      const swarmTag = c.swarmRosterName ? `@${c.swarmRosterName} · ` : '';
       const kindTag = swarmTag
         ? ''
         : c.kind === 'side_question'
@@ -194,13 +186,16 @@ export function TopBar({
             : '';
       const name = c.title ? shortTitleLabel(c.title, c.id) : `${c.id.slice(0, 8)}…`;
       const qTag = c.quotaUsage ? formatSessionQuotaCompact(c.quotaUsage, true) : '';
-      const qPart = qTag ? ` [${qTag}]` : '';
-      const tm = c.updatedMs ? ` (${fmtClock(c.updatedMs)})` : '';
-      return {
+      const tm = c.updatedMs ? fmtClock(c.updatedMs) : '';
+      const subParts = [qTag, tm].filter(Boolean);
+      base.push({
         value: `conv:${c.id}`,
-        label: `${srcTag}${swarmTag}${kindTag}${name}${qPart}${tm}`,
-      };
-    });
+        label: `${srcTag}${swarmTag}${kindTag}${name}`,
+        sublabel: subParts.length ? subParts.join(' · ') : undefined,
+      });
+    }
+
+    return base;
   }, [
     snap?.conversations,
     snap?.conversationId,
@@ -209,6 +204,8 @@ export function TopBar({
     snap?.sessionInfo?.swarm?.selfMember?.rosterName,
     mode,
     selectedConv,
+    t.optAuto,
+    t.optLatest,
   ]);
 
   const selectValue =
@@ -231,7 +228,7 @@ export function TopBar({
     <header className="flex flex-col gap-1.5 min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="font-bold tracking-[0.02em] text-hud-fg whitespace-nowrap text-[13px]">
+          <span className="font-hud font-bold tracking-[0.015em] text-hud-fg whitespace-nowrap text-[13px]">
             {t.title}
           </span>
           <span className={badgeCls} data-tip={badgeTip}>
@@ -240,21 +237,16 @@ export function TopBar({
           </span>
         </div>
 
-        <div className="flex items-center gap-[5px] min-w-0 max-w-full flex-initial">
-          <select
-            aria-label="Conversation"
-            className="hud-select"
+        <div className="flex items-center gap-1.5 min-w-0 max-w-full flex-initial">
+          <SelectPopover
+            ariaLabel="Conversation"
             value={selectValue}
-            onChange={(e) => onSelectConversation((e.currentTarget as HTMLSelectElement).value)}
-          >
-            <option value="auto">{t.optAuto}</option>
-            <option value="latest">{t.optLatest}</option>
-            {convOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            options={convPopoverOptions}
+            onChange={onSelectConversation}
+            align="right"
+            size="md"
+            className="w-auto max-w-[144px] flex-1 basis-[92px]"
+          />
 
           {showUpdatePill && updateStatus?.latestVersion && (
             <button
@@ -263,142 +255,151 @@ export function TopBar({
               data-tip={t.updatePillTip(installedVersion, updateStatus.latestVersion)}
               onClick={onOpenUpdates}
             >
-              ↑ v{updateStatus.latestVersion}
+              <IconArrowUp size={10} />
+              <span>v{updateStatus.latestVersion}</span>
             </button>
           )}
 
-          <div ref={menuWrapRef} className="relative shrink-0">
+          <div className="relative shrink-0">
             <button
+              ref={moreBtnRef}
               type="button"
               aria-expanded={menuOpen}
               aria-label="More"
               onClick={() => setMenuOpen((p) => !p)}
-              className="hud-btn min-w-[26px] !px-[7px] !py-[2px] font-bold tracking-[0.04em]"
+              className="hud-btn w-[26px] h-[25px] !p-0"
             >
-              ⋯
+              <IconMore size={13} />
             </button>
 
-            {menuOpen && (
-              <div
-                role="menu"
-                className="more-popover absolute right-0 top-[calc(100%+5px)] z-40 min-w-[212px] p-1.5 rounded-lg bg-hud-card border border-hud-border shadow-xl flex flex-col gap-[3px]"
-              >
-                <div className="font-hud-mono text-[10px] text-hud-muted px-1.5 pt-[3px] pb-1 truncate">
-                  {convId ? `ID: ${convId}` : '--'}
-                </div>
-                <button
-                  type="button"
-                  disabled={!convId}
-                  data-tip={convId ? t.tipCopyId(convId) : undefined}
-                  onClick={() => void handleCopy('id', convId)}
-                  className={`w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors ${
-                    copiedField === 'id' ? 'text-hud-ok font-semibold' : 'text-hud-fg'
-                  } ${!convId ? 'opacity-50 cursor-default' : ''}`}
-                >
-                  {copiedField === 'id' ? t.copied : t.btnCopyId}
-                </button>
-                <button
-                  type="button"
-                  disabled={!jPath}
-                  data-tip={jPath ? t.tipCopyJsonl(jPath, Boolean(snap?.jsonlExists)) : undefined}
-                  onClick={() => void handleCopy('jsonl', jPath)}
-                  className={`w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors ${
-                    copiedField === 'jsonl' ? 'text-hud-ok font-semibold' : 'text-hud-fg'
-                  } ${!snap?.jsonlExists ? 'opacity-55' : ''}`}
-                >
-                  {copiedField === 'jsonl' ? t.copied : t.btnCopyJsonl}
-                </button>
-                <button
-                  type="button"
-                  disabled={!fPath}
-                  data-tip={fPath ? t.tipCopyJsonlFull(fPath, Boolean(snap?.jsonlFullExists)) : undefined}
-                  onClick={() => void handleCopy('full', fPath)}
-                  className={`w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors ${
-                    copiedField === 'full' ? 'text-hud-ok font-semibold' : 'text-hud-fg'
-                  } ${!snap?.jsonlFullExists ? 'opacity-55' : ''}`}
-                >
-                  {copiedField === 'full' ? t.copied : t.btnCopyJsonlFull}
-                </button>
-
-                <div className="h-px my-0.5 mx-1 bg-hud-border" />
-
-                <button
-                  type="button"
-                  disabled={!hasSessionData}
-                  onClick={() => void handleCopySessionMd()}
-                  className={`w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors ${
-                    copiedField === 'md' ? 'text-hud-ok font-semibold' : 'text-hud-fg'
-                  } ${!hasSessionData ? 'opacity-50 cursor-default' : ''}`}
-                >
-                  {copiedField === 'md' ? t.copied : t.btnCopyReportMd}
-                </button>
-                <button
-                  type="button"
-                  disabled={!hasSessionData}
-                  onClick={() => void handleExportSessionJson()}
-                  className={`w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors ${
-                    copiedField === 'json-saved' || copiedField === 'json-copied'
-                      ? 'text-hud-ok font-semibold'
-                      : 'text-hud-fg'
-                  } ${!hasSessionData ? 'opacity-50 cursor-default' : ''}`}
-                >
-                  {copiedField === 'json-saved'
-                    ? t.exportedJsonSaved
-                    : copiedField === 'json-copied'
-                      ? t.exportedJsonCopied
-                      : t.btnExportJson}
-                </button>
-
-                <div className="h-px my-0.5 mx-1 bg-hud-border" />
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    void onCheckUpdates(true);
-                    setMenuOpen(false);
-                    onOpenUpdates();
-                  }}
-                  className="w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-hud-fg text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors"
-                >
-                  {updateChecking ? t.menuCheckingUpdates : t.menuCheckUpdates}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onToggleLang();
-                    setMenuOpen(false);
-                  }}
-                  className="w-full text-left px-2 py-[5px] border-0 rounded-[5px] bg-transparent text-hud-fg text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-accent transition-colors"
-                >
-                  {lang === 'en' ? '中文 / EN' : 'EN / 中文'}
-                </button>
-
-                <div className="h-px my-0.5 mx-1 bg-hud-border" />
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onOpenUpdates();
-                  }}
-                  className="w-full flex items-center justify-between gap-2 px-1.5 py-[3px] border-0 rounded bg-transparent text-left font-hud-mono text-[10px] text-hud-muted cursor-pointer hover:text-hud-fg transition-colors tabular-nums"
-                >
-                  <span>AGY-HUD v{installedVersion}</span>
-                  {updateStatus?.isLinked ? (
-                    <span className="px-1 py-[0.5px] rounded text-[9px] font-bold text-hud-warn border border-hud-border bg-hud-surface-2">
-                      {t.menuDevTag}
-                    </span>
-                  ) : showUpdatePill && updateStatus?.latestVersion ? (
-                    <span className="text-hud-accent-ink font-semibold">↑ v{updateStatus.latestVersion}</span>
-                  ) : null}
-                </button>
+            <FixedPopover
+              open={menuOpen}
+              triggerRef={moreBtnRef}
+              onClose={handleCloseMenu}
+              align="right"
+              role="menu"
+              minWidthPx={204}
+              maxWidthPx={236}
+              className="p-1.5"
+            >
+              <div className="font-hud-mono text-[10px] text-hud-muted px-2 pt-[3px] pb-1 truncate">
+                {convId ? `ID: ${convId}` : '--'}
               </div>
-            )}
+              <button
+                type="button"
+                disabled={!convId}
+                data-tip={convId ? t.tipCopyId(convId) : undefined}
+                onClick={() => void handleCopy('id', convId)}
+                className={`w-full text-left px-2 py-[5px] border-0 rounded-[6px] bg-transparent text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-fg transition-colors ${
+                  copiedField === 'id' ? 'text-hud-ok font-semibold' : 'text-hud-fg-2'
+                } ${!convId ? 'opacity-50 cursor-default' : ''}`}
+              >
+                {copiedField === 'id' ? t.copied : t.btnCopyId}
+              </button>
+              <button
+                type="button"
+                disabled={!jPath}
+                data-tip={jPath ? t.tipCopyJsonl(jPath, Boolean(snap?.jsonlExists)) : undefined}
+                onClick={() => void handleCopy('jsonl', jPath)}
+                className={`w-full text-left px-2 py-[5px] border-0 rounded-[6px] bg-transparent text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-fg transition-colors ${
+                  copiedField === 'jsonl' ? 'text-hud-ok font-semibold' : 'text-hud-fg-2'
+                } ${!snap?.jsonlExists ? 'opacity-55' : ''}`}
+              >
+                {copiedField === 'jsonl' ? t.copied : t.btnCopyJsonl}
+              </button>
+              <button
+                type="button"
+                disabled={!fPath}
+                data-tip={fPath ? t.tipCopyJsonlFull(fPath, Boolean(snap?.jsonlFullExists)) : undefined}
+                onClick={() => void handleCopy('full', fPath)}
+                className={`w-full text-left px-2 py-[5px] border-0 rounded-[6px] bg-transparent text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-fg transition-colors ${
+                  copiedField === 'full' ? 'text-hud-ok font-semibold' : 'text-hud-fg-2'
+                } ${!snap?.jsonlFullExists ? 'opacity-55' : ''}`}
+              >
+                {copiedField === 'full' ? t.copied : t.btnCopyJsonlFull}
+              </button>
+
+              <div className="h-px my-1 mx-1.5 bg-hud-hairline" />
+
+              <button
+                type="button"
+                disabled={!hasSessionData}
+                onClick={() => void handleCopySessionMd()}
+                className={`w-full text-left px-2 py-[5px] border-0 rounded-[6px] bg-transparent text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-fg transition-colors ${
+                  copiedField === 'md' ? 'text-hud-ok font-semibold' : 'text-hud-fg-2'
+                } ${!hasSessionData ? 'opacity-50 cursor-default' : ''}`}
+              >
+                {copiedField === 'md' ? t.copied : t.btnCopyReportMd}
+              </button>
+              <button
+                type="button"
+                disabled={!hasSessionData}
+                onClick={() => void handleExportSessionJson()}
+                className={`w-full text-left px-2 py-[5px] border-0 rounded-[6px] bg-transparent text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-fg transition-colors ${
+                  copiedField === 'json-saved' || copiedField === 'json-copied'
+                    ? 'text-hud-ok font-semibold'
+                    : 'text-hud-fg-2'
+                } ${!hasSessionData ? 'opacity-50 cursor-default' : ''}`}
+              >
+                {copiedField === 'json-saved'
+                  ? t.exportedJsonSaved
+                  : copiedField === 'json-copied'
+                    ? t.exportedJsonCopied
+                    : t.btnExportJson}
+              </button>
+
+              <div className="h-px my-1 mx-1.5 bg-hud-hairline" />
+
+              <button
+                type="button"
+                onClick={() => {
+                  void onCheckUpdates(true);
+                  setMenuOpen(false);
+                  onOpenUpdates();
+                }}
+                className="w-full text-left px-2 py-[5px] border-0 rounded-[6px] bg-transparent text-hud-fg-2 text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-fg transition-colors"
+              >
+                {updateChecking ? t.menuCheckingUpdates : t.menuCheckUpdates}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onToggleLang();
+                  setMenuOpen(false);
+                }}
+                className="w-full text-left px-2 py-[5px] border-0 rounded-[6px] bg-transparent text-hud-fg-2 text-[11.5px] cursor-pointer hover:bg-hud-fill hover:text-hud-fg transition-colors"
+              >
+                {lang === 'en' ? '中文 / EN' : 'EN / 中文'}
+              </button>
+
+              <div className="h-px my-1 mx-1.5 bg-hud-hairline" />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onOpenUpdates();
+                }}
+                className="w-full flex items-center justify-between gap-2 px-2 py-[3px] border-0 rounded bg-transparent text-left font-hud-mono text-[10px] text-hud-muted cursor-pointer hover:text-hud-fg transition-colors tabular-nums"
+              >
+                <span className="truncate">AGY-HUD v{installedVersion}</span>
+                {updateStatus?.isLinked ? (
+                  <span className="px-1 py-[0.5px] rounded text-[9px] font-bold text-hud-warn bg-hud-surface-2 shrink-0">
+                    {t.menuDevTag}
+                  </span>
+                ) : showUpdatePill && updateStatus?.latestVersion ? (
+                  <span className="inline-flex items-center gap-0.5 text-hud-accent-ink font-semibold shrink-0">
+                    <IconArrowUp size={9} />
+                    <span>v{updateStatus.latestVersion}</span>
+                  </span>
+                ) : null}
+              </button>
+            </FixedPopover>
           </div>
         </div>
       </div>
 
-      <ModelBar snap={snap} t={t} />
+      <ModelBar snap={snap} lang={lang} t={t} onInspectChildren={onInspectChildren} />
       <SessionRelBar
         snap={snap}
         lang={lang}

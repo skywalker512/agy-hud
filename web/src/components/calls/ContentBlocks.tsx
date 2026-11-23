@@ -48,9 +48,9 @@ function useCopyFlash(ms = 1100): [string | null, (key: string, text: string) =>
 
 export function InspectorShimmer({ label }: { label: string }) {
   return (
-    <div className="rounded-md border border-hud-border bg-hud-surface-2 p-2 flex flex-col gap-1.5">
+    <div className="rounded-md bg-hud-card p-2 flex flex-col gap-1.5" style={{ border: '1px solid var(--hud-hairline)' }}>
       <div className="insp-shimmer" />
-      <div className="font-hud-mono text-[10.5px] text-hud-muted">{label}</div>
+      <div className="font-hud text-[10.5px] text-hud-muted">{label}</div>
     </div>
   );
 }
@@ -85,10 +85,10 @@ export function ThinkingPane({
   const isTrunc = Boolean(truncated || (totalChars && totalChars > text.length));
 
   return (
-    <div className="rounded-md border border-hud-border bg-hud-surface-2 px-2 py-[7px] flex flex-col gap-1.5 min-w-0">
+    <div className="rounded-md bg-hud-card px-2.5 py-2 flex flex-col gap-1.5 min-w-0" style={{ border: '1px solid var(--hud-hairline)' }}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="font-hud-mono text-[10px] font-semibold tracking-[0.03em] uppercase text-seg-think">
+          <span className="font-hud text-[10px] font-semibold tracking-[0.03em] uppercase text-seg-think">
             {t.lblThinking}
           </span>
           <span className="font-hud-mono text-[10px] text-hud-muted tabular-nums">
@@ -145,10 +145,10 @@ export function ReplyPane({
   const isTrunc = Boolean(truncated || (totalChars && totalChars > text.length));
 
   return (
-    <div className="rounded-md border border-hud-border bg-hud-surface-2 px-2 py-[7px] flex flex-col gap-1.5 min-w-0">
+    <div className="rounded-md bg-hud-card px-2.5 py-2 flex flex-col gap-1.5 min-w-0" style={{ border: '1px solid var(--hud-hairline)' }}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="font-hud-mono text-[10px] font-semibold tracking-[0.03em] uppercase text-seg-cache">
+          <span className="font-hud text-[10px] font-semibold tracking-[0.03em] uppercase text-seg-cache">
             {t.lblReply}
           </span>
           <span className="font-hud-mono text-[10px] text-hud-muted tabular-nums">

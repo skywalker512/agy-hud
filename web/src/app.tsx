@@ -8,6 +8,7 @@ import { TopBar } from './components/layout/TopBar';
 import { LiveTab } from './components/live/LiveTab';
 import { useHudStore } from './hooks/useHudStore';
 import { useThemeSync } from './hooks/useThemeSync';
+import type { HudTab } from './types/telemetry';
 
 function isEditableTarget(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
@@ -23,13 +24,88 @@ export function App() {
   const { snap, t } = store;
 
   const [highlightUpdates, setHighlightUpdates] = useState(false);
+  const [dockStuck, setDockStuck] = useState(false);
+  const [heroPassed, setHeroPassed] = useState(false);
   const updateHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stickyDockRef = useRef<HTMLDivElement>(null);
+  const stickySentinelRef = useRef<HTMLDivElement>(null);
+  const heroSentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     return () => {
       if (updateHighlightTimerRef.current) clearTimeout(updateHighlightTimerRef.current);
     };
   }, []);
+
+  // Keep --hud-sticky-h synced to the unified PulseBar + TabNav dock height
+  useEffect(() => {
+    const el = stickyDockRef.current;
+    if (!el) return;
+    const syncHeight = () => {
+      const h = Math.floor(el.getBoundingClientRect().height);
+      if (h > 0) {
+        document.documentElement.style.setProperty('--hud-sticky-h', `${h}px`);
+      }
+    };
+    syncHeight();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(syncHeight);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Track when the sticky dock is pinned at viewport top for subtle elevation
+  useEffect(() => {
+    const sentinel = stickySentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry) setDockStuck(!entry.isIntersecting);
+      },
+      { threshold: 0 },
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, []);
+
+  // Smart PulseBar: on Live tab, reveal PulseBar ONLY when scrolled past HeroSpeedCards
+  useEffect(() => {
+    if (store.tab !== 'live') {
+      setHeroPassed(false);
+      return;
+    }
+    const sentinel = heroSentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === 'undefined') {
+      setHeroPassed(false);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        // Reveal PulseBar when sentinel has scrolled above viewport top
+        setHeroPassed(!entry.isIntersecting && entry.boundingClientRect.top < 80);
+      },
+      { threshold: 0, rootMargin: '-46px 0px 0px 0px' },
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, [store.tab]);
+
+  const handleSwitchTab = useCallback(
+    (next: HudTab) => {
+      const changed = next !== store.tab;
+      store.switchTab(next);
+      if (changed) {
+        setHeroPassed(false);
+        if (window.scrollY > 0) {
+          window.scrollTo(0, 0);
+        }
+      }
+    },
+    [store.switchTab, store.tab],
+  );
 
   const handleInspectChildren = useCallback(() => {
     store.switchTab('live');
@@ -69,11 +145,11 @@ export function App() {
       if (isEditableTarget(e.target)) return;
 
       if (e.key === '1') {
-        store.switchTab('live');
+        handleSwitchTab('live');
       } else if (e.key === '2') {
-        store.switchTab('calls');
+        handleSwitchTab('calls');
       } else if (e.key === '3') {
-        store.switchTab('account');
+        handleSwitchTab('account');
       } else if (e.key === '/') {
         e.preventDefault();
         if (store.tab !== 'calls') {
@@ -82,6 +158,7 @@ export function App() {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             const input = document.getElementById('call-log-search') as HTMLInputElement | null;
+            input?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             input?.focus();
             input?.select();
           });
@@ -91,10 +168,11 @@ export function App() {
 
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [store.switchTab, store.tab]);
+  }, [handleSwitchTab, store.switchTab, store.tab]);
 
   const totalCalls = snap?.found ? snap.invocations?.length || 0 : 0;
   const showEmptyBox = Boolean(snap && !snap.found);
+  const showPulseBar = store.tab !== 'live' || heroPassed;
 
   return (
     <div className="hud-shell">
@@ -116,14 +194,19 @@ export function App() {
         onCheckUpdates={store.checkForUpdates}
       />
 
-      <PulseBar snap={snap} nowMs={store.nowMs} t={t} />
-
-      <TabNav
-        tab={store.tab}
-        totalCalls={totalCalls}
-        t={t}
-        onSwitchTab={store.switchTab}
-      />
+      <div ref={stickySentinelRef} className="h-0 -my-[5px] pointer-events-none" aria-hidden="true" />
+      <div
+        ref={stickyDockRef}
+        className={`hud-sticky-dock${dockStuck ? ' is-stuck' : ''}`}
+      >
+        <PulseBar snap={snap} nowMs={store.nowMs} t={t} visible={showPulseBar} />
+        <TabNav
+          tab={store.tab}
+          totalCalls={totalCalls}
+          t={t}
+          onSwitchTab={handleSwitchTab}
+        />
+      </div>
 
       {store.tab === 'live' && (
         <LiveTab
@@ -138,8 +221,9 @@ export function App() {
           detailCache={store.detailCache}
           detailLoading={store.detailLoading}
           t={t}
+          heroSentinelRef={heroSentinelRef}
           onToggleRecentOpen={store.toggleRecentOpen}
-          onViewAll={() => store.switchTab('calls')}
+          onViewAll={() => handleSwitchTab('calls')}
           onJumpConversation={store.jumpToConversation}
           onToggleCompactOnly={store.toggleCompactOnly}
           onToggleFoldAllTurns={store.toggleFoldAllTurns}
@@ -202,7 +286,7 @@ export function App() {
       )}
 
       {showEmptyBox && (
-        <div className="px-3 py-[18px] text-center text-[12px] text-hud-muted bg-hud-card border border-hud-border rounded-lg">
+        <div className="px-3 py-[18px] text-center text-[12px] text-hud-muted hud-card">
           {t.noDbEmpty}
         </div>
       )}

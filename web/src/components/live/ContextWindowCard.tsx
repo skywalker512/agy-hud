@@ -1,9 +1,11 @@
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import type { StatsSnapshot, TokenBreakdownItem } from '../../types/telemetry';
 import {
   cacheTier,
   computeHeadroomTurns,
   evalCacheSurvival,
+  fmtCachePct,
   fmtClock,
   fmtDurationShort,
   fmtNum,
@@ -42,6 +44,23 @@ function fmtItemTipList(title: string, items: TokenBreakdownItem[] | undefined, 
 }
 
 export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
+  const [hoveredSegIdx, setHoveredSegIdx] = useState<number | null>(null);
+  const [cardWidth, setCardWidth] = useState(380);
+  const cardRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el) return;
+    if (el.clientWidth > 0) setCardWidth(el.clientWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width || el.clientWidth;
+      if (w > 0) setCardWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const found = Boolean(snap?.found);
   const latest = found ? snap?.latest || null : null;
   const breakdown = found ? snap?.contextBreakdown || null : null;
@@ -58,7 +77,7 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
 
   const cachePred = found ? snap?.cacheTtl?.currentSession || null : null;
   const latestMs = cachePred?.lastCallMs || s?.latestCallMs || latest?.timestampMs || 0;
-  let ageBadge: { text: string; tier: 'fresh' | 'warm' | 'stale'; tip: string } | null = null;
+  let ageBadge: { text: string; sub?: string; tier: 'fresh' | 'warm' | 'stale'; tip: string } | null = null;
   if (found && latestMs > 0) {
     const ageSec = Math.max(0, Math.floor((nowMs - latestMs) / 1000));
     const ageStr = fmtDurationShort(ageSec);
@@ -80,7 +99,8 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
           ? fmtQuotaPct(cachePred.missPenaltyQuota5hPct)
           : '';
       ageBadge = {
-        text: t.cacheSurvPill(probPct, ageStr),
+        text: `~${probPct}%`,
+        sub: ageStr,
         tier,
         tip: t.cacheSurvTip({
           ageStr,
@@ -101,26 +121,24 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
     } else {
       const tier = ageSec >= 300 ? 'stale' : ageSec >= 120 ? 'warm' : 'fresh';
       ageBadge = {
-        text: t.cacheAgeLabel(ageStr),
+        text: ageStr,
         tier,
         tip: t.cacheAgeTip(ageStr, fmtClock(latestMs)),
       };
     }
   }
 
-  let sessionCost: { text: string; tip: string } | null = null;
-  if (found && s && s.pricedCount > 0) {
-    const costStr = fmtUsd(s.totalCostUSD);
-    const savedStr = s.totalSavedUSD > 0 ? fmtUsd(s.totalSavedUSD) : '';
-    sessionCost = {
-      text: t.sessionCostPill(costStr, savedStr),
-      tip: t.sessionCostTip(costStr, savedStr || '$0.00', s.pricedCount, s.unpricedCount || 0),
-    };
-  }
+  const hasPricedCost = Boolean(found && s && s.pricedCount > 0);
+  const costStr = hasPricedCost ? fmtUsd(s?.totalCostUSD || 0) : '';
+  const savedStr = hasPricedCost && (s?.totalSavedUSD || 0) > 0 ? fmtUsd(s?.totalSavedUSD || 0) : '';
+  const costTip = hasPricedCost
+    ? t.sessionCostTip(costStr, savedStr || '$0.00', s?.pricedCount || 0, s?.unpricedCount || 0)
+    : undefined;
 
   const rawSessionQuota = found ? (s?.sessionQuota || snap?.sessionInfo?.quotaUsage || null) : null;
   const sessionQuotaStr = formatSessionQuotaCompact(rawSessionQuota);
   const sessionQuotaTip = sessionQuotaStr ? formatSessionQuotaTip(rawSessionQuota, t) : '';
+  const spendQuotaTip = [costTip, sessionQuotaTip].filter(Boolean).join('\n\n') || undefined;
 
   const hasBreakdown = Boolean(hasContext && breakdown && breakdown.reportedTotal > 0);
   let segs: SegSpec[];
@@ -139,22 +157,33 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
     const toolsDefTok = breakdown.toolsSchema || 0;
     const postUserTok = effCtx.isPostCompact ? Math.max(0, totalUsed - sysTok - toolsDefTok) : 0;
     scaleDenomUsed = effCtx.isPostCompact ? totalUsed : breakdown.reportedTotal || totalUsed;
+
+    const sysSubParts: string[] = [];
+    if (breakdown.skills && breakdown.skills > 0) sysSubParts.push(`Skills ${fmtNum(breakdown.skills)}`);
+    if (breakdown.rules && breakdown.rules > 0) sysSubParts.push(`Rules ${fmtNum(breakdown.rules)}`);
+    const sysSubLine = sysSubParts.length ? `\n${sysSubParts.join(' · ')}` : '';
+
+    const tdefSubLine =
+      breakdown.mcpTools && breakdown.mcpTools > 0 ? `\nMCP tools: ${breakdown.mcpTools.toLocaleString()} tok` : '';
+
+    const ckptTok = breakdown.checkpointTokens ?? breakdown.checkpoint ?? 0;
+
     segs = [
       {
         cls: 'seg-sys',
         name: t.kSysPrompt,
         tok: sysTok,
-        detail: fmtItemTipList(t.ctxSysSecTitle, breakdown.systemPromptItems, 6),
+        detail: `${sysSubLine}${fmtItemTipList(t.ctxSysSecTitle, breakdown.systemPromptItems, 6)}`,
       },
       {
         cls: 'seg-tdef',
         name: t.kToolsDef,
         tok: toolsDefTok,
-        detail: fmtItemTipList(
+        detail: `${tdefSubLine}${fmtItemTipList(
           t.ctxTdefTitle((breakdown.toolSchemaItems || []).length),
           breakdown.toolSchemaItems,
           6,
-        ),
+        )}`,
       },
       {
         cls: 'seg-tres',
@@ -176,7 +205,7 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
             ? t.ctxUserSplit(0, postUserTok, 0)
             : t.ctxUserSplit(
                 breakdown.userInput || 0,
-                breakdown.checkpoint || 0,
+                ckptTok,
                 breakdown.sysMsg || 0,
               )
         }`,
@@ -229,83 +258,209 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
     hasBreakdown && !effCtx.isPostCompact && breakdown?.toolResultsByTool?.length
       ? t.ctxToolsLabel
       : t.ctxToolDefsLabel;
-  const shownTools = toolList.slice(0, 5);
-  const restTools = toolList.slice(5);
+  const maxToolChips = cardWidth <= 320 ? 3 : 5;
+  const shownTools = toolList.slice(0, maxToolChips);
+  const restTools = toolList.slice(maxToolChips);
   const restSum = restTools.reduce((acc, x) => acc + x.tokens, 0);
   const restTip = restTools.map((x) => `${x.name}: ${x.tokens.toLocaleString()} tok`).join('\n');
 
   const freeStr = hasContext ? `${approxPrefix}${fmtNum(Math.max(0, limit - totalUsed))}` : '--';
-  const cPctStr = latest && latest.cacheHitPct !== null ? ` (${latest.cacheHitPct.toFixed(0)}%)` : '';
+  const cTier = latest ? cacheTier(latest.cacheHitPct) : 'muted';
+  const cacheValColor =
+    cTier === 'good'
+      ? 'text-hud-ok'
+      : cTier === 'mid'
+        ? 'text-hud-warn'
+        : cTier === 'low'
+          ? 'text-hud-bad'
+          : 'text-hud-fg';
+
+  const headroomColor =
+    headroom && headroom.turns <= 3
+      ? 'text-hud-bad'
+      : headroom && headroom.turns <= 8
+        ? 'text-hud-warn'
+        : 'text-hud-fg';
+
+  const survColor =
+    ageBadge?.tier === 'stale'
+      ? 'text-hud-bad'
+      : ageBadge?.tier === 'warm'
+        ? 'text-hud-warn'
+        : 'text-hud-fg';
+
+  const pctStr = hasContext ? `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%` : '0%';
+
+  // Build visible breakdown rows (for 2-column aligned grid)
+  const visibleSegEntries = segs
+    .map((seg, i) => ({ seg, idx: i }))
+    .filter(({ seg }) => !(seg.hideZero && seg.tok <= 0));
 
   return (
-    <section className="hud-card">
-      <div className="card-head flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+    <section ref={cardRef} className="hud-card flex flex-col gap-2.5">
+      {/* Clean 2-Item Header: Title (left) + Bold Ratio · Pct (right) */}
+      <div className="flex items-baseline justify-between gap-2 min-w-0">
         <span className="card-k">{t.ctxLabel}</span>
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">
-          {headroom && (
-            <span
-              className={`headroom-pill${
-                headroom.turns <= 3 ? ' low' : headroom.turns <= 8 ? ' warn' : ''
-              }`}
-              data-tip={t.headroomTip(headroom.turns, headroom.medianDelta)}
-            >
-              {t.headroomLabel(headroom.turns)}
-            </span>
+        <span className="font-hud-mono text-[11.5px] font-semibold text-hud-fg tabular-nums whitespace-nowrap">
+          {hasContext ? (
+            <>
+              <span>{approxPrefix}{fmtNum(totalUsed)}</span>
+              <span className="text-hud-muted font-normal"> / {fmtNum(limit)} · </span>
+              <span className={pct >= 88 ? 'text-hud-bad' : pct >= 75 ? 'text-hud-warn' : ''}>{pctStr}</span>
+            </>
+          ) : (
+            <span className="text-hud-muted">-- / --</span>
           )}
-          {ageBadge && (
-            <span className={`cache-age-pill cursor-help ${ageBadge.tier}`} data-tip={ageBadge.tip}>
-              {ageBadge.text}
-            </span>
-          )}
-          <span className={`cache-pill ${latest ? cacheTier(latest.cacheHitPct) : 'muted'}`}>
-            {latest ? t.cacheBadge(latest.cacheHitPct) : '--'}
-          </span>
-          {sessionCost && (
-            <span className="cost-pill cursor-help" data-tip={sessionCost.tip}>
-              {sessionCost.text}
-            </span>
-          )}
-          {sessionQuotaStr && (
-            <span className="quota-pill cursor-help" data-tip={sessionQuotaTip}>
-              {t.sessionQuotaPill(sessionQuotaStr)}
-            </span>
-          )}
-          <span className="font-hud-mono text-[11.5px] font-semibold text-hud-fg tabular-nums whitespace-nowrap">
-            {hasContext ? `${approxPrefix}${fmtNum(totalUsed)} / ${fmtNum(limit)} (${pct.toFixed(1)}%)` : '-- / -- (0.0%)'}
-          </span>
-        </div>
+        </span>
       </div>
 
-      <div className="relative h-2.5 rounded-full bg-hud-fill overflow-hidden flex my-2">
+      {/* Segmented Progress Bar with Crisp 1px Gaps & Cross-Highlight */}
+      <div
+        className="relative h-2.5 rounded-full bg-hud-fill overflow-hidden flex gap-[1.5px]"
+        onMouseLeave={() => setHoveredSegIdx(null)}
+      >
         {segs.map((seg, i) => {
           const widthPct = hasContext && limit > 0 ? Math.min(100, ((seg.tok * scale) / limit) * 100) : 0;
+          if (widthPct <= 0) return null;
           const winPct = limit > 0 ? (seg.tok / limit) * 100 : 0;
           const usedPct = (seg.tok / denomUsed) * 100;
           const tip = hasContext
             ? `${t.segTip(seg.name, seg.tok, winPct, usedPct)}${seg.detail || ''}`
             : undefined;
+          const isDimmed = hoveredSegIdx !== null && hoveredSegIdx !== i;
           return (
             <div
               key={`${seg.cls}:${i}`}
-              className={`h-full transition-[width] duration-200 ${seg.cls} hover:brightness-110`}
+              className={`h-full transition-all duration-150 first:rounded-l-full last:rounded-r-full ${seg.cls} ${
+                isDimmed ? 'opacity-30' : 'opacity-100'
+              }`}
               style={{ width: `${widthPct.toFixed(3)}%` }}
               data-tip={tip}
+              onMouseEnter={() => setHoveredSegIdx(i)}
             />
           );
         })}
         <div
           className="pointer-events-none absolute inset-y-0 left-1/2 w-px"
-          style={{ background: 'color-mix(in srgb, var(--hud-fg) 22%, transparent)' }}
+          style={{ background: 'color-mix(in srgb, var(--hud-fg) 18%, transparent)' }}
         />
         <div
           className="pointer-events-none absolute inset-y-0 left-[80%] w-px"
-          style={{ background: 'color-mix(in srgb, var(--hud-fg) 22%, transparent)' }}
+          style={{ background: 'color-mix(in srgb, var(--hud-fg) 18%, transparent)' }}
         />
       </div>
 
+      {/* 2-Column Aligned Breakdown Table */}
+      <div
+        className="ctx-breakdown-grid grid grid-cols-2 gap-x-4 gap-y-1 min-w-0"
+        onMouseLeave={() => setHoveredSegIdx(null)}
+      >
+        {visibleSegEntries.map(({ seg, idx }) => {
+          const valStr = hasContext ? `${fmtNum(seg.tok)}${seg.extra || ''}` : '--';
+          const isHighlighted = hoveredSegIdx === idx;
+          const isDimmed = hoveredSegIdx !== null && !isHighlighted;
+          const winPct = limit > 0 ? (seg.tok / limit) * 100 : 0;
+          const usedPct = (seg.tok / denomUsed) * 100;
+          const tip = hasContext
+            ? `${t.segTip(seg.name, seg.tok, winPct, usedPct)}${seg.detail || ''}`
+            : undefined;
+
+          return (
+            <div
+              key={`${seg.name}:${idx}`}
+              data-tip={tip}
+              onMouseEnter={() => setHoveredSegIdx(idx)}
+              className={`flex items-center justify-between gap-2 px-1 py-[1px] -mx-1 rounded transition-colors cursor-default min-w-0 ${
+                isHighlighted ? 'bg-hud-surface-2' : ''
+              } ${isDimmed ? 'opacity-45' : 'opacity-100'}`}
+            >
+              <span className="inline-flex items-center gap-1.5 min-w-0 text-[11px] font-hud text-hud-muted">
+                <span className={`inline-block w-[7px] h-[7px] rounded-[2px] shrink-0 ${seg.cls}`} />
+                <span className="truncate">{seg.name}</span>
+              </span>
+              <span className="font-hud-mono text-[11px] font-semibold text-hud-fg tabular-nums shrink-0">
+                {valStr}
+              </span>
+            </div>
+          );
+        })}
+
+        {/* Free Space Row aligned cleanly in 2-col table */}
+        <div
+          className={`flex items-center justify-between gap-2 px-1 py-[1px] -mx-1 rounded min-w-0 transition-opacity ${
+            hoveredSegIdx !== null ? 'opacity-45' : 'opacity-100'
+          }`}
+        >
+          <span className="inline-flex items-center gap-1.5 min-w-0 text-[11px] font-hud text-hud-muted">
+            <span className="inline-block w-[7px] h-[7px] rounded-[2px] shrink-0 seg-free" />
+            <span className="truncate">{t.kFree}</span>
+          </span>
+          <span className="font-hud-mono text-[11px] font-semibold text-hud-muted tabular-nums shrink-0">
+            {freeStr}
+          </span>
+        </div>
+      </div>
+
+      {/* Clean Borderless 4-Column Micro-Metric Strip */}
+      <div className="ctx-micro-strip grid grid-cols-4 gap-1.5 min-w-0">
+        <div
+          className={`l2-well px-2 py-1.5 flex flex-col gap-[1px] min-w-0${headroom ? ' cursor-help' : ''}`}
+          data-tip={headroom ? t.headroomTip(headroom.turns, headroom.medianDelta) : undefined}
+        >
+          <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">{t.ctxMicroHeadroom}</span>
+          <span className={`font-hud-mono text-[11.5px] font-bold tabular-nums truncate ${headroomColor}`}>
+            {headroom ? `~${headroom.turns}t` : '--'}
+          </span>
+        </div>
+
+        <div className="l2-well px-2 py-1.5 flex flex-col gap-[1px] min-w-0">
+          <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">{t.ctxMicroCacheHit}</span>
+          <span className={`font-hud-mono text-[11.5px] font-bold tabular-nums truncate ${cacheValColor}`}>
+            {latest ? fmtCachePct(latest.cacheHitPct) : '--'}
+          </span>
+        </div>
+
+        <div
+          className={`l2-well px-2 py-1.5 flex flex-col gap-[1px] min-w-0${ageBadge ? ' cursor-help' : ''}`}
+          data-tip={ageBadge?.tip}
+        >
+          <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">{t.ctxMicroCacheTtl}</span>
+          <span className={`font-hud-mono text-[11.5px] font-bold tabular-nums truncate ${survColor}`}>
+            {ageBadge ? (
+              <>
+                <span>{ageBadge.text}</span>
+                {ageBadge.sub && <span className="font-normal text-[9.5px] text-hud-muted ml-1">{ageBadge.sub}</span>}
+              </>
+            ) : (
+              '--'
+            )}
+          </span>
+        </div>
+
+        <div
+          className={`l2-well px-2 py-1.5 flex flex-col gap-[1px] min-w-0${spendQuotaTip ? ' cursor-help' : ''}`}
+          data-tip={spendQuotaTip}
+        >
+          <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">{t.ctxMicroSpendQuota}</span>
+          <span className="font-hud-mono text-[11.5px] font-bold text-hud-fg tabular-nums truncate">
+            {costStr || sessionQuotaStr ? (
+              <>
+                <span>{costStr || '--'}</span>
+                {sessionQuotaStr && (
+                  <span className="text-[9.5px] font-semibold text-hud-accent-ink ml-1">{sessionQuotaStr}</span>
+                )}
+              </>
+            ) : (
+              '--'
+            )}
+          </span>
+        </div>
+      </div>
+
+      {/* Top Tool Footprint Chips (borderless recessed pills) */}
       {shownTools.length > 0 && (
-        <div className="mt-2 pt-[7px] border-t border-dashed border-hud-border flex flex-wrap items-center gap-x-1.5 gap-y-[5px]">
-          <span className="text-[10.5px] text-hud-muted font-medium mr-0.5">{toolRowLabel}</span>
+        <div className="pt-2 border-t border-hud-hairline flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-hud text-hud-muted font-medium mr-0.5">{toolRowLabel}</span>
           {shownTools.map((item, idx) => {
             const usedPct = (item.tokens / denomUsed) * 100;
             const winPct = limit > 0 ? (item.tokens / limit) * 100 : 0;
@@ -326,49 +481,6 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
               <span className="text-hud-muted">{fmtNum(restSum)}</span>
             </span>
           )}
-        </div>
-      )}
-
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-hud-muted">
-        {segs.map((seg, i) => {
-          if (seg.hideZero && seg.tok <= 0) return null;
-          const valStr = hasContext ? `${fmtNum(seg.tok)}${seg.extra || ''}` : '--';
-          return (
-            <span key={`${seg.name}:${i}`} className="inline-flex items-center gap-1">
-              <span className={`inline-block w-2 h-2 rounded-[2px] shrink-0 ${seg.cls}`} />
-              <span>{seg.name}</span>
-              <strong className="text-hud-fg font-semibold">{valStr}</strong>
-            </span>
-          );
-        })}
-        <span className="ml-auto inline-flex items-center gap-1">
-          <span className="inline-block w-2 h-2 rounded-[2px] shrink-0 seg-free" />
-          <span>{t.kFree}</span>
-          <strong className="text-hud-fg font-semibold">{freeStr}</strong>
-        </span>
-      </div>
-
-      {hasBreakdown && latest && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px] text-hud-muted font-hud-mono tabular-nums">
-          <span>{t.ctxTurnLabel}:</span>
-          <span>
-            {t.kCache}{' '}
-            <strong className="text-hud-fg font-semibold">
-              {fmtNum(latest.cachedInput)}
-              {cPctStr}
-            </strong>
-          </span>
-          <span>
-            {t.kIn} <strong className="text-hud-fg font-semibold">{fmtNum(latest.newInput)}</strong>
-          </span>
-          <span>
-            {t.kThk}{' '}
-            <strong className="text-hud-fg font-semibold">{fmtNum(latest.thinkingTokens)}</strong>
-          </span>
-          <span>
-            {t.kOut}{' '}
-            <strong className="text-hud-fg font-semibold">{fmtNum(latest.candidateTokens)}</strong>
-          </span>
         </div>
       )}
     </section>
