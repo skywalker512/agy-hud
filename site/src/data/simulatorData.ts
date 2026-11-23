@@ -57,54 +57,66 @@ export interface SimCallPoint {
   tools: Array<{ name: string; args: Record<string, unknown>; ms: number }>;
 }
 
+export interface SimCacheTtlModel {
+  family: string;
+  label: string;
+  kindEn: string;
+  kindZh: string;
+  p80Label: string;
+  p50Label: string;
+  bgMissPct: string;
+  longGaps: number;
+  buckets: Array<{ label: string; obs: number | null; pred: number }>;
+}
+
 export const SIM_SWARM_WORKERS: SimSwarmWorker[] = [
   {
-    rosterName: 'researcher',
-    state: 'working',
-    workspace: 'inherit',
-    model: 'gemini-4-carbon',
-    taskEn: 'Benchmark competitor HUDs, swarm telemetry & waterfall UX',
-    taskZh: '对标竞品 HUD、Swarm 遥测与瀑布图交互规范',
-    calls: 12,
-    outTokens: '14.8k',
-    costUsd: '$0.42',
-    quota5h: '-0.29%',
-    lastPostSeq: 22,
-    lastPostEn: 'Published research_spec.md with 8 killer differentiators',
-    lastPostZh: '已发布 research_spec.md，梳理 8 项核心差异化优势',
-    updatedAt: '00:02:18',
-  },
-  {
-    rosterName: 'trend-viz',
+    rosterName: 'hud-ui',
     state: 'working',
     workspace: 'share',
     model: 'gemini-4-carbon',
-    taskEn: 'Implement minimap brush, drag-to-zoom & 0ms crosshair',
-    taskZh: '实现缩略图刷选、拖拽缩放与 0ms 十字准线',
-    calls: 19,
-    outTokens: '26.1k',
-    costUsd: '$0.78',
-    quota5h: '-0.51%',
+    taskEn: 'Layered borderless cards, hatched runway bar & 2-col X-Ray',
+    taskZh: '无边框分层卡片、斜线续航条与双列上下文 X 光',
+    calls: 17,
+    outTokens: '21.4k',
+    costUsd: '$0.64',
+    quota5h: '-0.44%',
     lastPostSeq: 24,
-    lastPostEn: 'Minimap brush + Follow Live state machine passing 65 tests',
-    lastPostZh: '缩略图刷选与 Follow Live 状态机已通过 65 项测试',
-    updatedAt: '00:03:09',
+    lastPostEn: 'Switched L2 wells to recessed luminance; zero clipping at 240px',
+    lastPostZh: 'L2 内嵌指标已改为柔和低对比凹槽，240px 窄栏零截断',
+    updatedAt: '00:02:41',
   },
   {
-    rosterName: 'inspector',
+    rosterName: 'hud-backend',
+    state: 'working',
+    workspace: 'share',
+    model: 'gemini-4-carbon',
+    taskEn: 'Additive 52w Iceberg token split & finer MCP context breakdown',
+    taskZh: '52 周冰山图新旧 Token 拆分与细粒度 MCP 上下文剖析',
+    calls: 14,
+    outTokens: '16.9k',
+    costUsd: '$0.51',
+    quota5h: '-0.35%',
+    lastPostSeq: 23,
+    lastPostEn: 'Added days52 + newTokens/cachedTokens; 68/68 unit tests green',
+    lastPostZh: '已新增 days52 与新旧 Token 字段，68/68 项单元测试通过',
+    updatedAt: '00:01:58',
+  },
+  {
+    rosterName: 'verifier',
     state: 'waiting',
     workspace: 'inherit',
     model: 'gemini-3.8-flash-k',
-    taskEn: 'Audit Node 22.18+ contract, zip-slip defense & UI build',
-    taskZh: '审计 Node 22.18+ 契约、路径穿越防护与 UI 构建',
+    taskEn: 'Retina 2x visual verification across Dark/Light & narrow panes',
+    taskZh: 'Retina 2x 深浅双色与窄栏布局自动化视觉验收',
     calls: 7,
-    outTokens: '5.4k',
+    outTokens: '5.8k',
     costUsd: '$0.09',
     quota5h: '-0.06%',
-    lastPostSeq: 23,
-    lastPostEn: 'PASS: zero runtime deps, atomic rollback & allowlist verified',
-    lastPostZh: '通过：零运行时依赖、原子回滚与白名单校验全部达标',
-    updatedAt: '00:01:44',
+    lastPostSeq: 22,
+    lastPostEn: 'Capture harness ready; awaiting branch merge for final matrix',
+    lastPostZh: '高清截图框架已就绪，等待分支合并后执行全矩阵验收',
+    updatedAt: '00:01:12',
   },
 ];
 
@@ -113,132 +125,277 @@ export const SIM_CONTEXT_SEGMENTS: SimContextSegment[] = [
     id: 'sys',
     labelEn: 'Sys Prompt',
     labelZh: '系统提示词',
-    tokens: 14800,
-    pct: 5.8,
+    tokens: 14600,
+    pct: 5.7,
     colorVar: 'var(--seg-input)',
-    detailEn: '14.8k tok · 100% prefix cached',
-    detailZh: '14.8k tok · 100% 前缀命中缓存',
+    detailEn: '14.6k tok · 100% prefix cached',
+    detailZh: '14.6k tok · 100% 前缀命中缓存',
   },
   {
     id: 'defs',
     labelEn: 'Tool Defs',
     labelZh: '工具定义',
-    tokens: 21400,
-    pct: 8.4,
+    tokens: 22100,
+    pct: 8.6,
     colorVar: 'var(--seg-think)',
-    detailEn: '21.4k tok · 16 MCP & built-in schemas',
-    detailZh: '21.4k tok · 16 个内置与 MCP 工具定义',
+    detailEn: '22.1k tok · 16 MCP & built-in schemas',
+    detailZh: '22.1k tok · 16 个内置与 MCP 工具定义',
   },
   {
     id: 'tools',
     labelEn: 'Tool Results',
     labelZh: '工具输出',
-    tokens: 74200,
-    pct: 29.0,
+    tokens: 71800,
+    pct: 28.0,
     colorVar: 'var(--seg-out)',
-    detailEn: '74.2k tok · read_file 41.2k · run_command 19.6k · edit_file 13.4k',
-    detailZh: '74.2k tok · read_file 41.2k · run_command 19.6k · edit_file 13.4k',
+    detailEn: '71.8k tok · read_file 39.4k · run_command 18.8k · edit_file 13.6k',
+    detailZh: '71.8k tok · read_file 39.4k · run_command 18.8k · edit_file 13.6k',
   },
   {
     id: 'replies',
     labelEn: 'Model Replies',
     labelZh: '模型回复',
-    tokens: 22900,
-    pct: 8.9,
+    tokens: 24300,
+    pct: 9.5,
     colorVar: 'var(--seg-cache)',
-    detailEn: '22.9k tok · visible responses & reasoning summaries',
-    detailZh: '22.9k tok · 可见回复与推理摘要',
+    detailEn: '24.3k tok · visible responses & reasoning summaries',
+    detailZh: '24.3k tok · 可见回复与推理摘要',
   },
   {
     id: 'user',
     labelEn: 'User / Ckpt',
     labelZh: '用户 / 检查点',
-    tokens: 9100,
+    tokens: 8900,
     pct: 3.5,
     colorVar: 'var(--muted)',
-    detailEn: '9.1k tok · user turns & compaction checkpoint',
-    detailZh: '9.1k tok · 用户输入与压缩检查点',
+    detailEn: '8.9k tok · user prompts & compaction checkpoint',
+    detailZh: '8.9k tok · 用户输入与压缩检查点',
   },
 ];
 
-// Deterministic 60-call session trace for the Calls tab simulator
-function generateSessionCalls(): SimCallPoint[] {
-  const calls: SimCallPoint[] = [];
-  let ctx = 12.4;
-  for (let i = 1; i <= 60; i++) {
-    const isFlash = i % 5 === 0;
-    const isCompactAfter = i === 24 || i === 47;
-    if (i === 25) ctx = 18.2;
-    else if (i === 48) ctx = 21.5;
-    else ctx = Math.min(86.4, ctx + (isFlash ? 1.4 : 2.8) + ((i * 7) % 11) * 0.14);
+export const SIM_CACHE_TTL_MODELS: SimCacheTtlModel[] = [
+  {
+    family: 'gemini-4-carbon',
+    label: 'Gemini 4 Carbon',
+    kindEn: 'LRU Decay',
+    kindZh: 'LRU 渐进衰减',
+    p80Label: '~18m',
+    p50Label: '~26m',
+    bgMissPct: '1.1%',
+    longGaps: 38,
+    buckets: [
+      { label: '<1m', obs: 0.99, pred: 0.99 },
+      { label: '1-5m', obs: 0.96, pred: 0.97 },
+      { label: '5-10m', obs: 0.91, pred: 0.92 },
+      { label: '10-20m', obs: 0.82, pred: 0.80 },
+      { label: '20-60m', obs: 0.44, pred: 0.46 },
+      { label: '1-2h', obs: 0.14, pred: 0.15 },
+      { label: '2h+', obs: 0.04, pred: 0.05 },
+    ],
+  },
+  {
+    family: 'claude-sonnet-4-6',
+    label: 'Claude Sonnet 4.6',
+    kindEn: 'Hard 5m TTL',
+    kindZh: '5 分钟硬过期',
+    p80Label: '~4m 20s',
+    p50Label: '~5m 02s',
+    bgMissPct: '0.9%',
+    longGaps: 24,
+    buckets: [
+      { label: '<1m', obs: 0.99, pred: 0.99 },
+      { label: '1-5m', obs: 0.96, pred: 0.95 },
+      { label: '5-10m', obs: 0.08, pred: 0.07 },
+      { label: '10-20m', obs: 0.02, pred: 0.01 },
+      { label: '20-60m', obs: 0.0, pred: 0.0 },
+      { label: '1-2h', obs: null, pred: 0.0 },
+      { label: '2h+', obs: null, pred: 0.0 },
+    ],
+  },
+];
 
-    const wave = Math.sin(i * 0.42) * 11 + Math.cos(i * 0.19) * 6;
-    const isBuf = i === 18 || i === 41;
-    const isToolStall = i === 33 || i === 54;
-    const genTps = Number((isFlash ? 128 + wave * 0.7 : 91 + wave).toFixed(1));
-    const ttftSec = Number(
-      (
-        (isToolStall ? 4.4 : i === 25 || i === 48 ? 2.9 : 1.15) +
-        ((i * 13) % 9) * 0.14
+// Deterministic PRNG (Mulberry32) for organic, non-sinusoidal LLM telemetry variance
+function makeRng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Organic 60-call engineering session trace:
+// - Realistic model switching (Carbon main coding, Flash-K quick reads/verifies, occasional Sonnet review)
+// - Non-uniform TPS jitter (no sine wave), realistic cold-prefix / heavy-think TTFT spikes
+// - Tool-heavy TC-WAIT turns, 2 BUF single-packet responses, 1 realistic compaction drop at call #34
+function generateOrganicSessionCalls(): SimCallPoint[] {
+  const rand = makeRng(20260419);
+  const gauss = () => {
+    const u = Math.max(1e-6, rand());
+    const v = rand();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  };
+
+  // Realistic model schedule (clusters of Carbon coding turns, occasional Flash-K tool bursts, brief Sonnet audit)
+  const flashTurns = new Set([4, 9, 10, 17, 23, 28, 35, 36, 44, 51, 56]);
+  const sonnetTurns = new Set([19, 20, 41, 42]);
+  const slowTtftTurns = new Set([1, 14, 34, 49]);
+  const toolStallTurns = new Set([26, 54]);
+  const bufTurns = new Set([17, 44]);
+
+  const toolBank: Array<Array<{ name: string; args: Record<string, unknown>; ms: number }>> = [
+    [
+      { name: 'read_file', args: { Path: 'web/src/styles/app.css', StartLine: 1, EndLine: 180 }, ms: 14 },
+      { name: 'read_file', args: { Path: 'web/src/hooks/useThemeSync.ts', StartLine: 1, EndLine: 120 }, ms: 11 },
+    ],
+    [
+      { name: 'edit_file', args: { Path: 'web/src/components/live/ContextWindowCard.tsx', Target: 'ctx-legend' }, ms: 22 },
+    ],
+    [
+      { name: 'run_command', args: { CommandLine: 'npm run build --prefix web' }, ms: 1420 },
+    ],
+    [
+      { name: 'read_file', args: { Path: 'plugin/sidecars/hud_panel/lib/cache-ttl.ts', StartLine: 150, EndLine: 320 }, ms: 16 },
+      { name: 'edit_file', args: { Path: 'plugin/sidecars/hud_panel/lib/telemetry.ts', Target: 'activityHeatmap' }, ms: 29 },
+    ],
+    [
+      { name: 'run_command', args: { CommandLine: 'node --test plugin/sidecars/hud_panel/test/*.test.ts' }, ms: 618 },
+    ],
+  ];
+
+  const calls: SimCallPoint[] = [];
+  let ctx = 14.2;
+  let elapsedSec = 0;
+
+  for (let i = 1; i <= 60; i++) {
+    const isFlash = flashTurns.has(i);
+    const isSonnet = sonnetTurns.has(i);
+    const isCompactAfter = i === 33;
+    const isPostCompact = i === 34;
+    const isToolStall = toolStallTurns.has(i);
+    const isBuf = bufTurns.has(i);
+
+    if (isPostCompact) {
+      ctx = 19.4;
+    } else if (i > 1) {
+      const growth = isFlash
+        ? 0.7 + rand() * 1.1
+        : isToolStall
+          ? 4.2 + rand() * 1.9
+          : 1.5 + rand() * 2.4;
+      ctx = Math.min(84.8, ctx + growth);
+    }
+
+    // Organic TPS: model baseline + skewed realistic jitter + subtle context-load drag
+    const ctxDrag = (ctx / 100) * 8.5;
+    let genTps: number;
+    if (isFlash) {
+      genTps = 132 + gauss() * 9.5 - ctxDrag * 0.4;
+      genTps = Math.max(112, Math.min(151, genTps));
+    } else if (isSonnet) {
+      genTps = 67 + gauss() * 6.2 - ctxDrag * 0.35;
+      genTps = Math.max(54, Math.min(82, genTps));
+    } else {
+      genTps = 95 + gauss() * 9.8 - ctxDrag;
+      if (i === 14 || i === 49) genTps -= 11.4; // momentary backend load dip
+      genTps = Math.max(68, Math.min(118, genTps));
+    }
+    genTps = Number(genTps.toFixed(1));
+
+    // Realistic TTFT with occasional cold-cache / heavy-prompt spikes
+    let ttftSec: number;
+    if (i === 1) {
+      ttftSec = 3.42;
+    } else if (isPostCompact) {
+      ttftSec = 3.86;
+    } else if (isToolStall) {
+      ttftSec = 2.15 + rand() * 0.85;
+    } else if (slowTtftTurns.has(i)) {
+      ttftSec = 3.6 + rand() * 1.65;
+    } else if (isFlash) {
+      ttftSec = 0.58 + rand() * 0.48;
+    } else {
+      ttftSec = 1.08 + Math.abs(gauss()) * 0.55 + (ctx / 100) * 0.45;
+    }
+    ttftSec = Number(ttftSec.toFixed(2));
+
+    const thinkSec = Number(
+      (isFlash
+        ? 0.32 + rand() * 0.55
+        : isSonnet
+          ? 2.4 + rand() * 2.8
+          : 1.3 + rand() * 3.1 + (i === 14 || i === 49 ? 2.1 : 0)
       ).toFixed(2),
     );
-    const thinkSec = Number((isFlash ? 0.65 : 2.1 + ((i * 5) % 8) * 0.42).toFixed(2));
-    const toolGenSec = Number((isToolStall ? 3.85 : 0.7 + ((i * 3) % 6) * 0.24).toFixed(2));
-    const streamSec = Number((1.1 + ((i * 11) % 7) * 0.34).toFixed(2));
+    const toolGenSec = Number(
+      (isToolStall
+        ? 3.15 + rand() * 1.15
+        : isBuf
+          ? 0.14
+          : 0.42 + rand() * 1.35
+      ).toFixed(2),
+    );
+    const streamSec = Number(
+      (isBuf ? 0.18 : 0.78 + rand() * 2.35).toFixed(2),
+    );
     const totalSec = ttftSec + thinkSec + toolGenSec + streamSec;
 
-    const thinkTok = Math.round(thinkSec * genTps * 0.85);
-    const visTok = Math.round((streamSec + toolGenSec * 0.5) * genTps);
-    const totalOut = Math.max(80, thinkTok + visTok);
-    const e2eTps = Number((totalOut / Math.max(0.4, totalSec)).toFixed(1));
+    const thinkTok = Math.round(thinkSec * genTps * (isFlash ? 0.45 : 0.78));
+    const visTok = Math.max(48, Math.round((streamSec + toolGenSec * 0.55) * genTps));
+    const totalOut = thinkTok + visTok;
+    const e2eTps = Number((totalOut / Math.max(0.35, totalSec)).toFixed(1));
 
-    const cachePct = Number(
-      (
-        i === 1 || i === 25 || i === 48
-          ? 44.8 + (i % 7) * 1.4
-          : Math.min(98.4, 88.2 + ((i * 17) % 10) * 1.02)
-      ).toFixed(1),
-    );
+    // Realistic cache hit curve: cold on turn 1 & post-compaction, brief dip on model switch, 91-98% steady state
+    let cachePct: number;
+    if (i === 1) {
+      cachePct = 42.6;
+    } else if (isPostCompact) {
+      cachePct = 47.3;
+    } else if (i === 19 || i === 41) {
+      cachePct = 61.8 + rand() * 7.2; // model family switch
+    } else if (i === 14) {
+      cachePct = 71.4; // minor prefix churn after idle pause
+    } else {
+      cachePct = Math.min(98.2, Math.max(84.5, 93.4 + gauss() * 2.6));
+    }
+    cachePct = Number(cachePct.toFixed(1));
 
     const totalPrompt = Math.round((ctx / 100) * 256_000);
     const cachedTok = Math.round((totalPrompt * cachePct) / 100);
-    const newInputTok = Math.max(420, totalPrompt - cachedTok);
-    const costUsd = Number((isFlash ? 0.008 + (i % 5) * 0.002 : 0.032 + (ctx / 100) * 0.034).toFixed(3));
-    const savedUsd = Number(((cachedTok / 1_000_000) * (isFlash ? 0.3 : 3.2)).toFixed(2));
-    const kMult = isFlash ? 0.4 : 3.0;
-    const quota5h = Number((costUsd * kMult * 1.45).toFixed(2));
+    const newInputTok = Math.max(380, totalPrompt - cachedTok);
 
-    const mins = Math.floor(i * 0.75);
-    const secs = (i * 19) % 60;
-    const time = `14:${String(10 + mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    const kMult = isFlash ? 0.4 : isSonnet ? 2.4 : 3.0;
+    const costUsd = Number(
+      (isFlash
+        ? 0.006 + (totalPrompt / 256_000) * 0.008
+        : isSonnet
+          ? 0.028 + (totalPrompt / 256_000) * 0.036
+          : 0.026 + (totalPrompt / 256_000) * 0.039
+      ).toFixed(3),
+    );
+    const savedUsd = Number(((cachedTok / 1_000_000) * (isFlash ? 0.32 : 3.15)).toFixed(2));
+    const quota5h = Number((costUsd * kMult * 1.42).toFixed(2));
 
-    const tools =
-      i % 2 === 0
-        ? [
-            {
-              name: 'read_file',
-              args: { Path: 'plugin/sidecars/hud_panel/lib/swarm.ts', StartLine: 1, EndLine: 160 },
-              ms: 18,
-            },
-            {
-              name: 'edit_file',
-              args: { Path: 'web/src/components/calls/TrendChartCard.tsx', Target: 'slice(-32)' },
-              ms: 24,
-            },
-          ]
-        : [
-            {
-              name: 'run_command',
-              args: { CommandLine: 'node --test plugin/sidecars/hud_panel/test/*.test.ts' },
-              ms: 412,
-            },
-          ];
+    elapsedSec += Math.round(totalSec + 9 + rand() * 34);
+    const baseMin = 14 * 60 + 8;
+    const totalMin = baseMin + Math.floor(elapsedSec / 60);
+    const hh = String(Math.floor(totalMin / 60) % 24).padStart(2, '0');
+    const mm = String(totalMin % 60).padStart(2, '0');
+    const ss = String(elapsedSec % 60).padStart(2, '0');
+
+    const model = isFlash
+      ? 'gemini-3.8-flash-k'
+      : isSonnet
+        ? 'claude-sonnet-4-6'
+        : 'gemini-4-carbon';
+    const shortModel = isFlash ? 'Flash-K' : isSonnet ? 'Sonnet' : 'Carbon';
 
     calls.push({
       idx: i,
-      time,
-      model: isFlash ? 'gemini-3.8-flash-k' : 'gemini-4-carbon',
-      shortModel: isFlash ? 'Flash-K' : 'Carbon',
+      time: `${hh}:${mm}:${ss}`,
+      model,
+      shortModel,
       genTps,
       e2eTps,
       ttftSec,
@@ -258,13 +415,14 @@ function generateSessionCalls(): SimCallPoint[] {
       isBuf,
       isToolStall,
       isCompactAfter,
-      tools,
+      tools: toolBank[(i + (isToolStall ? 2 : 0)) % toolBank.length],
     });
   }
+
   return calls;
 }
 
-export const SIM_CALLS: SimCallPoint[] = generateSessionCalls();
+export const SIM_CALLS: SimCallPoint[] = generateOrganicSessionCalls();
 
 export interface HeatmapDay {
   week: number;
@@ -272,10 +430,13 @@ export interface HeatmapDay {
   date: string;
   level: 0 | 1 | 2 | 3 | 4;
   tokensM: number;
+  newTokensM: number;
+  cachedTokensM: number;
   costUsd: number;
 }
 
 function generateHeatmap(): HeatmapDay[] {
+  const rand = makeRng(90421);
   const days: HeatmapDay[] = [];
   const start = new Date('2026-08-03T00:00:00Z');
   for (let w = 0; w < 16; w++) {
@@ -284,17 +445,22 @@ function generateHeatmap(): HeatmapDay[] {
       const dt = new Date(start.getTime() + idx * 86_400_000);
       const iso = dt.toISOString().slice(0, 10);
       const isWeekend = d === 5 || d === 6;
-      const hash = ((idx * 37 + w * 13 + d * 7) % 19);
+      const r = rand();
       let level: 0 | 1 | 2 | 3 | 4 = 0;
       if (isWeekend) {
-        level = hash > 14 ? 2 : hash > 10 ? 1 : 0;
+        level = r > 0.78 ? 2 : r > 0.56 ? 1 : 0;
       } else {
-        level = hash > 14 ? 4 : hash > 9 ? 3 : hash > 4 ? 2 : hash > 1 ? 1 : 0;
+        level = r > 0.78 ? 4 : r > 0.52 ? 3 : r > 0.24 ? 2 : r > 0.08 ? 1 : 0;
       }
-      if (w >= 14 && !isWeekend) level = (Math.min(4, Math.max(2, level + 1)) as 2 | 3 | 4);
-      const tokensM = level === 0 ? 0 : Number((level * 1.35 + (hash % 4) * 0.28).toFixed(1));
-      const costUsd = level === 0 ? 0 : Number((tokensM * 0.62).toFixed(2));
-      days.push({ week: w, day: d, date: iso, level, tokensM, costUsd });
+      if (w >= 13 && !isWeekend && level < 2) level = 2;
+      if (w === 15 && (d === 2 || d === 3)) level = 4;
+
+      const tokensM = level === 0 ? 0 : Number((level * 1.45 + rand() * 1.1).toFixed(1));
+      const cacheShare = 0.78 + rand() * 0.14;
+      const cachedTokensM = level === 0 ? 0 : Number((tokensM * cacheShare).toFixed(1));
+      const newTokensM = level === 0 ? 0 : Number(Math.max(0.1, tokensM - cachedTokensM).toFixed(1));
+      const costUsd = level === 0 ? 0 : Number((newTokensM * 1.95 + cachedTokensM * 0.24).toFixed(2));
+      days.push({ week: w, day: d, date: iso, level, tokensM, newTokensM, cachedTokensM, costUsd });
     }
   }
   return days;
@@ -302,4 +468,6 @@ function generateHeatmap(): HeatmapDay[] {
 
 export const SIM_HEATMAP: HeatmapDay[] = generateHeatmap();
 
-export const SIM_LIVE_SPARKLINE_BASE = [78.2, 84.5, 81.0, 89.4, 92.1, 87.6, 95.8, 94.6];
+// Organic live trailing GEN TPS points (natural variance, never sinusoidal)
+export const SIM_LIVE_SPARKLINE_BASE = [84.2, 91.6, 79.4, 88.9, 102.3, 94.1, 86.7, 97.4, 93.8, 96.2];
+export const SIM_LIVE_TICK_STREAM = [93.4, 98.1, 89.7, 95.6, 101.2, 91.8, 94.5, 87.9, 96.8, 92.3];

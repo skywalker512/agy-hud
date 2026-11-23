@@ -17,20 +17,18 @@ export function detectInitialLocale(): Locale {
     const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
     if (saved === 'en' || saved === 'zh') return saved;
   } catch {
-    /* ignore storage errors */
+    /* ignore */
   }
 
   try {
-    const langs = Array.isArray(navigator.languages) && navigator.languages.length > 0
-      ? navigator.languages
-      : [navigator.language || ''];
+    const langs =
+      Array.isArray(navigator.languages) && navigator.languages.length > 0
+        ? navigator.languages
+        : [navigator.language || ''];
     for (const raw of langs) {
       const lower = String(raw || '').toLowerCase();
       if (lower.startsWith('zh')) return 'zh';
-      if (lower.startsWith('en')) {
-        // If user explicitly puts English first, still check timezone only when no explicit lang preference
-        return 'en';
-      }
+      if (lower.startsWith('en')) return 'en';
     }
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (tz && ZH_TIMEZONES.has(tz)) return 'zh';
@@ -50,10 +48,8 @@ export function saveLocale(locale: Locale): void {
 
 export interface SiteCopy {
   nav: {
-    features: string;
-    swarm: string;
-    inspector: string;
-    compare: string;
+    tour: string;
+    craft: string;
     install: string;
     docs: string;
     github: string;
@@ -61,23 +57,25 @@ export interface SiteCopy {
     themeDark: string;
   };
   hero: {
-    eyebrow: string;
+    badge: string;
     headline: string;
     subhead: string;
     primaryCta: string;
     secondaryCta: string;
     interactiveHint: string;
-    doctorTip: string;
-    licenseTip: string;
+    trustItems: string[];
     copied: string;
     copy: string;
     autoDetected: string;
+    doctorTip: string;
+    licenseTip: string;
     tabs: {
       unix: string;
       windows: string;
-      source: string;
-      devlink: string;
+      agent: string;
+      manual: string;
     };
+    agentHint: string;
   };
   sim: {
     paneTitle: string;
@@ -90,32 +88,27 @@ export interface SiteCopy {
     live: {
       genLabel: string;
       e2eLabel: string;
-      vsAvg: string;
       sustained: string;
       inclTtft: string;
       ctxTitle: string;
       ctxHeadroom: string;
-      ctxCacheAge: string;
-      hoverSegment: string;
+      cacheSafeLabel: string;
+      cachePenaltyTip: string;
       swarmTitle: string;
       swarmWorking: string;
       swarmWaiting: string;
       swarmRollup: string;
       swarmBoard: string;
-      clickWorkerHint: string;
       lastPost: string;
     };
     calls: {
       trendTitle: string;
-      callsUnit: string;
-      viewingRange: string;
       followLive: string;
       latest: string;
       avg: string;
       p95: string;
       peak: string;
       brushHint: string;
-      inspectorTitle: string;
       tabOverview: string;
       tabTools: string;
       tabRaw: string;
@@ -137,92 +130,108 @@ export interface SiteCopy {
       quotaTitle: string;
       win5h: string;
       win7d: string;
+      left: string;
+      projectedBurn: string;
       resetsIn: string;
       runwayEta: string;
+      ttlTitle: string;
+      ttlSafe: string;
+      ttlHalf: string;
+      ttlBg: string;
       rulesTitle: string;
       oosErr: string;
       remoteGap: string;
-      heatmapTitle: string;
+      activityTitle: string;
+      modeHeatmap: string;
+      modeIceberg: string;
       heatmapSub: string;
-      hoverDayHint: string;
+      icebergLegendNew: string;
+      icebergLegendCached: string;
       updateTitle: string;
       updateInstalled: string;
       updateAvail: string;
-      checkBtn: string;
       updateBtn: string;
       updating: string;
       updatedOk: string;
-      reloadNote: string;
     };
   };
-  proof: Array<{
-    value: string;
-    label: string;
-    sub: string;
-  }>;
-  bento: {
+  craft: {
     kicker: string;
     title: string;
     subtitle: string;
-    flagshipBadge: string;
+    items: Array<{
+      id: string;
+      tag: string;
+      title: string;
+      desc: string;
+      detail: string;
+    }>;
+  };
+  tour: {
+    kicker: string;
+    title: string;
+    subtitle: string;
     cards: {
+      contextCache: {
+        eyebrow: string;
+        title: string;
+        desc: string;
+        headroom: string;
+        cacheSafe: string;
+        missPenalty: string;
+      };
       swarm: {
+        eyebrow: string;
         title: string;
         desc: string;
         bullets: string[];
       };
-      modelSpeed: {
+      waterfall: {
+        eyebrow: string;
+        title: string;
+        desc: string;
+        bullets: string[];
+      };
+      runway: {
+        eyebrow: string;
+        title: string;
+        desc: string;
+        oosBadge: string;
+        projectedLabel: string;
+      };
+      routedModel: {
+        eyebrow: string;
         title: string;
         desc: string;
         uiAlias: string;
         actualRouted: string;
       };
-      contextXray: {
-        title: string;
-        desc: string;
-        headroom: string;
-        cacheFresh: string;
-      };
-      waterfall: {
-        title: string;
-        desc: string;
-        bullets: string[];
-      };
-      quotaFitter: {
-        title: string;
-        desc: string;
-        oosBadge: string;
-      };
-      multiStore: {
+      ledger: {
+        eyebrow: string;
         title: string;
         desc: string;
         cacheSaved: string;
+        newLabel: string;
+        cachedLabel: string;
       };
     };
   };
-  arch: {
+  installGuide: {
     kicker: string;
     title: string;
     subtitle: string;
-    sourcesTitle: string;
-    src1Title: string;
-    src1Sub: string;
-    src2Title: string;
-    src2Sub: string;
-    src3Title: string;
-    src3Sub: string;
-    coreTitle: string;
-    coreSub: string;
-    coreBadge: string;
-    uiTitle: string;
-    uiSub: string;
-    uiBadge: string;
-    readOnlyLabel: string;
-    etagLabel: string;
-    pillars: Array<{
+    reassurance: Array<{
       title: string;
       desc: string;
     }>;
+    steps: Array<{
+      num: string;
+      title: string;
+      desc: string;
+      cmd: string;
+    }>;
+    doctorTitle: string;
+    doctorSubtitle: string;
   };
   compare: {
     kicker: string;
@@ -236,19 +245,6 @@ export interface SiteCopy {
       cliAgg: string;
       statusline: string;
     }>;
-  };
-  installGuide: {
-    kicker: string;
-    title: string;
-    subtitle: string;
-    steps: Array<{
-      num: string;
-      title: string;
-      desc: string;
-      cmd: string;
-    }>;
-    doctorTitle: string;
-    doctorSubtitle: string;
   };
   docs: {
     kicker: string;
@@ -280,89 +276,90 @@ export interface SiteCopy {
     repoLink: string;
     releasesLink: string;
     issuesLink: string;
+    changelogLink: string;
   };
 }
 
 export const COPY: Record<Locale, SiteCopy> = {
   en: {
     nav: {
-      features: 'Features',
-      swarm: 'Swarm',
-      inspector: 'Inspector',
-      compare: 'Compare',
+      tour: 'Tour',
+      craft: 'Craft',
       install: 'Install',
       docs: 'Docs',
       github: 'GitHub',
-      themeLight: 'Switch to light theme',
-      themeDark: 'Switch to dark theme',
+      themeLight: 'Switch to light mode',
+      themeDark: 'Switch to dark mode',
     },
     hero: {
-      eyebrow: 'Zero-Proxy · Native Swarm Telemetry · Node 22.18+ node:sqlite',
-      headline: 'Mission control for Google Antigravity.',
+      badge: 'v1.2 · Official Antigravity Side-Pane Plugin',
+      headline: 'Real-time telemetry, built right into Antigravity.',
       subhead:
-        'Live GEN vs E2E speed, TTFT waterfalls, actual routed model IDs (f19), context window X-ray, calibrated 5h/7d quota runway, and first-class native multi-agent Swarm observability — zero proxy, zero runtime deps.',
-      primaryCta: 'Install in 10 seconds',
-      secondaryCta: 'Explore Docs',
-      interactiveHint: 'Interactive Side-Pane Simulator — click tabs, brush ranges, workers & waterfall',
-      doctorTip: 'Verify environment with node plugin/install.mjs --doctor',
-      licenseTip: 'MIT License · macOS / Linux / Windows',
+        'See true generation speed, prompt cache survival, context pressure, 5h/7d quota runway, and multi-agent Swarms without ever leaving your workspace — 100% local and read-only.',
+      primaryCta: 'Install in 10s',
+      secondaryCta: 'Explore the craft',
+      interactiveHint: 'Live interactive preview — switch tabs, scrub history, inspect calls & workers',
+      trustItems: [
+        'Pure Official Sidecar',
+        'Zero CDP or Patching',
+        '100% Local Read-Only',
+        'Syncs Native Antigravity Theme',
+      ],
       copied: 'Copied',
       copy: 'Copy',
-      autoDetected: 'Detected',
+      autoDetected: 'Recommended',
+      doctorTip: 'Verify anytime with node plugin/install.mjs --doctor',
+      licenseTip: 'MIT · Node 22.18+ · Zero runtime deps',
       tabs: {
         unix: 'macOS / Linux',
-        windows: 'Windows (PowerShell)',
-        source: 'Source (Node)',
-        devlink: 'Dev Link',
+        windows: 'Windows',
+        agent: 'AI Agent',
+        manual: 'Manual',
       },
+      agentHint: 'Paste into Antigravity or any coding agent — reads AGENTS.md and verifies with --doctor.',
     },
     sim: {
       paneTitle: 'AGY-HUD',
-      sessionName: 'Swarm: Commercial Upgrade',
-      statusGen: 'GEN',
+      sessionName: 'Swarm: Visual Craft',
+      statusGen: 'GEN · 1.2s',
       tabLive: 'Live',
       tabCalls: 'Calls',
       tabAccount: 'Account',
       shortcutHint: 'Keys 1 · 2 · 3',
       live: {
-        genLabel: 'GEN SPEED',
-        e2eLabel: 'E2E SPEED',
-        vsAvg: 'vs avg',
-        sustained: 'Post-TTFT stream',
-        inclTtft: 'Incl. TTFT 1.38s',
-        ctxTitle: 'CONTEXT WINDOW X-RAY',
-        ctxHeadroom: '~14t headroom',
-        ctxCacheAge: 'Cache 42s fresh',
-        hoverSegment: 'Hover any segment to inspect token footprint',
-        swarmTitle: 'SWARM COCKPIT',
+        genLabel: 'GEN Speed',
+        e2eLabel: 'E2E Speed',
+        sustained: 'Post-TTFT sustained',
+        inclTtft: 'Incl. TTFT 1.24s',
+        ctxTitle: 'Context Window',
+        ctxHeadroom: '~14 turns left',
+        cacheSafeLabel: 'Cache 94% · ~18m safe (P80)',
+        cachePenaltyTip: 'P50 ~26m · miss penalty $0.14 / 0.31% 5h',
+        swarmTitle: 'Swarm Cockpit',
         swarmWorking: '2 working',
         swarmWaiting: '1 waiting',
-        swarmRollup: '38 calls · 46.3k out · $1.29 · 5h -0.86%',
+        swarmRollup: '38 calls · 44.1k out · $1.24 · 5h -0.85%',
         swarmBoard: 'Board #24',
-        clickWorkerHint: 'Click a worker to inspect task & latest board post',
         lastPost: 'Latest post',
       },
       calls: {
-        trendTitle: 'CALL TREND',
-        callsUnit: 'calls',
-        viewingRange: 'Viewing',
+        trendTitle: 'Session Trend',
         followLive: 'Follow Live',
-        latest: 'LATEST',
-        avg: 'AVG',
+        latest: 'Latest',
+        avg: 'Avg',
         p95: 'P95',
-        peak: 'PEAK',
-        brushHint: 'Click minimap to pan · Click plot to inspect call',
-        inspectorTitle: 'CALL INSPECTOR',
+        peak: 'Peak',
+        brushHint: 'Drag minimap to scrub · Click chart to inspect turn',
         tabOverview: 'Overview',
         tabTools: 'Tools',
         tabRaw: 'Raw',
-        waterfallTitle: 'TIMING WATERFALL',
-        tokenCompTitle: 'TOKEN & COST COMPOSITION',
+        waterfallTitle: 'Timing Waterfall',
+        tokenCompTitle: 'Token & Cost Composition',
         cached: 'Cached',
-        newInput: 'New Input',
+        newInput: 'New',
         thinking: 'Think',
         visible: 'Reply',
-        copyMd: 'MD',
+        copyMd: 'Copy MD',
         copiedMd: 'Copied',
         ttft: 'TTFT',
         think: 'Think',
@@ -371,256 +368,301 @@ export const COPY: Record<Locale, SiteCopy> = {
         saved: 'Saved',
       },
       account: {
-        quotaTitle: 'QUOTA RUNWAY',
+        quotaTitle: 'Quota Runway',
         win5h: '5h Rolling Pool',
         win7d: '7d Weekly Pool',
+        left: 'left',
+        projectedBurn: 'projected burn',
         resetsIn: 'Resets in',
-        runwayEta: 'ETA',
-        rulesTitle: 'CALIBRATED k-MULTIPLIERS',
-        oosErr: 'OOS err ±1.8%',
-        remoteGap: 'Remote gap 1.2%',
-        heatmapTitle: '16-WEEK ACTIVITY (APP + CLI)',
-        heatmapSub: '112 days · $42.80 API equiv · $18.40 cache saved',
-        hoverDayHint: 'Hover a day cell for token volume',
-        updateTitle: 'PLUGIN & SELF-UPDATE',
-        updateInstalled: 'Installed v1.2.0',
-        updateAvail: 'v1.2.1 available',
-        checkBtn: 'Check',
-        updateBtn: 'Update Now',
-        updating: 'Staging & verifying…',
-        updatedOk: 'Atomically upgraded to v1.2.1',
-        reloadNote: 'GitHub allowlist + zip-slip verified · Reload ready',
+        runwayEta: 'Runway',
+        ttlTitle: 'Prompt Cache Survival (TTL)',
+        ttlSafe: 'P80 Safe',
+        ttlHalf: 'P50 Half-life',
+        ttlBg: 'Bg Miss',
+        rulesTitle: 'IRLS k-Multipliers',
+        oosErr: 'OOS ±1.8%',
+        remoteGap: 'Remote gap 1.2% · Unified App + CLI tank',
+        activityTitle: 'Activity (App + CLI)',
+        modeHeatmap: '16w Heatmap',
+        modeIceberg: 'Token Iceberg',
+        heatmapSub: '112d · $42.80 API equiv · $18.40 cache saved',
+        icebergLegendNew: 'New tokens',
+        icebergLegendCached: 'Cached read',
+        updateTitle: 'Plugin Updates',
+        updateInstalled: 'v1.2.0 installed',
+        updateAvail: 'v1.2.1 ready',
+        updateBtn: 'Update',
+        updating: 'Verifying…',
+        updatedOk: 'Upgraded to v1.2.1',
       },
     },
-    proof: [
-      { value: '0', label: 'Runtime Dependencies', sub: 'Built-in Node 22.18+ node:sqlite + sidecar_sdk' },
-      { value: '0 ms', label: 'API Proxy Latency', sub: 'Read-only SQLite + loopback LS RPC, zero MITM' },
-      { value: '100%', label: 'Local Privacy', sub: 'Prompts & traces never leave your machine' },
-      { value: '1st', label: 'Native AGY Swarm HUD', sub: 'Reads swarm.json, members.json, plan.json & board.jsonl' },
-    ],
-    bento: {
-      kicker: 'Built for Agentic Depth',
-      title: 'Every signal Antigravity hides — surfaced in real time.',
+    craft: {
+      kicker: 'Craftsmanship',
+      title: 'Designed to disappear into Antigravity.',
       subtitle:
-        'From multi-agent swarm rosters to sub-second TTFT waterfalls and empirical quota calibration, AGY-HUD turns opaque runs into verifiable telemetry.',
-      flagshipBadge: 'Flagship · First-in-Ecosystem',
+        'Good developer instruments do not shout for attention. Every surface, curve, and fallback in AGY-HUD is engineered to feel native to your host IDE and stay mathematically honest.',
+      items: [
+        {
+          id: 'theme-sync',
+          tag: 'Native Host Parity',
+          title: 'Live Theme, Font & High-Contrast Sync',
+          desc: 'Continuously samples Antigravity’s computed CSS variables (--background, --card, --primary, --font-size) via a 1×1 luminance probe and MutationObserver — adapting automatically to Dark, Light, and strong-contrast modes.',
+          detail: 'data-theme="dark|light" · data-contrast="strong" · --hud-font-scale',
+        },
+        {
+          id: 'zero-cdp',
+          tag: 'Read-Only Safety',
+          title: 'Zero CDP, Zero Patching, Zero Proxies',
+          desc: 'Runs purely as an official Antigravity sidecar reading local SQLite (-wal) with ?mode=ro and loopback LS RPC. Launch Antigravity normally from your Dock or Start Menu — survives every Electron and app update.',
+          detail: 'No app.asar hacks · No debug ports · 0 ms inference overhead',
+        },
+        {
+          id: 'cache-ttl',
+          tag: 'Survival Modeling',
+          title: 'Empirical Prompt Cache TTL Curves',
+          desc: 'Fits a regularized per-family Log-Logistic survival curve S(t) = (1 − p0) / (1 + (t / t50)^k) from your own idle gaps — distinguishing Claude’s sharp 5-minute cliff from Gemini’s gradual LRU decay, with live miss penalty in USD & 5h quota.',
+          detail: 'P80 safe window · P50 half-life · Live expiry countdown',
+        },
+        {
+          id: 'quota-irls',
+          tag: 'Quota Calibration',
+          title: 'IRLS k-Multiplier Fitter & Hatched Runway',
+          desc: 'Calibrates per-model credit multipliers and 5h/7d tank sizes with Huber/Tukey IRLS and 6σ MAD outlier rejection, then plots your projected burn before reset directly on a hatched diagonal runway bar.',
+          detail: 'OOS error bands · Remote spend gap · Depletion ETA',
+        },
+        {
+          id: 'routed-f19',
+          tag: 'Signal Fidelity',
+          title: 'True Routed Model (f19) & BUF Filtering',
+          desc: 'Decodes Protobuf gen_metadata.f1.f19 to show the actual backend model that answered each turn, and excludes single-packet buffered turns (BUF) so sustained generation speed never exceeds peak.',
+          detail: 'Protobuf wire decoder · Separate GEN vs E2E · TC-WAIT isolation',
+        },
+        {
+          id: 'swarm-ledger',
+          tag: 'Unified Context',
+          title: 'Native Swarm Cockpit & Multi-Store Ledger',
+          desc: 'Reads Antigravity’s local Swarm files (swarm.json, members.json, plan.json, board.jsonl) with mtime caching, while auto-merging App, CLI (agy), ACP, and IDE stores into one 52-week ledger and Token Iceberg view.',
+          detail: 'Live @roster states · Coordinator breadcrumbs · App + CLI + IDE',
+        },
+      ],
+    },
+    tour: {
+      kicker: 'Feature Tour',
+      title: 'Built to help you ship faster — without surprise walls.',
+      subtitle:
+        'Spot context compactions before they wipe your working memory, catch cache cliffs before a coffee break costs you quota, and keep every multi-agent run transparent.',
       cards: {
+        contextCache: {
+          eyebrow: 'Context & Cache',
+          title: 'Avoid surprise compactions and cold-cache bills',
+          desc: 'See exactly what is filling your 256k window — from oversized read_file outputs to MCP tool schemas — alongside remaining turns before compaction and how long your prefix cache will survive.',
+          headroom: '~14 turns headroom',
+          cacheSafe: 'P80 safe: ~18m',
+          missPenalty: 'Miss penalty: $0.14 / 0.31% 5h',
+        },
         swarm: {
-          title: 'Native AGY Swarm Cockpit',
-          desc: 'Directly reads Antigravity’s local swarm files to display @rosterName, live working/waiting/killed states, plan.json task titles, thread groups, Board #seq, and rolled-up spend/quota across coordinator and workers.',
+          eyebrow: 'Multi-Agent Swarm',
+          title: 'Follow every worker without jumping between tabs',
+          desc: 'Monitor live working and waiting states for every @rosterName, see assigned plan tasks, shared worktree badges, Board #seq progress, and rolled-up spend across the entire swarm.',
           bullets: [
-            'Mtime-cached read-only parser (near-zero polling CPU)',
-            'Worker-to-coordinator reverse lookup & 1-click session jump',
-            'Aggregated swarm calls, output tokens, USD cost & 5h/7d burn',
+            'Mtime-cached read-only parser with near-zero CPU overhead',
+            'Worker-to-coordinator breadcrumbs with 1-click conversation jump',
+            'Rolled-up calls, output tokens, USD equiv, and 5h/7d burn',
           ],
-        },
-        modelSpeed: {
-          title: 'Routed Model Truth (f19) & GEN vs E2E',
-          desc: 'Prioritizes gen_metadata.f1.f19 to expose the exact backend routed model ID instead of opaque UI aliases, and isolates single-packet BUF turns so average speed never exceeds peak.',
-          uiAlias: 'UI Display Alias',
-          actualRouted: 'Actual Routed f19',
-        },
-        contextXray: {
-          title: 'Context Window X-Ray',
-          desc: 'Breaks active prompt weight into 5 buckets with per-tool token footprint, median-delta headroom turns before compaction, and live prompt cache freshness age.',
-          headroom: '~14 turns left',
-          cacheFresh: 'Cache fresh 42s',
         },
         waterfall: {
-          title: 'Historical Brush/Zoom & OpenRouter-Style Waterfall',
-          desc: 'Navigate 100+ calls effortlessly with range presets (20/50/100/All), an interactive minimap brush, canvas drag-to-zoom, Follow Live pinning, and click-to-inspect call waterfalls.',
+          eyebrow: 'Call Explorer',
+          title: 'Pinpoint why a turn felt slow in two seconds',
+          desc: 'Scrub full-session history with a minimap brush and drag-to-zoom, filter anomalies (Slow TTFT, Low Cache, TC-WAIT), and inspect proportional TTFT, Thinking, Tool Gen, and Reply waterfalls.',
           bullets: [
-            'Proportional TTFT / Think / Tool Gen (TC-WAIT) / Stream bar',
-            'Prefix Cache vs New Input & Thinking vs Visible token bar',
-            'Instant search (/), anomaly filter chips & 1-click MD/JSON export',
+            'Separates thinking time from tool-argument stalls (TC-WAIT)',
+            'Prefix Cache vs New Input & Thinking vs Visible token bars',
+            'Keyboard search (/), anomaly chips, and 1-click MD/JSON export',
           ],
         },
-        quotaFitter: {
-          title: 'Empirical k-Fitter & 5h / 7d Runway',
-          desc: 'Fits per-model k-multipliers and credit tank capacities against observed quota deltas, surfacing out-of-sample error bands, remote spend gaps, and burn-rate exhaustion ETAs.',
-          oosBadge: 'OOS Validated',
+        runway: {
+          eyebrow: 'Quota Runway',
+          title: 'Never hit a 5h limit mid-refactor',
+          desc: 'Hatched diagonal bars project how much of your 5h or 7d pool your current pace will consume before reset, backed by empirically fitted per-model k-multipliers.',
+          oosBadge: 'OOS ±1.8%',
+          projectedLabel: 'Hatched = projected burn before reset',
         },
-        multiStore: {
-          title: 'Unified App + CLI Accounting & 16-Week Heatmap',
-          desc: 'Auto-discovers sibling Antigravity App, CLI, ACP, and IDE SQLite stores via non-blocking background indexing to unify spend, cache savings, and daily intensity.',
+        routedModel: {
+          eyebrow: 'Model Truth',
+          title: 'Know which model actually answered',
+          desc: 'Surfaces the real backend model ID decoded from Protobuf f1.f19 and splits sustained GEN speed from user-perceived E2E throughput.',
+          uiAlias: 'Display Label',
+          actualRouted: 'Routed f1.f19',
+        },
+        ledger: {
+          eyebrow: 'Unified Ledger',
+          title: 'One timeline across App, CLI & IDE',
+          desc: 'Automatically merges sibling Antigravity stores into a 16w/52w activity heatmap and a Monochrome Token Iceberg comparing new compute above the line against cached reads below.',
           cacheSaved: 'Cache saved',
+          newLabel: 'New tokens',
+          cachedLabel: 'Cached reads',
         },
       },
     },
-    arch: {
-      kicker: 'Zero-Proxy Architecture',
-      title: 'Read-only by design. Zero network hops on your inference path.',
-      subtitle:
-        'Unlike MITM proxy monitors that intercept TLS traffic and add latency or break certificates, AGY-HUD observes Antigravity strictly from local disk and loopback IPC.',
-      sourcesTitle: 'Local Read-Only Telemetry Sources',
-      src1Title: 'SQLite Conversations (-wal)',
-      src1Sub: '~/.gemini/antigravity/conversations/*.db (gen_metadata + steps)',
-      src2Title: 'Loopback LS RPC',
-      src2Sub: '127.0.0.1 live streaming steps & 5h/7d quota pools',
-      src3Title: 'Brain Swarm Metadata',
-      src3Sub: 'swarm.json · members.json · plan.json · board.jsonl',
-      coreTitle: 'AGY-HUD Sidecar',
-      coreSub: 'Node 22.18+ node:sqlite · zero npm runtime deps',
-      coreBadge: 'Pure Local Process',
-      uiTitle: 'Antigravity Side-Pane HUD',
-      uiSub: 'Preact + Tailwind v4 · sub-55KB bundle · EN / 中文',
-      uiBadge: 'Host Theme Sync',
-      readOnlyLabel: 'Read-Only + Loopback',
-      etagLabel: 'ETag Adaptive Poll (500ms / 1500ms)',
-      pillars: [
-        {
-          title: 'Zero Prompt Exfiltration',
-          desc: 'Zero telemetry servers, zero analytics beacons, zero cloud logins. All parsing runs locally inside Antigravity’s sidecar.',
-        },
-        {
-          title: 'Zero Proxy Overhead',
-          desc: 'Never sits between Antigravity and model APIs. No CA certs, no env vars, no broken streaming, 0 ms latency added.',
-        },
-        {
-          title: 'Hardened Self-Updater',
-          desc: 'Optional updates enforce strict GitHub-only HTTPS allowlists, redirect CDN checks, zip-slip/symlink rejection, and 50MB/64MB extraction caps.',
-        },
-        {
-          title: 'Atomic Staged Rollback',
-          desc: 'Installs and upgrades stage into a temp directory, verify plugin.json + UI assets, swap atomically, and restore the backup automatically on any error.',
-        },
-      ],
-    },
-    compare: {
-      kicker: 'Competitive Landscape',
-      title: 'Built specifically for Antigravity — without proxy trade-offs.',
-      subtitle:
-        'See how AGY-HUD compares to generic API proxy monitors, offline CLI log aggregators, and single-line terminal statusbars.',
-      cols: ['Capability', 'AGY-HUD', 'API Proxy Monitors', 'CLI Log Aggregators', 'Basic Statuslines'],
-      rows: [
-        {
-          feature: 'Zero-Proxy Local Read-Only Telemetry',
-          agyHud: 'Native node:sqlite + LS RPC',
-          proxy: 'MITM proxy required',
-          cliAgg: 'Offline JSONL / SQLite',
-          statusline: 'Stdin hook / basic',
-        },
-        {
-          feature: 'Native AGY Multi-Agent Swarm Cockpit',
-          agyHud: 'Full roster, state, plan & board',
-          proxy: 'None',
-          cliAgg: 'None',
-          statusline: 'Count only / none',
-        },
-        {
-          feature: 'Actual Routed Backend Model ID (f19)',
-          agyHud: 'Exact protobuf f19 decoded',
-          proxy: 'Request alias only',
-          cliAgg: 'Log alias only',
-          statusline: 'Display label only',
-        },
-        {
-          feature: 'GEN vs E2E TPS + BUF Exclusion',
-          agyHud: 'Sustained vs E2E + BUF filter',
-          proxy: 'Rough stream avg',
-          cliAgg: 'No live speed',
-          statusline: 'None',
-        },
-        {
-          feature: 'OpenRouter-Style Waterfall + Token Bar',
-          agyHud: 'TTFT / Think / Tool Gen / Stream',
-          proxy: 'Partial latency only',
-          cliAgg: 'Tabular text only',
-          statusline: 'None',
-        },
-        {
-          feature: 'Historical Minimap Brush & Drag-to-Zoom',
-          agyHud: 'Full session + Follow Live',
-          proxy: 'Web dashboard only',
-          cliAgg: 'None',
-          statusline: 'None',
-        },
-        {
-          feature: '5h / 7d Quota + Empirical k-Fitter',
-          agyHud: 'OOS-validated k + runway ETA',
-          proxy: 'None',
-          cliAgg: 'API list price only',
-          statusline: 'Raw % only',
-        },
-        {
-          feature: 'Unified App + CLI 16-Week Heatmap',
-          agyHud: 'Auto-discovered multi-store',
-          proxy: 'Proxied traffic only',
-          cliAgg: 'CLI logs only',
-          statusline: 'Current session only',
-        },
-        {
-          feature: 'Cross-Platform 1-Line Install + Self-Update',
-          agyHud: 'sh / ps1 + --doctor + in-app',
-          proxy: 'Manual proxy config',
-          cliAgg: 'npm / npx CLI',
-          statusline: 'Manual shell config',
-        },
-      ],
-    },
     installGuide: {
-      kicker: 'Install & Verify',
-      title: 'Up and running in one command. Self-verifying on every OS.',
+      kicker: 'Get Started',
+      title: 'Up and running in ten seconds.',
       subtitle:
-        'Requires Node.js 22.18+ (for built-in node:sqlite). Install atomically into ~/.gemini/config/plugins/agy-hud, run --doctor to verify every prerequisite, and upgrade anytime in-app or via CLI.',
+        'Install with a single command, or hand one sentence to your coding agent. Requires Node.js 22.18+ (built-in node:sqlite) and zero external runtime packages.',
+      reassurance: [
+        {
+          title: 'Strictly Local & Read-Only',
+          desc: 'Opens SQLite stores with ?mode=ro and reads loopback IPC only. Zero telemetry beacons or cloud sign-ins.',
+        },
+        {
+          title: 'Hardened GitHub Installer',
+          desc: 'Enforces a strict github.com HTTPS allowlist, zip-slip & symlink defense, and 50MB/64MB archive caps.',
+        },
+        {
+          title: 'Atomic Swap & Rollback',
+          desc: 'Stages into a temp directory, validates manifest and UI assets, and restores your previous install on any error.',
+        },
+      ],
       steps: [
         {
           num: '01',
-          title: 'One-Line Cross-Platform Install',
-          desc: 'Auto-detects macOS, Linux, or Windows, checks Node 22.18+, downloads the verified release from GitHub, and runs an atomic staged install.',
+          title: 'Install into Antigravity',
+          desc: 'Stages atomically into ~/.gemini/config/plugins/agy-hud and validates Node 22.18+ with built-in node:sqlite.',
           cmd: 'curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | sh',
         },
         {
           num: '02',
-          title: 'Run --doctor Diagnostics',
-          desc: 'Checks Node version, node:sqlite availability, plugin.json manifest, prebuilt UI bundle integrity, and Antigravity store discovery.',
+          title: 'Verify with --doctor',
+          desc: 'Checks Node runtime, SQLite availability, manifest integrity, prebuilt UI assets, and local store discovery.',
           cmd: 'node plugin/install.mjs --doctor',
         },
         {
           num: '03',
-          title: '1-Click In-App or CLI Self-Update',
-          desc: 'Upgrade directly from the Account tab or run --update with GitHub-only allowlist checks, zip-slip protection, and automatic rollback.',
+          title: 'Update in one click',
+          desc: 'Upgrade directly from the Account tab or run --update anytime with automatic rollback safety.',
           cmd: 'node plugin/install.mjs --update',
         },
       ],
-      doctorTitle: 'Terminal Preview — node plugin/install.mjs --doctor',
-      doctorSubtitle: 'Zero external runtime deps · JSON output available via --json',
+      doctorTitle: 'node plugin/install.mjs --doctor',
+      doctorSubtitle: 'Zero runtime deps · --json supported',
+    },
+    compare: {
+      kicker: 'Approach Comparison',
+      title: 'How local sidecar observation compares.',
+      subtitle:
+        'An objective look at architectural trade-offs between AGY-HUD’s official sidecar approach and common proxy, log-aggregator, or statusline tools.',
+      cols: ['Capability', 'AGY-HUD', 'MITM Proxy Tools', 'CLI Log Aggregators', 'Terminal Statuslines'],
+      rows: [
+        {
+          feature: 'Connection Method',
+          agyHud: 'Official sidecar · read-only SQLite + loopback LS',
+          proxy: 'Intercepts HTTPS via local proxy & CA cert',
+          cliAgg: 'Parses local JSONL / SQLite after runs',
+          statusline: 'Shell hook / single-line text',
+        },
+        {
+          feature: 'Inference Latency & App Updates',
+          agyHud: '0 ms overhead · survives stock app updates',
+          proxy: 'Extra network hop · TLS config needed',
+          cliAgg: '0 ms overhead · offline only',
+          statusline: '0 ms overhead · CLI only',
+        },
+        {
+          feature: 'Prompt Cache TTL Survival Curve',
+          agyHud: 'Per-family Log-Logistic P80/P50 + miss cost',
+          proxy: 'Raw hit % per request',
+          cliAgg: 'Aggregate cache totals',
+          statusline: 'Not available',
+        },
+        {
+          feature: 'Routed Backend Model ID (f19)',
+          agyHud: 'Exact Protobuf f1.f19 decoded',
+          proxy: 'Request alias only',
+          cliAgg: 'Logged model string',
+          statusline: 'Display label only',
+        },
+        {
+          feature: 'Speed & Latency Breakdown',
+          agyHud: 'GEN vs E2E + BUF filter + TTFT/Think/TC-WAIT',
+          proxy: 'Stream timing only',
+          cliAgg: 'Historical averages',
+          statusline: 'Minimal / none',
+        },
+        {
+          feature: 'Quota Runway & Calibration',
+          agyHud: 'IRLS k-multipliers + hatched 5h/7d runway',
+          proxy: 'API list price estimates',
+          cliAgg: 'API list price estimates',
+          statusline: 'Raw % remaining',
+        },
+        {
+          feature: 'Native AGY Swarm Observability',
+          agyHud: 'Roster, states, tasks, board #seq & rollup',
+          proxy: 'Not available',
+          cliAgg: 'Not available',
+          statusline: 'Count only / none',
+        },
+        {
+          feature: 'Host Theme & High-Contrast Parity',
+          agyHud: 'Live CSS variable + font + strong-contrast sync',
+          proxy: 'Separate browser dashboard',
+          cliAgg: 'Terminal output',
+          statusline: 'Terminal ANSI colors',
+        },
+      ],
     },
     docs: {
-      kicker: 'Documentation Hub',
-      title: 'Everything you need — right on this page.',
+      kicker: 'Reference',
+      title: 'Technical documentation, right here.',
       subtitle:
-        'Technical reference for installation, native Swarm observability, metric formulas, quota calibration math, protobuf fields, and keyboard shortcuts.',
+        'CLI commands, Cache TTL survival math, Swarm file schema, metric definitions, Protobuf fields, and keyboard shortcuts.',
       tabs: [
         {
           id: 'quickstart',
-          label: 'Quick Start & CLI',
-          title: 'Quick Start, CLI Commands & Troubleshooting',
+          label: 'CLI & Install',
+          title: 'Installer CLI Commands & Environment Options',
           intro:
-            'AGY-HUD installs into ~/.gemini/config/plugins/agy-hud (or a custom directory via --target) with zero external runtime dependencies. It requires Node.js 22.18+ for built-in node:sqlite.',
+            'AGY-HUD installs into ~/.gemini/config/plugins/agy-hud (or a custom path via --target) using Node.js 22.18+ built-in node:sqlite with zero external runtime packages.',
           blocks: [
             {
-              heading: 'Installer CLI Commands (plugin/install.mjs)',
+              heading: 'plugin/install.mjs Commands',
               table: {
                 headers: ['Command / Flag', 'Behavior'],
                 rows: [
                   ['node plugin/install.mjs --install', 'Default. Staged atomic copy into ~/.gemini/config/plugins/agy-hud.'],
-                  ['node plugin/install.mjs --link', 'Creates a symlink/junction to plugin/ for live development hot-reload.'],
-                  ['node plugin/install.mjs --doctor [--json]', 'Validates Node 22.18+, node:sqlite, manifest, UI bundle & local stores.'],
-                  ['node plugin/install.mjs --check-update [--json]', 'Queries GitHub releases/tags for newer SemVer releases.'],
-                  ['node plugin/install.mjs --update [--force] [--ref <tag>]', 'Downloads verified GitHub archive and atomically swaps with rollback.'],
+                  ['node plugin/install.mjs --link', 'Creates a symlink/junction to plugin/ for live local development.'],
+                  ['node plugin/install.mjs --doctor [--json]', 'Validates Node 22.18+, node:sqlite, manifest, UI bundle, and stores.'],
+                  ['node plugin/install.mjs --check-update [--json]', 'Queries GitHub releases for newer SemVer versions.'],
+                  ['node plugin/install.mjs --update [--force] [--ref <tag>]', 'Downloads verified GitHub archive and swaps atomically with rollback.'],
                   ['node plugin/install.mjs --uninstall', 'Cleanly removes the installed plugin directory or symlink.'],
-                  ['--target <dir> · --no-build', 'Override plugin target directory or skip auto-building missing UI assets.'],
                 ],
               },
             },
             {
-              heading: 'Optional Environment Variables (install.sh / install.ps1)',
+              heading: 'Installer Environment Variables',
               bullets: [
                 'AGY_HUD_VERSION: Pin a specific release tag (e.g. 1.2.0 or v1.2.0).',
-                'AGY_HUD_REF: Install from a specific git branch or commit ref (e.g. main).',
-                'AGY_HUD_TARGET: Custom plugin installation directory.',
-                'Reload or restart Google Antigravity after initial install so the side-pane icon mounts immediately.',
+                'AGY_HUD_REF: Install from a specific git branch or commit ref.',
+                'AGY_HUD_TARGET: Override the default plugin installation directory.',
+                'Reload or restart Antigravity once after first install so the side-pane icon mounts immediately.',
+              ],
+            },
+          ],
+        },
+        {
+          id: 'cache-ttl',
+          label: 'Prompt Cache TTL',
+          title: 'Empirical Prompt Cache Survival Modeling',
+          intro:
+            'AGY-HUD tracks consecutive turns per model family (minimum 2,000 previous prompt tokens) and fits a regularized Log-Logistic survival curve to predict how long your prompt prefix remains hot.',
+          blocks: [
+            {
+              heading: 'Survival Formula & Parameters (cache-ttl.ts)',
+              code: 'S(t) = (1 - p0) / (1 + (t / t50)^k)\n  p0  = short-gap (<60s) empirical Bayes background miss rate\n  t50 = median survival half-life (seconds)\n  k   = steepness (gentle LRU decay for Gemini; sharp ~5m cliff for Claude)',
+              bullets: [
+                'Weak MAP priors ensure calibrated estimates on cold start while converging smoothly as long-gap (>=180s) observations accumulate.',
+                'Reports P80 (safe reply window), P50 (half-life), and live miss penalty in both USD equivalent and calibrated 5h quota %.',
+                'Confidence tiers progress cleanly from prior -> provisional -> fitted (>=10 long gaps with observed hits and misses).',
               ],
             },
           ],
@@ -628,99 +670,62 @@ export const COPY: Record<Locale, SiteCopy> = {
         {
           id: 'swarm',
           label: 'Native Swarm',
-          title: 'First-Class Native AGY Swarm Observability',
+          title: 'Native AGY Swarm Observability',
           intro:
-            'AGY-HUD directly reads Antigravity’s local swarm artifacts under <appDataDir>/brain/<coordinator_conv_id>/.system_generated/swarm/ with mtime caching, zero polling bloat, and reverse worker-to-coordinator lookup.',
+            'AGY-HUD reads Antigravity’s local swarm artifacts under <appDataDir>/brain/<coordinator_conv_id>/.system_generated/swarm/ using mtime-cached read-only parsing and reverse worker-to-coordinator indexing.',
           blocks: [
             {
-              heading: 'On-Disk Swarm Artifacts Parsed (Read-Only)',
+              heading: 'Parsed Read-Only Artifacts',
               table: {
                 headers: ['File', 'Extracted Telemetry'],
                 rows: [
                   ['swarm.json', 'Swarm identity (swarm_id, backend, created_at) linking the coordinator conversation.'],
-                  ['members.json', 'Swarm title, @rosterName, role, phase, desired_state, wake_mode, killed flag, applied_model, workspace_mode (inherit/share/branch).'],
-                  ['plan.json', 'Swarm goal title/line, per-member task summaries (tasks[rosterName]), and thread groupings (threads[]).'],
-                  ['board.jsonl', 'Bounded tail read for highest Board #seq, per-agent latest message snippet, timestamp, and fallback brief preview.'],
+                  ['members.json', 'Swarm title, @rosterName, role, phase, wake_mode, killed flag, model, workspace mode (inherit/share/branch).'],
+                  ['plan.json', 'Swarm goal title, per-member task summaries, and thread groupings.'],
+                  ['board.jsonl', 'Bounded tail read for highest Board #seq, per-agent latest message snippet, and timestamp.'],
                 ],
               },
-            },
-            {
-              heading: 'Live State Machine & Navigation',
-              bullets: [
-                'working: phase === RUNNING and wake_mode === working (pulsing green indicator, sorted first).',
-                'waiting: active member parked on the board awaiting @mention or message (muted indicator).',
-                'stopped / killed: terminated or permanently killed workers (clearly badged and dimmed).',
-                'Worker Breadcrumb: Opening any worker conversation upgrades SessionRelBar to show ← @coordinator · Swarm Title + your @rosterName and live state.',
-              ],
             },
           ],
         },
         {
           id: 'metrics',
           label: 'Metrics & Waterfall',
-          title: 'Metrics, Speed Diagnostics & OpenRouter-Style Waterfall',
+          title: 'Speed, Latency & Context Formulas',
           intro:
-            'AGY-HUD separates true model generation throughput from TTFT latency and single-packet buffered spikes, giving you accurate latency attribution on every turn.',
+            'Separates true sustained generation speed from TTFT latency and single-packet buffered turns so every session chart remains faithful.',
           blocks: [
             {
-              heading: 'Core Speed, Latency & Context Definitions',
+              heading: 'Core Definitions',
               table: {
-                headers: ['Metric', 'Formula / Interpretation'],
+                headers: ['Metric', 'Definition'],
                 rows: [
-                  ['GEN TPS', 'Output tokens / post-TTFT streaming duration (f12). Reflects true sustained generation velocity.'],
-                  ['E2E TPS', 'Output tokens / (TTFT f11 + streaming duration f12). Reflects user-perceived end-to-end throughput.'],
-                  ['BUF Flag', 'Single-packet buffered responses excluded from PEAK TPS and weighted AVG GEN so averages never exceed peak.'],
-                  ['TTFT', 'Time to first token (gen_metadata.f1.f11). Colored by SLA thresholds (3s warn, 10s slow).'],
-                  ['TC-WAIT', 'Tool-call generation stall duration separated from thinking (THK) and tool execution time.'],
-                  ['Headroom Turns', 'Estimated turns remaining before context compaction based on median per-turn token growth.'],
+                  ['GEN TPS', 'Output tokens / post-TTFT streaming duration (f12). Excludes single-packet BUF spikes.'],
+                  ['E2E TPS', 'Output tokens / (TTFT f11 + streaming duration f12). User-perceived throughput.'],
+                  ['TTFT', 'Time to first token (gen_metadata.f1.f11) with 3s warn / 10s slow thresholds.'],
+                  ['TC-WAIT', 'Tool-call argument streaming stall separated from thinking (THK) and tool execution.'],
+                  ['Headroom Turns', 'Estimated turns left before compaction based on median per-turn context delta.'],
                 ],
               },
-            },
-            {
-              heading: 'Timing Waterfall & Token Composition Bar',
-              bullets: [
-                'Timing Waterfall splits every call proportionally into TTFT Wait (blue), Thinking (violet), Tool Gen / TC-WAIT (amber), and Reply Stream (emerald).',
-                'Token Composition Bar contrasts Prompt Prefix (Cached vs New Input) against Output (Thinking vs Visible Reply) alongside exact USD cache savings.',
-                'Call Explorer supports instant search (/), anomaly chips (Slow TTFT, Low Cache, Stall/Buf, Compacts), metric sorting, and 1-click Markdown/JSON export.',
-              ],
             },
           ],
         },
         {
           id: 'quota',
-          label: 'Quota Calibration',
-          title: '5h / 7d Quota Windows & Empirical k-Multiplier Fitter',
+          label: 'Quota & Protobuf',
+          title: 'IRLS Quota Fitting & Protobuf Field Map',
           intro:
-            'Antigravity enforces rolling 5-hour and 7-day quota pools where heavy models consume credits faster than flash models. AGY-HUD fits empirical per-model multipliers from your real local history.',
+            'Pairs local multi-store token usage with loopback LS RPC quota snapshots to fit per-model k-multipliers and project remaining 5h/7d runway.',
           blocks: [
             {
-              heading: 'How Calibration Works (quota-fitter.ts)',
-              bullets: [
-                'Observes local token usage paired with loopback LS RPC quota pool snapshots (5h rolling and 7d weekly remaining percentages).',
-                'Fits per-model k-multipliers (e.g., Carbon ~3.0×, Hydrogen ~1.0×, Flash-K ~0.4×) and effective credit tank capacity.',
-                'Computes out-of-sample (OOS) error bands so you know whether a multiplier is fitted or provisional.',
-                'Estimates unattributed remote spend gaps (usage from other machines or IDE windows sharing the same account) and calculates burn-rate exhaustion ETAs.',
-              ],
-            },
-          ],
-        },
-        {
-          id: 'protobuf',
-          label: 'Protobuf & Stores',
-          title: 'Local SQLite Schema, Protobuf Map & Multi-Store Discovery',
-          intro:
-            'AGY-HUD reads ~/.gemini/antigravity/conversations/<uuid>.db (and -wal) in strict read-only mode via Node 22.18+ built-in node:sqlite, plus auto-discovers sibling App, CLI, ACP, and IDE stores.',
-          blocks: [
-            {
-              heading: 'Decoded Protobuf Field Map (gen_metadata & steps)',
+              heading: 'Decoded Protobuf Fields (gen_metadata & steps)',
               table: {
-                headers: ['Field Path', 'Decoded Telemetry', 'Fallback'],
+                headers: ['Field Path', 'Telemetry', 'Fallback'],
                 rows: [
-                  ['gen_metadata.f1.f19', 'Actual routed backend model ID (e.g. gemini-4-carbon)', 'UI display label (f1.f21)'],
+                  ['gen_metadata.f1.f19', 'Actual routed backend model ID (e.g. gemini-4-carbon)', 'UI label (f1.f21)'],
                   ['gen_metadata.f1.f4', 'Cached (f5), new input (f2), output (f3/f1), thinking (f9), visible (f10)', 'Legacy usage (f1.f17.f2)'],
-                  ['gen_metadata.f1.f9.f10', 'Active context tokens (f1) and window limit (f4, e.g. 256,000)', 'cached + new_input; model table'],
+                  ['gen_metadata.f1.f9.f10', 'Active context tokens (f1) and context limit (f4)', 'cached + new_input'],
                   ['gen_metadata.f1.f11 / f12', 'TTFT seconds (f11) and streaming duration seconds (f12)', '0.0s'],
-                  ['steps (status != 3)', 'Live generation timer (step_type = 15), TOOL state, timestamps via f1.f20', 'Idle / STANDBY state'],
                 ],
               },
             },
@@ -728,124 +733,123 @@ export const COPY: Record<Locale, SiteCopy> = {
         },
         {
           id: 'security',
-          label: 'Security & Shortcuts',
-          title: 'Self-Update Security Model & Keyboard Ergonomics',
+          label: 'Security & Keys',
+          title: 'Security Model & Side-Pane Keyboard Shortcuts',
           intro:
-            'Both the cross-platform shell installers and the in-app self-updater follow strict supply-chain and filesystem safety invariants.',
+            'Built with strict local privacy invariants, supply-chain guardrails for optional updates, and keyboard-first navigation.',
           blocks: [
-            {
-              heading: 'Security Guardrails',
-              bullets: [
-                'Strict HTTPS GitHub-Only Allowlist: Downloads only from github.com, codeload.github.com, or api.github.com scoped to skywalker512/agy-hud (plus verified GitHub release CDN redirect hops).',
-                'Archive Path & Zip-Slip Defense: Rejects absolute paths, drive letters, null bytes, .. traversal segments, symlinks/special files, >2,000 files, or >50MB archive / >64MB extracted payloads.',
-                'Atomic Staging & Rollback: Validates plugin.json, sidecar.json, server.ts, and prebuilt UI files before swapping; restores the previous install automatically if anything fails.',
-                'Dev-Symlink Protection: Refuses to overwrite a --link development checkout unless --force is explicitly provided.',
-              ],
-            },
             {
               heading: 'Side-Pane Keyboard Shortcuts',
               table: {
                 headers: ['Shortcut', 'Action'],
                 rows: [
                   ['1 / 2 / 3', 'Switch between Live, Calls, and Account tabs'],
-                  ['/', 'Focus Call Explorer search input (auto-switches to Calls tab)'],
-                  ['Esc', 'Clear search filter, close menu, or dismiss active hover'],
-                  ['Drag on Chart / Minimap', 'Drag-to-zoom time-series range or scrub full historical session'],
-                  ['Ctrl/Meta + Wheel · Double-Click', 'Zoom smoothly around cursor without hijacking vertical scroll; double-click minimap to reset'],
+                  ['/', 'Focus Call Explorer search (auto-switches to Calls tab)'],
+                  ['Esc', 'Clear search, close popover, or reset active selection'],
+                  ['Drag / Ctrl+Wheel', 'Drag-to-zoom chart range or zoom smoothly around cursor'],
                 ],
               },
+            },
+            {
+              heading: 'Update & Filesystem Guardrails',
+              bullets: [
+                'Strict HTTPS allowlist restricted to github.com / codeload.github.com / api.github.com for skywalker512/agy-hud.',
+                'Rejects absolute paths, traversal segments (..), symlinks, >2,000 files, or >50MB archive / >64MB extracted payloads.',
+                'Protects --link development checkouts unless --force is explicitly passed.',
+              ],
             },
           ],
         },
       ],
     },
     footer: {
-      tagline: 'Zero-proxy real-time telemetry & native Swarm mission control for Google Antigravity.',
+      tagline: 'Local, read-only real-time telemetry built into Google Antigravity.',
       license: 'MIT License',
-      nodeReq: 'Requires Node.js 22.18+ (node:sqlite)',
-      linksTitle: 'Navigation',
+      nodeReq: 'Node.js 22.18+ (node:sqlite)',
+      linksTitle: 'Product',
       resourcesTitle: 'Resources',
       repoLink: 'GitHub Repository',
-      releasesLink: 'Releases & Changelog',
-      issuesLink: 'Report an Issue',
+      releasesLink: 'Releases',
+      issuesLink: 'Issue Tracker',
+      changelogLink: 'Changelog',
     },
   },
   zh: {
     nav: {
-      features: '核心特性',
-      swarm: 'Swarm 驾驶舱',
-      inspector: '调用剖析',
-      compare: '方案对比',
-      install: '快速安装',
-      docs: '文档中心',
+      tour: '功能导览',
+      craft: '工程细节',
+      install: '安装',
+      docs: '文档',
       github: 'GitHub',
-      themeLight: '切换至浅色主题',
-      themeDark: '切换至深色主题',
+      themeLight: '切换至浅色模式',
+      themeDark: '切换至深色模式',
     },
     hero: {
-      eyebrow: '零代理 · 原生 Swarm 遥测 · Node 22.18+ node:sqlite',
-      headline: 'Google Antigravity 的实时遥测驾驶舱。',
+      badge: 'v1.2 · Antigravity 官方架构侧边栏插件',
+      headline: '原生融入 Antigravity 的实时遥测驾驶舱。',
       subhead:
-        '实时 GEN / E2E 吞吐、TTFT 阶段瀑布图、真实路由模型 ID（f19）、上下文窗口 X 光透视、5h/7d 配额校准续航，以及业界首个原生多智能体 Swarm 监控面板——零代理、零运行时依赖。',
-      primaryCta: '10 秒一键安装',
-      secondaryCta: '浏览技术文档',
-      interactiveHint: '可交互侧边栏模拟器 — 点击切换标签、刷选历史区间、查看 Worker 与瀑布图',
-      doctorTip: '运行 node plugin/install.mjs --doctor 一键自检环境',
-      licenseTip: 'MIT 开源协议 · 支持 macOS / Linux / Windows',
+        '在侧边栏实时看清真实生成速度、提示词缓存存活倒计时、上下文窗口压力、5h/7d 配额续航与多智能体 Swarm 状态——100% 本地只读，零侵入。',
+      primaryCta: '10 秒快速安装',
+      secondaryCta: '了解工程细节',
+      interactiveHint: '可交互实时预览 — 点击切换标签、拖拽刷选历史区间、查看单次调用与 Worker',
+      trustItems: [
+        '纯官方 Sidecar 插件',
+        '零 CDP · 零改包',
+        '100% 本地只读',
+        '同步 Antigravity 原生主题',
+      ],
       copied: '已复制',
       copy: '复制',
-      autoDetected: '已自动识别',
+      autoDetected: '推荐',
+      doctorTip: '随时运行 node plugin/install.mjs --doctor 自检环境',
+      licenseTip: 'MIT 开源 · Node 22.18+ · 零运行时依赖',
       tabs: {
         unix: 'macOS / Linux',
-        windows: 'Windows (PowerShell)',
-        source: '源码安装 (Node)',
-        devlink: '开发软链',
+        windows: 'Windows',
+        agent: 'AI 代理一键装',
+        manual: '手动安装',
       },
+      agentHint: '直接发给 Antigravity 或任意编程代理——自动按 AGENTS.md 安装并用 --doctor 验收。',
     },
     sim: {
       paneTitle: 'AGY-HUD',
-      sessionName: 'Swarm: 商业化升级任务',
-      statusGen: 'GEN',
+      sessionName: 'Swarm: 视觉质感重构',
+      statusGen: 'GEN · 1.2s',
       tabLive: '实时',
       tabCalls: '调用',
       tabAccount: '账户',
       shortcutHint: '快捷键 1 · 2 · 3',
       live: {
-        genLabel: '生成速率 GEN',
-        e2eLabel: '端到端 E2E',
-        vsAvg: '对比均值',
-        sustained: '首字后持续流式速率',
-        inclTtft: '含 TTFT 1.38s',
-        ctxTitle: '上下文窗口 X 光透视',
-        ctxHeadroom: '约剩 14 轮余量',
-        ctxCacheAge: '缓存活跃 42s',
-        hoverSegment: '悬停任意色段查看 Token 组成明细',
-        swarmTitle: 'SWARM 协同驾驶舱',
+        genLabel: 'GEN 速度',
+        e2eLabel: 'E2E 速度',
+        sustained: '首字后持续吞吐',
+        inclTtft: '含 TTFT 1.24s',
+        ctxTitle: '上下文窗口',
+        ctxHeadroom: '约剩 14 轮空间',
+        cacheSafeLabel: '缓存 94% · ~18m 安全 (P80)',
+        cachePenaltyTip: 'P50 ~26m · 失效惩罚 $0.14 / 0.31% 5h',
+        swarmTitle: 'Swarm 驾驶舱',
         swarmWorking: '2 运行中',
         swarmWaiting: '1 等待中',
-        swarmRollup: '38 次调用 · 46.3k 输出 · $1.29 · 5h -0.86%',
+        swarmRollup: '38 次调用 · 44.1k 输出 · $1.24 · 5h -0.85%',
         swarmBoard: '公告板 #24',
-        clickWorkerHint: '点击任意 Worker 查看任务目标与最新公告',
         lastPost: '最新动态',
       },
       calls: {
-        trendTitle: '调用趋势图',
-        callsUnit: '次调用',
-        viewingRange: '当前区间',
-        followLive: '跟随实时',
+        trendTitle: '会话趋势',
+        followLive: '跟随最新',
         latest: '最新',
         avg: '均值',
         p95: 'P95',
         peak: '峰值',
-        brushHint: '点击缩略图平移区间 · 点击数据点剖析对应调用',
-        inspectorTitle: '调用详情剖析器',
+        brushHint: '拖拽缩略图刷选区间 · 点击曲线查看单次剖析',
         tabOverview: '总览',
         tabTools: '工具',
-        tabRaw: '原始 JSON',
-        waterfallTitle: '阶段耗时瀑布图',
-        tokenCompTitle: 'TOKEN 与成本构成',
-        cached: '缓存命中',
-        newInput: '新增输入',
+        tabRaw: '原始',
+        waterfallTitle: '耗时瀑布图',
+        tokenCompTitle: 'Token 与成本构成',
+        cached: '缓存',
+        newInput: '新增',
         thinking: '思考',
         visible: '回复',
         copyMd: '复制 MD',
@@ -854,359 +858,367 @@ export const COPY: Record<Locale, SiteCopy> = {
         think: '思考',
         toolGen: '工具生成',
         stream: '流式输出',
-        saved: '缓存省下',
+        saved: '已省',
       },
       account: {
-        quotaTitle: '配额窗口与续航预测',
-        win5h: '5h 滚动配额池',
-        win7d: '7d 每周配额池',
+        quotaTitle: '配额续航',
+        win5h: '5 小时滚动池',
+        win7d: '7 天每周池',
+        left: '剩余',
+        projectedBurn: '预计消耗',
         resetsIn: '重置倒计时',
-        runwayEta: '预计耗尽',
-        rulesTitle: '经验 k 倍率校准',
-        oosErr: '样本外误差 ±1.8%',
-        remoteGap: '远端偏差 1.2%',
-        heatmapTitle: '16 周活跃热力图（App + CLI）',
-        heatmapSub: '112 天 · $42.80 API 等效消耗 · 缓存节省 $18.40',
-        hoverDayHint: '悬停日期格查看当日 Token 与消耗',
-        updateTitle: '插件版本与安全自更新',
-        updateInstalled: '已安装 v1.2.0',
-        updateAvail: '发现新版本 v1.2.1',
-        checkBtn: '检查更新',
+        runwayEta: '预计续航',
+        ttlTitle: '提示词缓存存活曲线 (TTL)',
+        ttlSafe: 'P80 安全窗',
+        ttlHalf: 'P50 半衰期',
+        ttlBg: '本底失效率',
+        rulesTitle: 'IRLS k-倍率校准',
+        oosErr: 'OOS ±1.8%',
+        remoteGap: '跨端差额 1.2% · App + CLI 统一水箱',
+        activityTitle: '活跃度（App + CLI）',
+        modeHeatmap: '16 周热力图',
+        modeIceberg: 'Token 冰山图',
+        heatmapSub: '112 天 · $42.80 等效 API · 缓存省 $18.40',
+        icebergLegendNew: '新增 Token',
+        icebergLegendCached: '缓存命中',
+        updateTitle: '插件自更新',
+        updateInstalled: '当前 v1.2.0',
+        updateAvail: '可升级 v1.2.1',
         updateBtn: '立即更新',
-        updating: '校验白名单并原子暂存中…',
+        updating: '校验中…',
         updatedOk: '已原子升级至 v1.2.1',
-        reloadNote: '已通过 GitHub 白名单与防路径穿越校验 · 可直接重载',
       },
     },
-    proof: [
-      { value: '0', label: '第三方运行时依赖', sub: '纯 Node 22.18+ 内置 node:sqlite + sidecar_sdk' },
-      { value: '0 ms', label: 'API 代理延迟', sub: '本地只读 SQLite + 回环 LS RPC，拒绝 MITM 劫持' },
-      { value: '100%', label: '本地只读隐私', sub: '提示词、代码与 Trace 永不离开本机' },
-      { value: '首个', label: '原生 AGY Swarm 面板', sub: '直读 swarm.json、members.json、plan.json 与 board.jsonl' },
-    ],
-    bento: {
-      kicker: '专为 Agent 工程深度打造',
-      title: '把 Antigravity 隐藏的每个关键信号，实时摊开在眼前。',
+    craft: {
+      kicker: '工程打磨',
+      title: '克制到仿佛原生就长在 Antigravity 里。',
       subtitle:
-        '从多智能体 Swarm 实时状态到毫秒级 TTFT 瀑布图与经验配额校准，AGY-HUD 让每一次黑盒执行都变成可验证的工程遥测。',
-      flagshipBadge: '旗舰亮点 · 生态首发',
+        '好的开发者仪表盘不喧宾夺主。AGY-HUD 的每一层表面、每一条拟合曲线、每一次回退策略，都追求与宿主 IDE 浑然一体且数据诚实可信。',
+      items: [
+        {
+          id: 'theme-sync',
+          tag: '宿主视觉同步',
+          title: '实时主题、字号与高对比度同步',
+          desc: '通过 1×1 亮度探针与 MutationObserver 持续采样 Antigravity 的计算 CSS 变量（--background、--card、--primary、--font-size），自动适配深色、浅色与高对比度模式，永不割裂。',
+          detail: 'data-theme="dark|light" · data-contrast="strong" · --hud-font-scale',
+        },
+        {
+          id: 'zero-cdp',
+          tag: '零侵入只读安全',
+          title: '零 CDP、零改包、零代理拦截',
+          desc: '严格遵循官方 Sidecar 插件规范，以 ?mode=ro 只读打开本地 SQLite 与回环 LS RPC。直接从桌面正常启动 Antigravity 即可工作，彻底无惧 Electron 与客户端版本升级。',
+          detail: '不改 app.asar · 不开调试端口 · 0 ms 推理链路延迟',
+        },
+        {
+          id: 'cache-ttl',
+          tag: '生存分析建模',
+          title: '提示词缓存 TTL 生存曲线预测',
+          desc: '按模型族基于你真实的历史停顿间隔拟合正则化对数逻辑斯蒂生存曲线 S(t) = (1 − p0) / (1 + (t / t50)^k)，准确区分 Claude 5 分钟硬悬崖与 Gemini 渐进 LRU 衰减，并实时折算失效的美元与 5h 配额代价。',
+          detail: 'P80 安全窗口 · P50 半衰期 · 实时过期倒计时',
+        },
+        {
+          id: 'quota-irls',
+          tag: '配额实证校准',
+          title: 'IRLS k-倍率拟合与斜线续航条',
+          desc: '结合 Huber/Tukey IRLS 与 6σ MAD 离群值剔除，基于真实 5h/7d 配额扣减拟合各模型倍率与有效池容量，在斜线纹理续航条上直观标出重置前的预计消耗。',
+          detail: '样本外 OOS 误差带 · 跨端消耗差额 · 耗尽时间预测',
+        },
+        {
+          id: 'routed-f19',
+          tag: '遥测保真度',
+          title: '真实后端模型 (f19) 与 BUF 尖峰过滤',
+          desc: '解析 Protobuf gen_metadata.f1.f19 还原实际响应的后端模型 ID，并自动过滤单包缓冲突发（BUF）响应，保证持续生成速度均值永不虚高、永不超峰值。',
+          detail: 'Protobuf 线格式解码 · GEN/E2E 分离 · TC-WAIT 隔离',
+        },
+        {
+          id: 'swarm-ledger',
+          tag: '全局统一账本',
+          title: '原生 Swarm 驾驶舱与跨端多库账本',
+          desc: '基于 mtime 缓存只读解析本地 Swarm 元数据（swarm.json、members.json、plan.json、board.jsonl），同时自动合并 App、CLI（agy）、ACP 与 IDE 会话库，汇总为统一花费、热力图与 Token 冰山图。',
+          detail: '@rosterName 实时状态 · 协调者面包屑 · App + CLI + IDE',
+        },
+      ],
+    },
+    tour: {
+      kicker: '功能导览',
+      title: '帮你在写代码时提前看见风险，而不是事后复盘。',
+      subtitle:
+        '在意外上下文压缩抹掉工作记忆前预警，在喝杯咖啡导致缓存冷失效前提醒，让多智能体并行开发始终一目了然。',
       cards: {
+        contextCache: {
+          eyebrow: '上下文与缓存',
+          title: '告别意外压缩与隐形缓存冷启动账单',
+          desc: '精确透视 256k 窗口里的每一块占比——从超大的 read_file 输出到 MCP 工具定义——同步给出距离自动压缩的剩余轮次与当前前缀缓存的安全存活时间。',
+          headroom: '约剩 14 轮缓冲',
+          cacheSafe: 'P80 安全窗：~18m',
+          missPenalty: '失效代价：$0.14 / 0.31% 5h',
+        },
         swarm: {
-          title: '原生 AGY Swarm 协同驾驶舱',
-          desc: '直接读取 Antigravity 本地 Swarm 元数据，实时呈现 @rosterName、working/waiting/killed 状态、plan.json 任务标题、线程分组、Board #seq 与主从汇总成本/配额。',
+          eyebrow: '多智能体 Swarm',
+          title: '不用来回切会话，全局掌握每个 Worker 进度',
+          desc: '同屏监控每个 @rosterName 的运行/等待状态、分配任务、独立工作区标识、公告板最新 #seq，以及整个 Swarm 汇总后的真实成本与配额消耗。',
           bullets: [
-            '基于文件 mtime 缓存的只读解析器（稳态轮询近零 CPU 开销）',
-            'Worker → Coordinator 反向索引，随时一键跳转主控会话',
-            '实时汇总整个 Swarm 的调用次数、输出 Token、美元费用与 5h/7d 消耗',
+            '基于 mtime 缓存的只读解析，几乎零轮询 CPU 开销',
+            'Worker 视角自动显示协调者面包屑，一键跳回主控会话',
+            '自动汇总全员调用次数、输出 Token、美元与 5h/7d 消耗',
           ],
-        },
-        modelSpeed: {
-          title: '真实路由模型（f19）与 GEN / E2E 测速',
-          desc: '优先解码 gen_metadata.f1.f19 暴露底层真实路由模型，告别模糊的界面别名；自动剔除单包缓冲 BUF 尖刺，确保均值永不高于峰值。',
-          uiAlias: '界面展示别名',
-          actualRouted: '真实路由 f19',
-        },
-        contextXray: {
-          title: '上下文窗口 X 光透视',
-          desc: '将当前上下文拆解为 5 大结构桶并统计单工具 Token 占用，结合中位数增量估算距离压缩的剩余轮次与 Prompt Cache 保鲜时长。',
-          headroom: '约剩 14 轮',
-          cacheFresh: '缓存保鲜 42s',
         },
         waterfall: {
-          title: '历史趋势刷选缩放与 OpenRouter 级瀑布剖析',
-          desc: '支持 20/50/100/All 区间预设、交互式缩略图刷选、画布拖拽放大与 Follow Live 智能锁尾；点击任意数据点即可展开阶段瀑布图。',
+          eyebrow: '调用剖析器',
+          title: '两秒定位某一轮为什么突然变慢',
+          desc: '通过历史缩略图刷选与框选缩放回溯整场会话，一键筛选异常调用（高 TTFT、低缓存、TC-WAIT），用比例瀑布图拆解 TTFT、思考、工具生成与流式输出耗时。',
           bullets: [
-            '按比例可视化 TTFT / 思考 / 工具生成（TC-WAIT）/ 流式输出耗时',
-            '对比前缀缓存命中与新增输入、思考与可见回复的 Token 比例',
-            '支持快捷键 / 实时检索、异常过滤芯片与一键导出 Markdown / JSON',
+            '把思考耗时与工具参数生成停顿（TC-WAIT）清晰拆开',
+            '同屏对比前缀缓存与新增输入、思考与可见回复占比',
+            '支持 / 快捷搜索、异常标签筛选与一键导出 Markdown/JSON',
           ],
         },
-        quotaFitter: {
-          title: '经验 k 倍率校准与 5h / 7d 续航预测',
-          desc: '根据实测配额变化自动拟合各模型 k 倍率与等效配额池容量，输出样本外误差区间、跨设备远端消耗偏差与耗尽倒计时。',
-          oosBadge: '样本外校验',
+        runway: {
+          eyebrow: '配额续航',
+          title: '不再在重构到一半时撞上 5 小时限额墙',
+          desc: '斜线纹理续航条直观展示按当前节奏在窗口重置前预计会烧掉多少配额，由实证拟合的各模型 k-倍率驱动，不再靠猜。',
+          oosBadge: 'OOS ±1.8%',
+          projectedLabel: '斜线区域 = 重置前预计消耗',
         },
-        multiStore: {
-          title: 'App + CLI 统一账单与 16 周活跃热力图',
-          desc: '后台非阻塞自动发现本机 Antigravity App、CLI、ACP 与 IDE 的多个会话库，汇总 API 等效费用、缓存省钱额与每日强度热力图。',
+        routedModel: {
+          eyebrow: '真实模型',
+          title: '清楚知道每一轮到底是谁在回答',
+          desc: '从 Protobuf f1.f19 解码真实路由的后端模型 ID，并把持续生成吞吐（GEN）与用户体感端到端吞吐（E2E）彻底分开。',
+          uiAlias: '界面展示别名',
+          actualRouted: '真实路由 f1.f19',
+        },
+        ledger: {
+          eyebrow: '跨端账本',
+          title: 'App、CLI 与 IDE 统一进同一份时间线',
+          desc: '自动发现并合并同机所有 Antigravity 存储库，支持 16 周/52 周热力图与黑白极简 Token 冰山图（基线上方为新增消耗，下方为缓存复用）。',
           cacheSaved: '缓存已省',
+          newLabel: '新增 Token',
+          cachedLabel: '缓存读取',
         },
       },
     },
-    arch: {
-      kicker: '零代理本地优先架构',
-      title: '天生只读，推理链路上零额外网络跳转。',
-      subtitle:
-        '与需要配置 HTTPS 证书、拦截流式响应的 MITM 代理监控器不同，AGY-HUD 仅通过只读本地文件与本机回环 IPC 获取全部遥测信号。',
-      sourcesTitle: '本机只读遥测数据源',
-      src1Title: 'SQLite 会话库 (-wal)',
-      src1Sub: '~/.gemini/antigravity/conversations/*.db (gen_metadata + steps)',
-      src2Title: '本机回环 LS RPC',
-      src2Sub: '127.0.0.1 实时流式步骤与 5h / 7d 配额池',
-      src3Title: 'Brain Swarm 元数据',
-      src3Sub: 'swarm.json · members.json · plan.json · board.jsonl',
-      coreTitle: 'AGY-HUD Sidecar 后端',
-      coreSub: 'Node 22.18+ node:sqlite · 零 npm 运行时依赖',
-      coreBadge: '纯本地进程',
-      uiTitle: 'Antigravity 侧边栏 HUD',
-      uiSub: 'Preact + Tailwind v4 · <55KB 轻量包 · 中英自动切换',
-      uiBadge: '宿主主题同步',
-      readOnlyLabel: '本地只读 + 回环通信',
-      etagLabel: 'ETag 自适应轮询 (500ms / 1500ms)',
-      pillars: [
-        {
-          title: '提示词零外发',
-          desc: '无云端遥测后端、无埋点上报、无需登录账号。全部解码与分析均在本地 Sidecar 进程内完成。',
-        },
-        {
-          title: '零代理延迟开销',
-          desc: '绝不介入 Antigravity 与大模型 API 之间。无需信任根证书、无需修改环境变量，0 ms 额外延迟。',
-        },
-        {
-          title: '高安全自更新校验',
-          desc: '可选自更新强制限定 GitHub 官方 HTTPS 白名单、校验重定向 CDN、防御 Zip-Slip 与软链穿越，并设 50MB/64MB 解压上限。',
-        },
-        {
-          title: '原子暂存与自动回滚',
-          desc: '安装与升级先暂存并校验 plugin.json 及预构建 UI 完整性，原子替换目标目录；任意异常自动回滚至原备份。',
-        },
-      ],
-    },
-    compare: {
-      kicker: '生态方案横评',
-      title: '为 Google Antigravity 原生打造，拒绝代理妥协。',
-      subtitle:
-        '对比通用 API 代理监控、离线 CLI 日志统计工具与单行终端状态栏，一目了然工程差异。',
-      cols: ['核心能力', 'AGY-HUD', 'API 代理监控器', 'CLI 日志统计器', '终端状态栏脚本'],
-      rows: [
-        {
-          feature: '零代理本地只读遥测',
-          agyHud: '原生 node:sqlite + LS RPC',
-          proxy: '需配置 MITM 代理',
-          cliAgg: '离线读取 JSONL / DB',
-          statusline: 'Stdin 钩子 / 基础信息',
-        },
-        {
-          feature: '原生 AGY 多智能体 Swarm 驾驶舱',
-          agyHud: '完整名册、状态、计划与公告板',
-          proxy: '无',
-          cliAgg: '无',
-          statusline: '仅计数或无',
-        },
-        {
-          feature: '真实路由模型 ID (f19)',
-          agyHud: '直解 Protobuf f19 真值',
-          proxy: '仅请求别名',
-          cliAgg: '仅日志别名',
-          statusline: '仅界面名称',
-        },
-        {
-          feature: 'GEN / E2E 分离测速 + BUF 剔除',
-          agyHud: '持续速率 / E2E + BUF 过滤',
-          proxy: '粗略流式均值',
-          cliAgg: '无实时速度',
-          statusline: '无',
-        },
-        {
-          feature: 'OpenRouter 级瀑布图 + Token 构成条',
-          agyHud: 'TTFT / 思考 / 工具生成 / 流式',
-          proxy: '仅基础耗时',
-          cliAgg: '纯文本表格',
-          statusline: '无',
-        },
-        {
-          feature: '历史缩略图刷选与拖拽缩放',
-          agyHud: '全量会话历史 + Follow Live',
-          proxy: '需另开网页后台',
-          cliAgg: '无',
-          statusline: '无',
-        },
-        {
-          feature: '5h / 7d 配额 + 经验 k 倍率校准',
-          agyHud: '样本外校验 k 值 + 续航倒计时',
-          proxy: '无',
-          cliAgg: '仅按官方 API 价估算',
-          statusline: '仅原始百分比',
-        },
-        {
-          feature: 'App + CLI 跨端 16 周热力图',
-          agyHud: '后台自动发现多端本地库',
-          proxy: '仅统计走代理流量',
-          cliAgg: '仅统计 CLI 日志',
-          statusline: '仅当前会话',
-        },
-        {
-          feature: '全平台一键安装 + 诊断 + 自更新',
-          agyHud: 'sh / ps1 + --doctor + 应用内更新',
-          proxy: '手动配证书与端口',
-          cliAgg: 'npm / npx 命令行',
-          statusline: '手动改 Shell 配置',
-        },
-      ],
-    },
     installGuide: {
-      kicker: '安装与验证',
-      title: '一条命令完成部署，跨平台内置环境自检。',
+      kicker: '快速开始',
+      title: '一条命令，十秒完成安装。',
       subtitle:
-        '仅需 Node.js 22.18+（内置 node:sqlite）。自动原子安装至 ~/.gemini/config/plugins/agy-hud，支持 --doctor 完整自检与应用内/命令行安全自更新。',
+        '选择对应系统的单行脚本，或把一句话直接交给你的 AI 编程代理。仅需 Node.js 22.18+（内置 node:sqlite），零第三方运行时依赖。',
+      reassurance: [
+        {
+          title: '严格本地只读',
+          desc: '以 ?mode=ro 只读打开 SQLite，仅与本地回环 IPC 通信。零遥测上报、零云端登录。',
+        },
+        {
+          title: '受控 GitHub 安全校验',
+          desc: '强制 GitHub 官方 HTTPS 白名单、防路径穿越/软链校验以及 50MB/64MB 解压上限。',
+        },
+        {
+          title: '原子切换与失败回滚',
+          desc: '先在临时目录完整校验清单与前端产物，再原子替换；异常时自动恢复原版本。',
+        },
+      ],
       steps: [
         {
           num: '01',
-          title: '跨平台一键安装',
-          desc: '自动识别 macOS、Linux 或 Windows，校验 Node 22.18+，从 GitHub 下载验证过的发布包并原子暂存安装。',
+          title: '安装到 Antigravity 插件目录',
+          desc: '自动校验 Node 22.18+ 与 node:sqlite，原子部署至 ~/.gemini/config/plugins/agy-hud。',
           cmd: 'curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | sh',
         },
         {
           num: '02',
-          title: '运行 --doctor 环境诊断',
-          desc: '逐项检查 Node 版本、node:sqlite 模块、plugin.json 清单、预构建 UI 资产完整性与 Antigravity 本地数据目录。',
+          title: '运行 --doctor 环境自检',
+          desc: '一次性验证运行环境、SQLite 驱动、插件清单、UI 产物与本地会话库发现状态。',
           cmd: 'node plugin/install.mjs --doctor',
         },
         {
           num: '03',
-          title: '应用内一键更新或 CLI 自更新',
-          desc: '可在账户页直接一键升级，或执行 --update，全程受 GitHub 白名单、防 Zip-Slip 与失败自动回滚保护。',
+          title: '一键应用内或命令行更新',
+          desc: '在账户页点击更新或随时运行 --update，全程具备白名单与自动回滚保护。',
           cmd: 'node plugin/install.mjs --update',
         },
       ],
-      doctorTitle: '终端输出预览 — node plugin/install.mjs --doctor',
-      doctorSubtitle: '零外部运行时依赖 · 支持 --json 输出机器可读报告',
+      doctorTitle: 'node plugin/install.mjs --doctor',
+      doctorSubtitle: '零运行时依赖 · 支持 --json 输出',
+    },
+    compare: {
+      kicker: '架构对比',
+      title: '官方只读 Sidecar 与常见监控方式的取舍。',
+      subtitle:
+        '客观对比本地只读 Sidecar、API 代理抓包、离线日志统计与终端状态栏在延迟、安全与深度遥测上的差异。',
+      cols: ['能力维度', 'AGY-HUD', 'MITM 代理工具', 'CLI 日志统计', '终端状态栏'],
+      rows: [
+        {
+          feature: '数据采集方式',
+          agyHud: '官方 Sidecar · 只读 SQLite + 回环 LS RPC',
+          proxy: '本地代理 + 根证书拦截 HTTPS 流量',
+          cliAgg: '运行结束后解析本地 JSONL / SQLite',
+          statusline: 'Shell 钩子 / 单行文本摘要',
+        },
+        {
+          feature: '推理延迟与客户端升级',
+          agyHud: '0 ms 额外延迟 · 兼容官方原版升级',
+          proxy: '增加代理跳转 · 需维护证书与环境变量',
+          cliAgg: '0 ms 延迟 · 仅事后离线查看',
+          statusline: '0 ms 延迟 · 仅限终端环境',
+        },
+        {
+          feature: '提示词缓存 TTL 生存曲线',
+          agyHud: '按模型族拟合 P80/P50 曲线与失效成本',
+          proxy: '仅单次请求命中率',
+          cliAgg: '仅累计缓存汇总',
+          statusline: '无',
+        },
+        {
+          feature: '真实路由后端模型 ID (f19)',
+          agyHud: '精确解码 Protobuf f1.f19',
+          proxy: '仅请求侧别名',
+          cliAgg: '仅日志记录名',
+          statusline: '仅界面展示名',
+        },
+        {
+          feature: '速度与耗时分解',
+          agyHud: 'GEN/E2E 分离 + BUF 过滤 + 四阶段瀑布图',
+          proxy: '仅粗略流式速度',
+          cliAgg: '历史均值',
+          statusline: '无 / 极简',
+        },
+        {
+          feature: '配额续航与倍率校准',
+          agyHud: 'IRLS k-倍率 + 5h/7d 斜线预计消耗条',
+          proxy: '仅 API 挂牌价估算',
+          cliAgg: '仅 API 挂牌价估算',
+          statusline: '仅原始剩余百分比',
+        },
+        {
+          feature: '原生 AGY Swarm 协同观测',
+          agyHud: '全员名册、状态、任务、公告板与汇总',
+          proxy: '无',
+          cliAgg: '无',
+          statusline: '仅数量 / 无',
+        },
+        {
+          feature: '宿主主题与高对比度一致性',
+          agyHud: '实时采样宿主 CSS 变量、字号与高对比度',
+          proxy: '独立浏览器网页',
+          cliAgg: '终端表格',
+          statusline: '终端 ANSI 配色',
+        },
+      ],
     },
     docs: {
-      kicker: '内嵌文档中心',
-      title: '完整工程手册，无需跳转即可查阅。',
+      kicker: '技术参考',
+      title: '常用命令与核心算法，一页查阅。',
       subtitle:
-        '涵盖跨平台安装与 CLI 参数、原生 Swarm 遥测架构、指标与瀑布图公式、配额校准数学、Protobuf 字段映射及安全与快捷键规范。',
+        '涵盖安装命令、缓存 TTL 生存公式、Swarm 文件协议、指标定义、Protobuf 字段与键盘快捷键。',
       tabs: [
         {
           id: 'quickstart',
-          label: '快速上手与 CLI',
-          title: '快速安装、CLI 命令与常见问题排查',
+          label: '安装与 CLI',
+          title: '安装器命令与环境变量说明',
           intro:
-            'AGY-HUD 默认安装到 ~/.gemini/config/plugins/agy-hud（可通过 --target 自定义），无需任何第三方运行时依赖，仅依赖 Node.js 22.18+ 内置 node:sqlite。',
+            'AGY-HUD 默认安装至 ~/.gemini/config/plugins/agy-hud（可通过 --target 自定义），基于 Node.js 22.18+ 内置 node:sqlite，零外部运行时依赖。',
           blocks: [
             {
-              heading: '安装器 CLI 命令一览（plugin/install.mjs）',
+              heading: 'plugin/install.mjs 常用命令',
               table: {
-                headers: ['命令 / 参数', '说明'],
+                headers: ['命令 / 参数', '作用'],
                 rows: [
-                  ['node plugin/install.mjs --install', '默认命令。原子暂存并复制安装至 ~/.gemini/config/plugins/agy-hud。'],
-                  ['node plugin/install.mjs --link', '创建软链/目录联接指向 plugin/，适合前端开发热重载。'],
-                  ['node plugin/install.mjs --doctor [--json]', '检查 Node 22.18+、node:sqlite、插件清单、UI 构建产物与本地会话库。'],
-                  ['node plugin/install.mjs --check-update [--json]', '查询 GitHub releases/tags 检查是否存在更新的 SemVer 版本。'],
-                  ['node plugin/install.mjs --update [--force] [--ref <tag>]', '下载校验 GitHub 发布包并原子替换，异常时自动回滚。'],
-                  ['node plugin/install.mjs --uninstall', '干净卸载已安装的插件目录或开发软链。'],
-                  ['--target <dir> · --no-build', '指定自定义插件目录，或禁止缺少 UI 产物时自动触发构建。'],
+                  ['node plugin/install.mjs --install', '默认模式，原子拷贝安装到 ~/.gemini/config/plugins/agy-hud。'],
+                  ['node plugin/install.mjs --link', '创建软链接 / Windows 目录联接，适合本地开发调试。'],
+                  ['node plugin/install.mjs --doctor [--json]', '检查 Node 22.18+、node:sqlite、清单、前端产物与本地数据目录。'],
+                  ['node plugin/install.mjs --check-update [--json]', '检查 GitHub Releases 是否有新版本。'],
+                  ['node plugin/install.mjs --update [--force] [--ref <tag>]', '拉取受控 GitHub 发布包并原子替换，失败自动回滚。'],
+                  ['node plugin/install.mjs --uninstall', '干净移除已安装目录或开发软链接。'],
                 ],
               },
             },
             {
-              heading: '一键脚本环境变量（install.sh / install.ps1）',
+              heading: '可选环境变量',
               bullets: [
-                'AGY_HUD_VERSION：指定安装某个发布标签（例如 1.2.0 或 v1.2.0）。',
-                'AGY_HUD_REF：指定安装某个 Git 分支或引用（例如 main）。',
-                'AGY_HUD_TARGET：覆盖默认插件安装路径。',
-                '首次安装后请重载或重启 Google Antigravity，侧边栏图标即会立即出现。',
+                'AGY_HUD_VERSION：指定安装某个版本标签（如 1.2.0 或 v1.2.0）。',
+                'AGY_HUD_REF：从指定分支或提交哈希安装。',
+                'AGY_HUD_TARGET：自定义目标插件目录。',
+                '首次安装完成后重载或重启一次 Antigravity，即可在侧边栏看到 AGY-HUD 图标。',
+              ],
+            },
+          ],
+        },
+        {
+          id: 'cache-ttl',
+          label: '缓存 TTL 模型',
+          title: '提示词缓存经验生存分析（cache-ttl.ts）',
+          intro:
+            'AGY-HUD 按模型族收集相邻调用（前序提示词 >= 2,000 tokens）的停顿间隔与命中情况，拟合正则化对数逻辑斯蒂生存曲线，预测当前缓存还能保持温热多久。',
+          blocks: [
+            {
+              heading: '生存曲线公式与参数',
+              code: 'S(t) = (1 - p0) / (1 + (t / t50)^k)\n  p0  = 短间隔 (<60s) 经验贝叶斯本底失效率\n  t50 = 缓存中位半衰期（秒）\n  k   = 衰减陡度（Gemini 为平缓 LRU 衰减；Claude 为 5 分钟陡峭悬崖）',
+              bullets: [
+                '冷启动阶段使用弱先验 MAP 正则保证合理预测，随着长间隔（>=180s）样本累积自动收敛到你的真实环境。',
+                '输出 P80 安全回复窗口、P50 半衰期，以及若缓存过期将产生的等效美元与 5h 配额惩罚。',
+                '置信度随样本数自动演进：prior（先验）-> provisional（初步）-> fitted（已充分拟合）。',
               ],
             },
           ],
         },
         {
           id: 'swarm',
-          label: '原生 Swarm 遥测',
-          title: '原生多智能体 AGY Swarm 协同监控架构',
+          label: '原生 Swarm',
+          title: '原生 AGY Swarm 协同观测协议',
           intro:
-            'AGY-HUD 通过基于 mtime 缓存的只读解析器直接读取 <appDataDir>/brain/<coordinator_conv_id>/.system_generated/swarm/ 下的原生元数据，并构建 Worker → Coordinator 反向索引。',
+            'AGY-HUD 直接只读扫描 <appDataDir>/brain/<coordinator_conv_id>/.system_generated/swarm/ 下的原生协同文件，基于 mtime 缓存实现近零开销，并支持从任意 Worker 反向定位协调者。',
           blocks: [
             {
-              heading: '本地只读解析的 Swarm 元数据文件',
+              heading: '只读解析的本地文件',
               table: {
-                headers: ['文件名', '提取的遥测字段'],
+                headers: ['文件名', '提取的遥测信息'],
                 rows: [
-                  ['swarm.json', 'Swarm 唯一标识（swarm_id、backend、created_at），绑定主控会话。'],
-                  ['members.json', 'Swarm 标题、@rosterName、角色、phase、desired_state、wake_mode、killed 状态、applied_model 与工作区模式（inherit/share/branch）。'],
-                  ['plan.json', '全局目标 goal、各成员任务摘要 tasks[rosterName] 及并发线程分组 threads[]。'],
-                  ['board.jsonl', '有界尾部读取最新 Board #seq、每个成员的最近发言摘要、时间戳与兜底任务简介。'],
+                  ['swarm.json', 'Swarm 身份（swarm_id、backend、created_at），绑定协调者会话。'],
+                  ['members.json', '标题、@rosterName、角色、运行阶段、wake_mode、killed 状态、模型与工作区模式。'],
+                  ['plan.json', 'Swarm 目标、每个成员分配的任务摘要与线程分组。'],
+                  ['board.jsonl', '有界尾部读取最新公告板 #seq、各成员最近发言摘要与时间戳。'],
                 ],
               },
-            },
-            {
-              heading: '实时状态推导与会话双向跳转',
-              bullets: [
-                'working：phase === RUNNING 且 wake_mode === working（绿色呼吸灯，列表默认置顶）。',
-                'waiting：成员正在公告板上休眠等待 @mention 或消息唤醒（静默灰点，零 Token 消耗）。',
-                'stopped / killed：已停止或永久终止的成员（清晰标注状态并视觉降权）。',
-                'Worker 面包屑导航：切入任意 Worker 会话时，顶部 SessionRelBar 自动显示 ← @coordinator · Swarm 标题 与当前 @rosterName，一键返回主控。',
-              ],
             },
           ],
         },
         {
           id: 'metrics',
           label: '指标与瀑布图',
-          title: '速度指标、阶段耗时瀑布图与调用剖析',
+          title: '吞吐、延迟与上下文定义',
           intro:
-            'AGY-HUD 严格区分首字延迟（TTFT）、首字后持续流式速率与单包缓冲响应，确保每一轮调用的性能归因真实可信。',
+            '将真实模型流式生成速度与首字等待、单包缓冲尖峰彻底解耦，确保每一次会话复盘都真实可靠。',
           blocks: [
             {
-              heading: '核心速度、延迟与上下文指标公式',
+              heading: '核心指标定义',
               table: {
-                headers: ['指标', '计算方式与工程含义'],
+                headers: ['指标', '定义与口径'],
                 rows: [
-                  ['GEN TPS', '输出 Token ÷ 首字后流式耗时（f12），衡量模型真实持续生成吞吐。'],
-                  ['E2E TPS', '输出 Token ÷（TTFT f11 + 流式耗时 f12），衡量用户端到端真实体感速度。'],
-                  ['BUF 标记', '单包缓冲返回响应，自动排除出 PEAK TPS 与加权 AVG GEN，防止均值高于峰值。'],
-                  ['TTFT', '首字响应延迟（gen_metadata.f1.f11），按 3s 警告 / 10s 慢阈值着色。'],
-                  ['TC-WAIT', '工具调用生成停顿时长，与思考阶段（THK）和本地工具执行时间精确剥离。'],
-                  ['余量轮次', '基于历史每轮上下文增量的中位数，估算距离触发自动压缩的剩余轮次。'],
+                  ['GEN TPS', '输出 Token / 首字后流式耗时（f12），剔除单包 BUF 异常尖峰。'],
+                  ['E2E TPS', '输出 Token / (TTFT f11 + 流式耗时 f12)，反映用户实际体感速度。'],
+                  ['TTFT', '首字延迟（gen_metadata.f1.f11），3s 预警、10s 慢响应高亮。'],
+                  ['TC-WAIT', '工具调用参数生成停顿耗时，独立于思考耗时（THK）与工具执行耗时。'],
+                  ['剩余缓冲轮次', '基于近期单轮上下文增长中位数推算距离触发压缩的剩余轮数。'],
                 ],
               },
-            },
-            {
-              heading: 'OpenRouter 级瀑布图与 Token 构成条',
-              bullets: [
-                '阶段瀑布图按耗时比例展示 TTFT 等待（蓝）、深度思考（紫）、工具生成/TC-WAIT（琥珀）与流式回复（绿）。',
-                'Token 构成条直观对比前缀缓存命中 vs 新增输入、思考 Token vs 可见回复，并显示本轮缓存节省美元数。',
-                '调用浏览器支持 / 快速搜索、异常过滤芯片（慢 TTFT、低缓存、卡顿/缓冲、压缩事件）、多维度排序与一键复制 Markdown / JSON。',
-              ],
             },
           ],
         },
         {
           id: 'quota',
-          label: '配额校准算法',
-          title: '5h / 7d 配额池与经验 k 倍率拟合',
+          label: '配额与 Protobuf',
+          title: 'IRLS 配额校准与 Protobuf 字段映射',
           intro:
-            'Antigravity 采用 5 小时滚动与 7 天每周双配额池，不同路由模型的扣减倍率差异显著。AGY-HUD 基于本地实测数据自动拟合各模型经验 k 倍率。',
+            '把多库合并后的本地 Token 消耗与回环 LS RPC 的实时配额快照对齐，反推出真实模型倍率与剩余续航。',
           blocks: [
             {
-              heading: '校准机制说明（quota-fitter.ts）',
-              bullets: [
-                '结合本地 SQLite Token 明细与回环 LS RPC 返回的 5h / 7d 配额剩余百分比变化量。',
-                '拟合各路由模型的经验倍率 k（如 Carbon 约 3.0×、Hydrogen 约 1.0×、Flash-K 约 0.4×）与等效配额池容量。',
-                '自动计算样本外（OOS）误差区间，明确区分已充分拟合（fitted）与临时估算（provisional）。',
-                '识别未归因的跨设备远端消耗偏差（remote gap），并结合当前燃烧速率预测配额耗尽倒计时。',
-              ],
-            },
-          ],
-        },
-        {
-          id: 'protobuf',
-          label: 'Protobuf 与多库发现',
-          title: '本地 SQLite 结构、Protobuf 字段映射与多端库发现',
-          intro:
-            'AGY-HUD 使用 Node 22.18+ 内置 node:sqlite 以只读模式解析 ~/.gemini/antigravity/conversations/<uuid>.db 与 -wal 日志，并后台非阻塞发现 App / CLI / ACP / IDE 兄弟数据库。',
-          blocks: [
-            {
-              heading: '核心 Protobuf 解码映射（gen_metadata 与 steps）',
+              heading: 'Protobuf 关键字段（gen_metadata & steps）',
               table: {
-                headers: ['字段路径', '解码数据', '兜底策略'],
+                headers: ['字段路径', '解析内容', '回退字段'],
                 rows: [
-                  ['gen_metadata.f1.f19', '底层真实路由模型 ID（如 gemini-4-carbon）', '界面显示名（f1.f21）'],
-                  ['gen_metadata.f1.f4', '缓存（f5）、新增输入（f2）、输出（f3/f1）、思考（f9）、可见（f10）', '旧版用量字段（f1.f17.f2）'],
-                  ['gen_metadata.f1.f9.f10', '当前活跃上下文大小（f1）与窗口上限（f4，如 256,000）', 'cached + new_input；模型限额表'],
-                  ['gen_metadata.f1.f11 / f12', '首字延迟 TTFT 秒数（f11）与流式生成秒数（f12）', '0.0s'],
-                  ['steps (status != 3)', '实时生成计时（step_type = 15）、TOOL 状态与时间戳关联（f1.f20）', '空闲 / STANDBY 状态'],
+                  ['gen_metadata.f1.f19', '真实后端路由模型 ID（如 gemini-4-carbon）', 'UI 展示标签 (f1.f21)'],
+                  ['gen_metadata.f1.f4', '缓存 (f5)、新增输入 (f2)、输出 (f3/f1)、思考 (f9)、可见 (f10)', '旧版用量 (f1.f17.f2)'],
+                  ['gen_metadata.f1.f9.f10', '当前上下文 Token (f1) 与窗口上限 (f4)', 'cached + new_input'],
+                  ['gen_metadata.f1.f11 / f12', 'TTFT 首字秒数 (f11) 与流式生成秒数 (f12)', '0.0s'],
                 ],
               },
             },
@@ -1214,46 +1226,45 @@ export const COPY: Record<Locale, SiteCopy> = {
         },
         {
           id: 'security',
-          label: '安全模型与快捷键',
-          title: '自更新安全防线与侧边栏键盘快捷键',
+          label: '安全与快捷键',
+          title: '自更新安全模型与侧边栏快捷键',
           intro:
-            '无论是跨平台一键脚本还是应用内一键自更新，AGY-HUD 都严格执行供应链白名单、防压缩包攻击与原子回滚机制。',
+            '所有安装与自更新链路均遵循严格的供应链与文件系统安全约束，并提供全键盘高效导航。',
           blocks: [
             {
-              heading: '安全防线',
-              bullets: [
-                '严格 GitHub HTTPS 白名单：仅允许从 skywalker512/agy-hud 对应的 github.com、codeload.github.com、api.github.com（及官方发布 CDN 重定向）下载。',
-                '防 Zip-Slip 与软链攻击：拒绝绝对路径、盘符、空字节、.. 路径穿越、符号链接/特殊文件，并限制 ≤2,000 文件及 50MB 归档 / 64MB 解压上限。',
-                '原子暂存与自动回滚：替换前校验 plugin.json、sidecar.json、server.ts 与预构建 UI 完整性；任一环节失败立即恢复原备份。',
-                '开发软链保护：默认拒绝覆盖通过 --link 挂载的开发目录，除非显式传入 --force。',
-              ],
-            },
-            {
-              heading: '侧边栏键盘快捷键',
+              heading: '侧边栏快捷键',
               table: {
-                headers: ['快捷键', '功能'],
+                headers: ['快捷键', '操作'],
                 rows: [
-                  ['1 / 2 / 3', '快速切换 实时（Live）/ 调用（Calls）/ 账户（Account）标签页'],
-                  ['/', '聚焦调用浏览器搜索框（必要时自动切换至调用标签页）'],
-                  ['Esc', '清空搜索条件、关闭菜单或取消当前悬停态'],
-                  ['图表拖拽 / 缩略图刷选', '画布横向拉框放大历史区间，或拖动底部缩略图刷选全量会话'],
-                  ['Ctrl/Meta + 滚轮 · 双击', '以光标为中心平滑缩放（不劫持纵向滚动）；双击缩略图一键重置'],
+                  ['1 / 2 / 3', '快速切换实时、调用与账户三个主标签'],
+                  ['/', '聚焦调用搜索框（自动切至调用标签）'],
+                  ['Esc', '清空搜索条件、关闭悬浮气泡或取消选中'],
+                  ['拖拽 / Ctrl+滚轮', '在趋势图上框选缩放或以光标为中心平滑缩放'],
                 ],
               },
+            },
+            {
+              heading: '更新与文件系统防线',
+              bullets: [
+                '仅允许从 github.com / codeload.github.com / api.github.com 拉取 skywalker512/agy-hud 发布包。',
+                '拒绝绝对路径、.. 路径穿越、符号链接、超 2,000 文件或超 50MB 压缩包 / 64MB 解压体积。',
+                '自动保护 --link 开发链接，未显式传 --force 时拒绝覆盖。',
+              ],
             },
           ],
         },
       ],
     },
     footer: {
-      tagline: '零代理、零运行时依赖的 Google Antigravity 实时遥测与原生 Swarm 驾驶舱。',
+      tagline: '原生融入 Google Antigravity 的本地只读实时遥测驾驶舱。',
       license: 'MIT 开源协议',
-      nodeReq: '依赖 Node.js 22.18+ (node:sqlite)',
-      linksTitle: '页面导航',
+      nodeReq: '需要 Node.js 22.18+ (node:sqlite)',
+      linksTitle: '产品导航',
       resourcesTitle: '开源资源',
       repoLink: 'GitHub 仓库',
-      releasesLink: '版本发布与日志',
-      issuesLink: '问题反馈与建议',
+      releasesLink: '版本发布',
+      issuesLink: '问题反馈',
+      changelogLink: '更新日志',
     },
   },
 };
