@@ -9,7 +9,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix as posixPath, win32 as win32Path } from 'node:path';
 
 import { resolveAppDataDir } from './constants.ts';
 
@@ -367,6 +367,7 @@ function scanFontDirs(
   const seen = new Set<string>();
   let scanned = 0;
 
+  const pathJoin = deps.platform === 'win32' ? win32Path.join : posixPath.join;
   const walk = (dir: string, depth: number) => {
     if (depth > maxDepth || matched.length >= maxMatches || scanned >= maxEntriesScanned) return;
     if (!deps.dirExists(dir)) return;
@@ -376,7 +377,7 @@ function scanFontDirs(
       if (scanned > maxEntriesScanned || matched.length >= maxMatches) break;
       if (entry.isDir) {
         if (depth < maxDepth) {
-          walk(join(dir, entry.name), depth + 1);
+          walk(pathJoin(dir, entry.name), depth + 1);
         }
       } else if (FONT_EXT_RE.test(entry.name) || !entry.name.includes('.')) {
         if (matchesChineseFontName(entry.name)) {
@@ -401,18 +402,19 @@ function probeFonts(deps: LocaleProbeDeps): FontProbeResult {
   let userDirs: string[] = [];
   let systemDirs: string[] = [];
 
+  const pathJoin = deps.platform === 'win32' ? win32Path.join : posixPath.join;
   if (deps.platform === 'darwin') {
-    userDirs = [join(deps.homeDir, 'Library', 'Fonts'), '/Library/Fonts'];
+    userDirs = [pathJoin(deps.homeDir, 'Library', 'Fonts'), '/Library/Fonts'];
     systemDirs = ['/System/Library/Fonts', '/System/Library/Fonts/Supplemental'];
   } else if (deps.platform === 'win32') {
-    const localAppData = deps.env.LOCALAPPDATA || join(deps.homeDir, 'AppData', 'Local');
+    const localAppData = deps.env.LOCALAPPDATA || pathJoin(deps.homeDir, 'AppData', 'Local');
     const winDir = deps.env.WINDIR || 'C:\\Windows';
-    userDirs = [join(localAppData, 'Microsoft', 'Windows', 'Fonts')];
-    systemDirs = [join(winDir, 'Fonts')];
+    userDirs = [pathJoin(localAppData, 'Microsoft', 'Windows', 'Fonts')];
+    systemDirs = [pathJoin(winDir, 'Fonts')];
   } else {
     userDirs = [
-      join(deps.homeDir, '.local', 'share', 'fonts'),
-      join(deps.homeDir, '.fonts'),
+      pathJoin(deps.homeDir, '.local', 'share', 'fonts'),
+      pathJoin(deps.homeDir, '.fonts'),
       '/usr/local/share/fonts',
     ];
     systemDirs = ['/usr/share/fonts'];
