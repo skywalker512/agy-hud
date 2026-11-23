@@ -306,11 +306,11 @@ export function InvocationRow({
           className="hud-expand-anim mt-1.5 pt-2 border-t border-hud-hairline flex flex-col gap-2 cursor-default select-text min-w-0"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Compact Tab Bar + Quick Copy */}
-          <div className="flex flex-wrap items-center justify-between gap-1.5 min-w-0">
+          {/* Compact Tab Bar + Quick Copy (single row at 410px) */}
+          <div className="flex flex-wrap items-center justify-between gap-1 min-w-0">
             <div
-              className="inline-flex flex-wrap items-center gap-0.5 p-[2px] rounded-md bg-hud-tab-track min-w-0"
-              style={{ border: '1px solid var(--hud-hairline)' }}
+              className="inline-flex items-center gap-[1px] p-[2px] rounded-md bg-hud-tab-track min-w-0 max-w-full overflow-x-auto"
+              style={{ border: '1px solid var(--hud-hairline)', scrollbarWidth: 'none' }}
               role="tablist"
             >
               <button

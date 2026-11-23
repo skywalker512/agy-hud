@@ -365,8 +365,10 @@ export const en: Translations = {
   // HeroSpeedCards & LiveTab Model Mix
   heroDeltaTip: (deltaPct, avgTps) => `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(0)}% vs session avg (${avgTps} tok/s)`,
   heroSparkTip: (n) => `Recent ${n} sustained calls GEN TPS trend`,
-  e2eSparkTip: (n, ttftSharePct) =>
-    `Last ${n} calls E2E trend: dashed = Gen ceiling, solid = E2E actual, shaded gap = TTFT drag (latest TTFT = ${ttftSharePct}% of total)`,
+  e2eSplitTtftLabel: 'TTFT',
+  e2eSplitGenLabel: 'Gen',
+  e2eSplitTip: (ttftSec, ttftPct, genSec, genPct, genTps, e2eTps) =>
+    `Latest call latency split:\nTTFT wait: ${ttftSec} (${ttftPct}%) · Generation: ${genSec} (${genPct}%)\nWaiting for first token pulls E2E (${e2eTps} tok/s) below pure Gen (${genTps} tok/s).`,
   modelMixTitle: 'SESSION MODEL MIX',
   modelMixCalls: (n) => `${n}c`,
   modelMixColModel: 'Model',

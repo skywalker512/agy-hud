@@ -1011,8 +1011,8 @@
 
   /* ── Tabbed Call Detail Inspector (De-boxed L2 Surface Wells) ── */
   .insp-tab {
-    @apply border-0 bg-transparent text-hud-muted font-hud font-medium px-2 py-[2.5px] rounded-[5px] cursor-pointer inline-flex items-center gap-1 whitespace-nowrap transition-colors tabular-nums;
-    font-size: calc(10.5px * var(--hud-font-scale, 1));
+    @apply border-0 bg-transparent text-hud-muted font-hud font-medium px-[5.5px] py-[2px] rounded-[4.5px] cursor-pointer inline-flex items-center gap-[3px] whitespace-nowrap transition-colors tabular-nums;
+    font-size: calc(10px * var(--hud-font-scale, 1));
   }
   .insp-tab:hover {
     @apply text-hud-fg;
@@ -1023,9 +1023,9 @@
   }
 
   .insp-copy-btn {
-    @apply bg-hud-card text-hud-muted rounded-[5px] px-1.5 py-[2.5px] font-hud font-medium cursor-pointer whitespace-nowrap inline-flex items-center gap-1 transition-colors;
+    @apply bg-hud-card text-hud-muted rounded-[5px] px-[5.5px] py-[2px] font-hud font-medium cursor-pointer whitespace-nowrap inline-flex items-center gap-[3px] transition-colors;
     border: 1px solid var(--hud-hairline);
-    font-size: calc(10px * var(--hud-font-scale, 1));
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
   }
   .insp-copy-btn:hover {
     @apply text-hud-fg;

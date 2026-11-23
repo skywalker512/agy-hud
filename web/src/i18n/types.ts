@@ -364,7 +364,16 @@ export interface Translations {
   // HeroSpeedCards & LiveTab Model Mix
   heroDeltaTip: (deltaPct: number, avgTps: string) => string;
   heroSparkTip: (n: number) => string;
-  e2eSparkTip: (n: number, ttftSharePct: number) => string;
+  e2eSplitTtftLabel: string;
+  e2eSplitGenLabel: string;
+  e2eSplitTip: (
+    ttftSec: string,
+    ttftPct: number,
+    genSec: string,
+    genPct: number,
+    genTps: string,
+    e2eTps: string,
+  ) => string;
   modelMixTitle: string;
   modelMixCalls: (n: number) => string;
   modelMixColModel: string;

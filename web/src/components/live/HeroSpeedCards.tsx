@@ -13,25 +13,18 @@ interface HeroSpeedCardsProps {
   t: Translations;
 }
 
-/** Build a smooth monotone cubic Bezier SVG path through points (optional skipMove to continue a closed polygon) */
-function buildSmoothBezier(
-  pts: Array<{ x: number; y: number }>,
-  minY: number,
-  maxY: number,
-  skipMove = false,
-): string {
+/** Build a smooth monotone cubic Bezier SVG path through points */
+function buildSmoothBezier(pts: Array<{ x: number; y: number }>, minY: number, maxY: number): string {
   const n = pts.length;
   if (n === 0) return '';
-  const lead = skipMove ? `L${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}` : `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
-  if (n === 1) return lead;
-  if (n === 2) return `${lead} L${pts[1].x.toFixed(1)},${pts[1].y.toFixed(1)}`;
+  if (n === 1) return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+  if (n === 2) return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)} L${pts[1].x.toFixed(1)},${pts[1].y.toFixed(1)}`;
 
   const dx: number[] = [];
   const dy: number[] = [];
   const slope: number[] = [];
   for (let i = 0; i < n - 1; i++) {
-    const rawDx = pts[i + 1].x - pts[i].x;
-    dx.push(Math.abs(rawDx) < 1e-3 ? (rawDx < 0 ? -1e-3 : 1e-3) : rawDx);
+    dx.push(Math.max(1e-3, pts[i + 1].x - pts[i].x));
     dy.push(pts[i + 1].y - pts[i].y);
     slope.push(dy[i] / dx[i]);
   }
@@ -48,7 +41,7 @@ function buildSmoothBezier(
   }
 
   const clampY = (v: number) => Math.max(minY, Math.min(maxY, v));
-  let d = lead;
+  let d = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
   for (let i = 0; i < n - 1; i++) {
     const h = dx[i] / 3;
     const c1x = pts[i].x + h;
@@ -159,66 +152,26 @@ export function HeroSpeedCards({
     };
   }, [found, invocations]);
 
-  // Dual-Curve "TTFT Drag" Sparkline for E2E card (shared Y-scale across genTps ceiling & e2eTps actual)
-  const e2eSparkline = useMemo(() => {
-    if (!found || invocations.length < 3) return null;
-    const sustained = invocations.filter((r) => !r.isBuffered && r.genTps > 0 && r.e2eTps > 0).slice(-10);
-    const pool =
-      sustained.length >= 3
-        ? sustained
-        : invocations.filter((r) => r.e2eTps > 0).slice(-10);
-    if (pool.length < 3) return null;
-
-    const w = 160;
-    const h = 24;
-    const padX = 2;
-    const padTop = 3.5;
-    const padBottom = 3;
-    const maxV = Math.max(
-      1,
-      ...pool.map((r) => Math.max(r.isBuffered ? r.e2eTps : r.genTps, r.e2eTps)),
+  // Crystal-clear TTFT vs Gen Split Bar for E2E card (identical 24px bottom slot height)
+  const e2eSplit = useMemo(() => {
+    if (!found || !latest) return null;
+    const ttftSec = Math.max(0, latest.ttftSec || 0);
+    const genSec = Math.max(0, latest.genSec || 0);
+    const denom = Math.max(latest.totalSec || 0, ttftSec + genSec);
+    if (!(denom > 0)) return null;
+    const ttftPct = Math.max(0, Math.min(100, Math.round((ttftSec / denom) * 100)));
+    const genPct = 100 - ttftPct;
+    const isHeavyTtft = ttftPct >= 45;
+    const tip = t.e2eSplitTip(
+      fmtSec(ttftSec),
+      ttftPct,
+      fmtSec(genSec),
+      genPct,
+      fmtTps(currentGenNum || latest.genTps),
+      fmtTps(latest.e2eTps),
     );
-
-    const toY = (val: number) => {
-      const norm = Math.max(0, Math.min(1, val / maxV));
-      return h - padBottom - norm * (h - padTop - padBottom);
-    };
-
-    const genPts = pool.map((r, i) => {
-      const x = padX + (i / (pool.length - 1)) * (w - padX * 2 - 3);
-      const ceilVal = Math.max(r.isBuffered ? r.e2eTps : r.genTps, r.e2eTps);
-      return { x, y: toY(ceilVal) };
-    });
-    const e2ePts = pool.map((r, i) => {
-      const x = padX + (i / (pool.length - 1)) * (w - padX * 2 - 3);
-      return { x, y: toY(r.e2eTps) };
-    });
-
-    const minY = padTop - 0.5;
-    const maxY = h - padBottom + 0.5;
-    const genPath = buildSmoothBezier(genPts, minY, maxY);
-    const e2ePath = buildSmoothBezier(e2ePts, minY, maxY);
-    const revE2ePath = buildSmoothBezier([...e2ePts].reverse(), minY, maxY, true);
-    const dragBandPath = `${genPath} ${revE2ePath} Z`;
-    const lastPt = e2ePts[e2ePts.length - 1];
-
-    const lastRec = latest || pool[pool.length - 1];
-    const ttftSharePct =
-      lastRec && lastRec.totalSec > 0
-        ? Math.max(0, Math.min(100, Math.round((lastRec.ttftSec / lastRec.totalSec) * 100)))
-        : 0;
-
-    return {
-      count: pool.length,
-      w,
-      h,
-      genPath,
-      e2ePath,
-      dragBandPath,
-      lastPt,
-      ttftSharePct,
-    };
-  }, [found, invocations, latest]);
+    return { ttftPct, genPct, isHeavyTtft, tip };
+  }, [found, latest, currentGenNum, t]);
 
   return (
     <div className="hero-speed-grid grid grid-cols-2 gap-2">
@@ -314,58 +267,43 @@ export function HeroSpeedCards({
           <div className="card-sub truncate whitespace-nowrap" data-tip={e2eSub}>{e2eSub}</div>
         </div>
 
-        {e2eSparkline && (
+        {e2eSplit && (
           <div
-            className="mt-1.5 -mx-1 -mb-1 cursor-help"
-            data-tip={t.e2eSparkTip(e2eSparkline.count, e2eSparkline.ttftSharePct)}
+            className="mt-1.5 -mb-1 h-[24px] flex flex-col justify-end gap-[5px] cursor-help"
+            data-tip={e2eSplit.tip}
           >
-            <svg
-              viewBox={`0 0 ${e2eSparkline.w} ${e2eSparkline.h}`}
-              preserveAspectRatio="none"
-              className="block w-full h-[24px] overflow-visible"
-              aria-hidden="true"
-            >
-              <path
-                d={e2eSparkline.dragBandPath}
-                fill="var(--hud-warn)"
-                fill-opacity="0.16"
-              />
-              <path
-                d={e2eSparkline.genPath}
-                fill="none"
-                stroke="var(--seg-cache)"
-                stroke-opacity="0.45"
-                stroke-width="1.2"
-                stroke-dasharray="2.5 2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                vector-effect="non-scaling-stroke"
-              />
-              <path
-                d={e2eSparkline.e2ePath}
-                fill="none"
-                stroke="var(--hud-accent-ink)"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                vector-effect="non-scaling-stroke"
-              />
-              <circle
-                cx={e2eSparkline.lastPt.x}
-                cy={e2eSparkline.lastPt.y}
-                r="4.2"
-                fill="var(--hud-accent-ink)"
-                fill-opacity="0.2"
-              />
-              <circle
-                cx={e2eSparkline.lastPt.x}
-                cy={e2eSparkline.lastPt.y}
-                r="2.1"
-                fill="var(--hud-accent-ink)"
-                stroke="var(--hud-card)"
-                stroke-width="0.9"
-              />
-            </svg>
+            <div className="h-[5px] w-full rounded-full bg-hud-fill overflow-hidden flex gap-[1.5px]">
+              {e2eSplit.ttftPct > 0 && (
+                <div
+                  className={`h-full transition-[width] duration-200 first:rounded-l-full last:rounded-r-full ${
+                    e2eSplit.isHeavyTtft ? 'bg-hud-warn' : 'bg-seg-input'
+                  }`}
+                  style={{ width: `${e2eSplit.ttftPct}%` }}
+                />
+              )}
+              {e2eSplit.genPct > 0 && (
+                <div
+                  className="h-full bg-seg-cache transition-[width] duration-200 first:rounded-l-full last:rounded-r-full"
+                  style={{ width: `${e2eSplit.genPct}%` }}
+                />
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-1 text-[9.5px] leading-none tabular-nums whitespace-nowrap">
+              <span className="inline-flex items-baseline gap-1 min-w-0 truncate">
+                <span className="font-hud text-hud-muted">{t.e2eSplitTtftLabel}</span>
+                <span
+                  className={`font-hud-mono font-semibold ${
+                    e2eSplit.isHeavyTtft ? 'text-hud-warn' : 'text-hud-fg-2'
+                  }`}
+                >
+                  {e2eSplit.ttftPct}%
+                </span>
+              </span>
+              <span className="inline-flex items-baseline gap-1 shrink-0">
+                <span className="font-hud text-hud-muted">{t.e2eSplitGenLabel}</span>
+                <span className="font-hud-mono font-semibold text-hud-fg-2">{e2eSplit.genPct}%</span>
+              </span>
+            </div>
           </div>
         )}
       </div>

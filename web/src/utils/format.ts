@@ -122,6 +122,32 @@ export function formatSessionQuotaCompact(q: SessionQuotaUsage | null | undefine
   return gStr || cStr || '';
 }
 
+function formatTinyPoolVal(p: PoolQuotaUsageItem | undefined): string {
+  if (!p || !(p.pct5h >= 0.001)) return '';
+  const approx = p.isFitted === false ? '~' : '';
+  const hasWin = typeof p.active5hPct === 'number' || typeof p.active7dPct === 'number';
+  const raw = hasWin
+    ? typeof p.active5hPct === 'number' && p.active5hPct >= 0.001
+      ? p.active5hPct
+      : typeof p.active7dPct === 'number' && p.active7dPct >= 0.001
+        ? p.active7dPct
+        : 0
+    : p.pct5h;
+  if (!(raw >= 0.001)) return '';
+  const numStr = raw >= 1 ? `${raw.toFixed(1)}%` : fmtQuotaPct(raw);
+  return `${approx}-${numStr}`;
+}
+
+export function formatSessionQuotaTiny(q: SessionQuotaUsage | null | undefined): string {
+  if (!q) return '';
+  const gVal = formatTinyPoolVal(q.gemini);
+  const cVal = formatTinyPoolVal(q.claude_gpt);
+  if (gVal && cVal) {
+    return `G ${gVal} · C ${cVal}`;
+  }
+  return gVal || cVal || '';
+}
+
 function buildPoolTipBlock(poolName: string, p: PoolQuotaUsageItem | undefined, t: Translations): string {
   if (!p || !(p.pct5h >= 0.001)) return '';
   const hasWin = typeof p.active5hPct === 'number' || typeof p.active7dPct === 'number';

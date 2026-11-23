@@ -9,6 +9,18 @@ interface KpiGridProps {
   t: Translations;
 }
 
+function fmtKpiDuration(sec: number | null | undefined): string {
+  if (sec === null || sec === undefined || !Number.isFinite(sec) || sec < 0) return '--';
+  if (sec < 120) return fmtSec(sec);
+  const s = Math.floor(sec);
+  const m = Math.floor(s / 60);
+  const remS = s % 60;
+  if (m < 60) return `${m}m ${String(remS).padStart(2, '0')}s`;
+  const h = Math.floor(m / 60);
+  const remM = m % 60;
+  return `${h}h ${String(remM).padStart(2, '0')}m`;
+}
+
 export function KpiGrid({ found, hasLatest, summary, t }: KpiGridProps) {
   const active = Boolean(found && hasLatest && summary);
   const avgGenNum = active ? fmtTps(summary?.avgGenTps) : '--';
@@ -17,8 +29,18 @@ export function KpiGrid({ found, hasLatest, summary, t }: KpiGridProps) {
   const avgCache = active ? fmtCachePct(summary?.avgCacheHitPct) : '--';
   const avgTtft = active ? fmtSec(summary?.avgTtftSec) : '--';
   const totalOutNum = active ? fmtNum(summary?.totalOutput) : '--';
-  const modelTime = active ? fmtSec(summary?.totalModelSec) : '--';
-  const toolTime = active ? fmtSec(summary?.totalToolSec) : '--';
+  const modelTimeDisp = active ? fmtKpiDuration(summary?.totalModelSec) : '--';
+  const toolTimeDisp = active ? fmtKpiDuration(summary?.totalToolSec) : '--';
+  const modelTimeTip = active
+    ? (summary?.totalModelSec || 0) >= 120
+      ? `${modelTimeDisp} (${fmtSec(summary?.totalModelSec)})`
+      : fmtSec(summary?.totalModelSec)
+    : '--';
+  const toolTimeTip = active
+    ? (summary?.totalToolSec || 0) >= 120
+      ? `${toolTimeDisp} (${fmtSec(summary?.totalToolSec)})`
+      : fmtSec(summary?.totalToolSec)
+    : '--';
 
   return (
     <section className="kpi-strip">
@@ -31,9 +53,9 @@ export function KpiGrid({ found, hasLatest, summary, t }: KpiGridProps) {
           <span className="truncate">{avgGenNum}</span>
           {active && <span className="hud-unit text-[9.5px] shrink-0">tok/s</span>}
         </div>
-        <div className="mt-0.5 font-hud-mono text-[10px] text-hud-muted tabular-nums truncate">
-          <span className="font-hud">E2E </span>
-          <span className="text-hud-fg-2 font-semibold">{avgE2eNum}</span>
+        <div className="mt-0.5 flex items-baseline gap-1 text-[10px] text-hud-muted tabular-nums min-w-0 truncate">
+          <span className="font-hud shrink-0">E2E</span>
+          <span className="font-hud-mono text-hud-fg-2 font-semibold truncate">{avgE2eNum}</span>
         </div>
       </div>
 
@@ -46,9 +68,9 @@ export function KpiGrid({ found, hasLatest, summary, t }: KpiGridProps) {
           <span className="truncate">{peakNum}</span>
           {active && <span className="hud-unit text-[9.5px] shrink-0">tok/s</span>}
         </div>
-        <div className="mt-0.5 font-hud-mono text-[10px] text-hud-muted tabular-nums truncate">
-          <span className="font-hud">{t.avgCache}</span>
-          <span className="text-hud-fg-2 font-semibold">{avgCache}</span>
+        <div className="mt-0.5 flex items-baseline gap-1 text-[10px] text-hud-muted tabular-nums min-w-0 truncate">
+          <span className="font-hud shrink-0">{t.avgCache.trim()}</span>
+          <span className="font-hud-mono text-hud-fg-2 font-semibold truncate">{avgCache}</span>
         </div>
       </div>
 
@@ -60,24 +82,26 @@ export function KpiGrid({ found, hasLatest, summary, t }: KpiGridProps) {
         <div className="mt-0.5 font-hud-mono text-[13.5px] font-bold text-hud-fg tabular-nums truncate">
           {avgTtft}
         </div>
-        <div className="mt-0.5 font-hud-mono text-[10px] text-hud-muted tabular-nums truncate">
-          <span className="font-hud">{t.totOut}</span>
-          <span className="text-hud-fg-2 font-semibold">{totalOutNum}</span>
-          {active && <span className="hud-unit text-[9px] ml-0.5">tok</span>}
+        <div className="mt-0.5 flex items-baseline gap-1 text-[10px] text-hud-muted tabular-nums min-w-0 truncate">
+          <span className="font-hud shrink-0">{t.totOut.trim()}</span>
+          <span className="font-hud-mono text-hud-fg-2 font-semibold truncate">
+            {totalOutNum}
+            {active && <span className="hud-unit text-[9px] font-normal"> tok</span>}
+          </span>
         </div>
       </div>
 
       <div
         className="kpi-strip-cell cursor-help"
-        data-tip={t.kpiTimeTip(modelTime, toolTime, summary?.toolStepCount || 0)}
+        data-tip={t.kpiTimeTip(modelTimeTip, toolTimeTip, summary?.toolStepCount || 0)}
       >
         <div className="text-[10px] font-hud font-medium text-hud-muted truncate">{t.modelTime}</div>
         <div className="mt-0.5 font-hud-mono text-[13.5px] font-bold text-hud-fg tabular-nums truncate">
-          {modelTime}
+          {modelTimeDisp}
         </div>
-        <div className="mt-0.5 font-hud-mono text-[10px] text-hud-muted tabular-nums truncate">
-          <span className="font-hud">{t.toolTime}</span>
-          <span className="text-hud-fg-2 font-semibold">{toolTime}</span>
+        <div className="mt-0.5 flex items-baseline gap-1 text-[10px] text-hud-muted tabular-nums min-w-0 truncate">
+          <span className="font-hud shrink-0">{t.toolTime.trim()}</span>
+          <span className="font-hud-mono text-hud-fg-2 font-semibold truncate">{toolTimeDisp}</span>
         </div>
       </div>
     </section>
