@@ -12,19 +12,9 @@ interface HeroSectionProps {
   demoJump: DemoJumpCmd | null;
   onCycleTheme: () => void;
   onSelectTheme: (themeId: string) => void;
+  onPreviewTheme: (themeId: string | null) => void;
   onJumpDemo: (req: DemoJumpRequest) => void;
 }
-
-const FEATURED_THEME_IDS = [
-  'tokyo-night',
-  'default-dark',
-  'dracula',
-  'catppuccin-mocha',
-  'github-dark',
-  'nord',
-  'default-light',
-  'solarized-light',
-];
 
 export function HeroSection({
   locale,
@@ -35,12 +25,10 @@ export function HeroSection({
   demoJump,
   onCycleTheme,
   onSelectTheme,
+  onPreviewTheme,
   onJumpDemo,
 }: HeroSectionProps) {
   const isZh = locale === 'zh';
-  const featuredThemes = FEATURED_THEME_IDS.map((id) => AGY_THEMES.find((t) => t.id === id)).filter(
-    (t): t is AgyTheme => Boolean(t),
-  );
 
   return (
     <section id="top" class="relative pt-8 pb-16 sm:pt-12 sm:pb-24">
@@ -82,44 +70,45 @@ export function HeroSection({
               {copy.hero.meta}
             </p>
 
-            {/* Interactive 16-Theme Quick Swatch Strip */}
-            <div class="mt-6 flex flex-wrap items-center gap-2">
-              <span class="text-[11.5px] font-medium text-[var(--muted)]">
-                {copy.hero.themeStripLabel}:
-              </span>
-              <div class="flex flex-wrap items-center gap-1.5">
-                {featuredThemes.map((th) => {
+            {/* Complete 16 Official Antigravity Themes Quick Swatch Strip */}
+            <div class="mt-6 max-w-xl">
+              <div class="mb-2 flex items-center justify-between gap-2">
+                <span class="text-[11.5px] font-medium text-[var(--muted)]">
+                  {copy.hero.themeStripLabel}
+                </span>
+                <span class="font-mono text-[10.5px] text-[var(--faint)]">
+                  {isZh ? '悬停预览 · 点击应用' : 'Hover preview · Click to apply'}
+                </span>
+              </div>
+              <div
+                class="flex flex-wrap items-center gap-1.5"
+                onMouseLeave={() => onPreviewTheme(null)}
+              >
+                {AGY_THEMES.map((th) => {
                   const isActive = activeThemeId === th.id;
                   return (
                     <button
                       key={th.id}
                       type="button"
                       onClick={() => onSelectTheme(th.id)}
-                      title={th.name}
-                      class={`inline-flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-medium transition-all ${
+                      onMouseEnter={() => onPreviewTheme(th.id)}
+                      title={`${th.name} (${th.mode === 'dark' ? (isZh ? '深色' : 'Dark') : (isZh ? '浅色' : 'Light')})`}
+                      class={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10.5px] font-medium transition-all ${
                         isActive
                           ? 'border-[var(--accent)] bg-[var(--tint-accent)] text-[var(--fg)]'
                           : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--fg)]'
                       }`}
                     >
                       <span
-                        class="h-2.5 w-2.5 rounded-full border border-black/15"
+                        class="h-2.5 w-2.5 shrink-0 rounded-full border border-black/20"
                         style={{
                           background: `linear-gradient(135deg, ${th.swatches[0]} 45%, ${th.swatches[2]} 55%)`,
                         }}
                       />
-                      <span class="hidden sm:inline">{th.name}</span>
+                      <span>{th.name}</span>
                     </button>
                   );
                 })}
-                <button
-                  type="button"
-                  onClick={onCycleTheme}
-                  class="cursor-pointer rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 font-mono text-[10.5px] text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--fg)]"
-                  title={isZh ? '随机切换更多官方主题' : 'Cycle all 16 Antigravity themes'}
-                >
-                  +{AGY_THEMES.length - featuredThemes.length} ↻
-                </button>
               </div>
             </div>
           </div>

@@ -10,7 +10,7 @@ interface HighlightsSectionProps {
 export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectionProps) {
   const isZh = locale === 'zh';
 
-  // Mini heatmap intensity grid for Wrapped Poster preview (7x12)
+  // Mini heatmap intensity grid for Wrapped Poster preview (6x12)
   const posterHeat = [
     1, 2, 0, 3, 4, 2, 1, 3, 4, 4, 2, 3,
     2, 3, 1, 4, 3, 1, 2, 4, 3, 2, 3, 4,
@@ -53,9 +53,254 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
           </p>
         </div>
 
-        {/* 6-Card Interactive Visual Bento Wall */}
+        {/* 8-Card Interactive Visual Bento Wall (4 balanced 12-col rows) */}
         <div class="mt-10 grid grid-cols-1 gap-5 md:grid-cols-12">
-          {/* Card 1 (7 cols): Global Gemini 7d/24h Curves + Cyber Cricket Arena PK */}
+          {/* ── Row 1: Quota & Per-Model Burn Comparison (7) + Native Swarm Cockpit (5) ── */}
+          <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-7">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <span class="font-mono text-[10.5px] font-semibold text-[var(--seg-cache)]">
+                  {isZh ? '⚡ 配额续航预测 · 各模型消耗倍率对比' : '⚡ QUOTA RUNWAY · PER-MODEL BURN COMPARISON'}
+                </span>
+                <h3 class="display-heading mt-1 text-[19px] font-semibold text-[var(--fg)]">
+                  {isZh ? '每个模型吃多少配额、重置前够不够用，算得清清楚楚' : 'Know which model burns quota fastest — and if you will last until reset'}
+                </h3>
+                <p class="mt-1.5 text-[13.5px] leading-[1.65] text-[var(--muted)]">
+                  {isZh
+                    ? '实测拟合各模型真实消耗倍率（Carbon / Argon 3× vs Neon / Hydrogen 1× vs Claude 独立池），结合你近 30 天作息用斜纹条预估 5h/7d 重置前余量，并自动区分本机（App + CLI + IDE）与跨设备远程消耗。'
+                    : 'Empirically fits each model family’s real quota multiplier (Carbon/Argon 3× vs Neon/Hydrogen 1× vs Claude pool), projects 5h/7d runway inside the bar using your 30-day rhythm, and separates local (App + CLI + IDE) from remote spend.'}
+                </p>
+              </div>
+              <TryButton
+                req={{ id: 'quota', tab: 'account', action: 'quota' }}
+                label={isZh ? '看配额与倍率' : 'Quota & k-Rules'}
+              />
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {/* Left: Hatched 5h/7d Runway Preview */}
+              <div class="bento-well flex flex-col justify-between gap-2.5 p-3">
+                <div>
+                  <div class="flex items-baseline justify-between font-mono text-[10.5px] tabular-nums">
+                    <span class="font-semibold text-[var(--fg)]">Gemini Pool · 5h</span>
+                    <span class="font-bold text-[var(--seg-cache)]">68.4% left</span>
+                  </div>
+                  <div class="relative mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-[var(--surface-3)]">
+                    <div class="absolute inset-y-0 left-0 w-[68.4%] rounded-full bg-[var(--seg-cache)]" />
+                    <div class="hatched-runway absolute inset-y-0 left-[44%] w-[24.4%] rounded-r-full" />
+                  </div>
+                  <div class="mt-1 flex items-center justify-between font-mono text-[9.5px] text-[var(--muted)] tabular-nums">
+                    <span>{isZh ? '重置前预计剩 44%' : 'Projected 44% at reset'}</span>
+                    <span>Ultra 20x</span>
+                  </div>
+                </div>
+                <div class="border-t border-[var(--border-subtle)] pt-2">
+                  <div class="flex items-baseline justify-between font-mono text-[10.5px] tabular-nums">
+                    <span class="font-semibold text-[var(--fg)]">Claude / GPT · 5h</span>
+                    <span class="font-bold text-[var(--seg-out)]">84.5% left</span>
+                  </div>
+                  <div class="relative mt-1.5 h-2 w-full overflow-hidden rounded-full bg-[var(--surface-3)]">
+                    <div class="absolute inset-y-0 left-0 w-[84.5%] rounded-full bg-[var(--seg-out)]" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Per-Model Burn Multiplier Comparison */}
+              <div class="bento-well flex flex-col justify-between gap-2 p-3">
+                <div class="flex items-center justify-between font-mono text-[10px] text-[var(--muted)]">
+                  <span>{isZh ? '各模型实测消耗倍率' : 'Fitted Model Burn Rates'}</span>
+                  <span class="text-[var(--seg-cache)]">IRLS</span>
+                </div>
+                <div class="flex flex-col gap-1.5 font-mono text-[10px] tabular-nums">
+                  {[
+                    { name: 'Hydrogen', k: '1.0×', pct: '33%', color: 'bg-[var(--seg-cache)]', note: isZh ? '高性价比' : '1× base' },
+                    { name: 'Neon', k: '1.0×', pct: '33%', color: 'bg-[var(--seg-input)]', note: isZh ? '主力平衡' : '1× base' },
+                    { name: 'Carbon', k: '3.0×', pct: '100%', color: 'bg-[var(--seg-think)]', note: isZh ? '高倍消耗' : '3× burn' },
+                    { name: 'Opus 5.5', k: '~4.8%/$', pct: '78%', color: 'bg-[var(--seg-out)]', note: isZh ? 'Claude池' : 'Claude pool' },
+                  ].map((m) => (
+                    <div key={m.name} class="flex items-center gap-2">
+                      <span class="w-[58px] shrink-0 truncate text-[var(--fg-2)]">{m.name}</span>
+                      <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--surface-3)]">
+                        <div class={`h-full rounded-full ${m.color}`} style={{ width: m.pct }} />
+                      </div>
+                      <span class="w-[46px] shrink-0 text-right font-semibold text-[var(--fg)]">{m.k}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </article>
+
+          {/* Card 2 (5 cols): Native AGY Swarm Cockpit & Recursive Tree Rollup */}
+          <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-5">
+            <div>
+              <div class="flex items-start justify-between gap-2">
+                <span class="font-mono text-[10.5px] font-semibold text-[var(--seg-think)]">
+                  {isZh ? '🐝 原生 AGY 蜂群适配' : '🐝 NATIVE AGY SWARM COCKPIT'}
+                </span>
+                <TryButton
+                  req={{ id: 'swarm', tab: 'live', action: 'swarm' }}
+                  label={isZh ? '看蜂群视图' : 'Swarm View'}
+                />
+              </div>
+              <h3 class="display-heading mt-1 text-[19px] font-semibold text-[var(--fg)]">
+                {isZh ? '原生适配 Swarm 蜂群，多 Agent 状态与整树花销一屏掌握' : 'First-class Swarm visibility & recursive session tree rollup'}
+              </h3>
+              <p class="mt-1.5 text-[13.5px] leading-[1.65] text-[var(--muted)]">
+                {isZh
+                  ? '直读 Antigravity 磁盘原生 Swarm 状态，实时追踪每个 @worker 运行态、工作树与公告板进度；自动递归合并主会话、所有 Worker、嵌套子 Agent 与 Side-Q 的总费用和配额，支持一键互跳。'
+                  : 'Reads Antigravity’s native on-disk Swarm state to track every @worker’s live state, worktree, and Board #seq — while recursively rolling up cost, output, and quota across nested subagents & Side-Q.'}
+              </p>
+            </div>
+
+            <div class="bento-well flex flex-col gap-2 p-3 font-mono text-[10px]">
+              <div class="flex items-center justify-between text-[var(--muted)]">
+                <span class="font-semibold text-[var(--fg)]">{isZh ? 'Swarm 蜂群 · 4 Workers' : 'Swarm · 4 Workers'}</span>
+                <span class="rounded bg-[var(--tint-think)] px-1.5 py-0.5 text-[9.5px] text-[var(--seg-think)]">Board #42</span>
+              </div>
+              <div class="flex flex-col gap-1.5">
+                {[
+                  { name: '@architect', state: isZh ? '运行中' : 'working', badge: 'share', dot: 'bg-[var(--seg-cache)]', cost: '$3.84' },
+                  { name: '@frontend', state: isZh ? '运行中' : 'working', badge: 'share', dot: 'bg-[var(--seg-cache)]', cost: '$4.12' },
+                  { name: '@verifier', state: isZh ? '待命' : 'waiting', badge: 'inherit', dot: 'bg-[var(--seg-out)]', cost: '$1.84' },
+                ].map((w) => (
+                  <div key={w.name} class="flex items-center justify-between gap-2 rounded-md bg-[var(--surface)] px-2 py-1">
+                    <span class="inline-flex items-center gap-1.5 truncate text-[var(--fg)]">
+                      <span class={`h-1.5 w-1.5 shrink-0 rounded-full ${w.dot}`} />
+                      <span class="font-semibold">{w.name}</span>
+                      <span class="text-[9px] text-[var(--faint)]">{w.badge}</span>
+                    </span>
+                    <span class="shrink-0 text-[var(--fg-2)] tabular-nums">{w.state} · {w.cost}</span>
+                  </div>
+                ))}
+              </div>
+              <div class="flex items-center justify-between border-t border-[var(--border-subtle)] pt-1.5 text-[9.5px]">
+                <span class="text-[var(--muted)]">{isZh ? '递归总计 (主 + 4子)' : 'Tree Total (Main + 4)'}</span>
+                <span class="font-bold text-[var(--seg-cache)]">$12.20 · -4.1% 5h</span>
+              </div>
+            </div>
+          </article>
+
+          {/* ── Row 2: Prompt Cache Expiry & TTL Survival (5) + Context X-Ray & Call Waterfall (7) ── */}
+          <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-5">
+            <div>
+              <div class="flex items-start justify-between gap-2">
+                <span class="font-mono text-[10.5px] font-semibold text-[var(--seg-cache)]">
+                  {isZh ? '🧊 缓存失效预警 · TTL 生存模型' : '🧊 CACHE EXPIRY ALERTS · TTL CURVE'}
+                </span>
+                <TryButton
+                  req={{ id: 'cache-ttl', tab: 'account', action: 'cache-ttl' }}
+                  label={isZh ? '看缓存曲线' : 'TTL Curve'}
+                />
+              </div>
+              <h3 class="display-heading mt-1 text-[19px] font-semibold text-[var(--fg)]">
+                {isZh ? '别等离开几分钟掉缓存了，才发现白烧一轮重算' : 'Know before a pause expires your cache and triggers a costly re-prefill'}
+              </h3>
+              <p class="mt-1.5 text-[13.5px] leading-[1.65] text-[var(--muted)]">
+                {isZh
+                  ? '基于本机历史实测拟合生存曲线，精准区分 Claude ~5 分钟硬断崖与 Gemini 平滑 LRU 衰减；实时展示当前会话缓存存活率、P80/P50 安全间隔，以及一旦失效会多烧多少美元和 5h 配额。'
+                  : 'Fits your real local cache survival curve — separating Claude’s sharp 5-minute cliff from Gemini’s gradual LRU decay — with live survival %, P80/P50 safe horizons, and exact miss penalty in $ and 5h quota.'}
+              </p>
+            </div>
+
+            <div class="bento-well flex flex-col gap-2 p-3">
+              <div class="flex items-center justify-between font-mono text-[10px]">
+                <span class="text-[var(--muted)]">{isZh ? '缓存存活概率 S(t)' : 'Cache Survival S(t)'}</span>
+                <span class="font-semibold text-[var(--seg-cache)]">{isZh ? '当前存活 86%' : '86% alive now'}</span>
+              </div>
+              <svg viewBox="0 0 240 68" class="block h-[66px] w-full overflow-visible" aria-hidden="true">
+                <line x1="0" y1="16" x2="240" y2="16" stroke="var(--border)" stroke-dasharray="2 3" />
+                <line x1="0" y1="36" x2="240" y2="36" stroke="var(--border)" stroke-dasharray="2 3" />
+                <line x1="0" y1="60" x2="240" y2="60" stroke="var(--border)" />
+                {/* Gemini gradual LRU decay */}
+                <path d="M4,8 C56,10 105,18 152,32 C188,43 214,50 236,54" fill="none" stroke="var(--seg-cache)" stroke-width="2" stroke-linecap="round" />
+                {/* Claude 5m hard TTL cliff */}
+                <path d="M4,9 L68,10 C82,10 86,52 100,57 L236,58" fill="none" stroke="var(--seg-out)" stroke-width="1.8" stroke-dasharray="4 3" stroke-linecap="round" />
+                <circle cx="84" cy="34" r="3" fill="var(--seg-out)" />
+                <circle cx="152" cy="32" r="3" fill="var(--seg-cache)" />
+              </svg>
+              <div class="flex flex-wrap items-center justify-between gap-2 font-mono text-[9.5px]">
+                <span class="inline-flex items-center gap-2 text-[var(--muted)]">
+                  <span class="inline-flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-cache)]" />Gemini LRU</span>
+                  <span class="inline-flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-out)]" />Claude 5m</span>
+                </span>
+                <span class="text-[var(--seg-out)] font-semibold">{isZh ? '掉缓存损失 ~$0.34' : 'Miss penalty ~$0.34'}</span>
+              </div>
+            </div>
+          </article>
+
+          {/* Card 4 (7 cols): Context Window X-Ray & 5-Tab Call Waterfall */}
+          <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-7">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <span class="font-mono text-[10.5px] font-semibold text-[var(--seg-input)]">
+                  {isZh ? '🔍 上下文 X-RAY · ⏱ 调用耗时瀑布图' : '🔍 CONTEXT X-RAY · ⏱ TIMING WATERFALL'}
+                </span>
+                <h3 class="display-heading mt-1 text-[19px] font-semibold text-[var(--fg)]">
+                  {isZh ? '拆穿上下文膨胀元凶，定位每一秒卡在思考还是工具' : 'See what fills your context window & where every second went'}
+                </h3>
+                <p class="mt-1.5 text-[13.5px] leading-[1.65] text-[var(--muted)]">
+                  {isZh
+                    ? '双列 X-Ray 拆解 System、MCP Tools、Skills、Rules 与单工具输出排行，预估还能撑几轮触发 /compact；全历史趋势图配缩略图缩放，展开任意调用即看 TTFT / 思考 / TC-WAIT 工具卡顿 / 正文耗时瀑布图。'
+                    : 'Breaks down System, MCP Tools, Skills, Rules, and per-tool outputs with turns-until-compact headroom; full-history Trend Explorer + 5-tab Call Inspector separates TTFT, Thinking, TC-WAIT stalls, and Reply streaming.'}
+                </p>
+              </div>
+              <TryButton
+                req={{ id: 'calls', tab: 'calls', action: 'calls-top' }}
+                label={isZh ? '看调用详情' : 'Call Inspector'}
+              />
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {/* Context Breakdown */}
+              <div class="bento-well flex flex-col justify-between gap-2 p-3">
+                <div>
+                  <div class="flex items-center justify-between font-mono text-[10px] tabular-nums">
+                    <span class="text-[var(--muted)]">{isZh ? '上下文窗口' : 'Context Window'}</span>
+                    <span class="font-semibold text-[var(--fg)]">114.6K / 512K · {isZh ? '剩 ~14 轮' : '~14t left'}</span>
+                  </div>
+                  <div class="mt-1.5 flex h-2 w-full gap-[2px] overflow-hidden rounded-full bg-[var(--surface-3)]">
+                    <div class="h-full w-[10%] rounded-l-full bg-[var(--seg-think)]" />
+                    <div class="h-full w-[14%] bg-[var(--seg-input)]" />
+                    <div class="h-full w-[26%] bg-[var(--seg-out)]" />
+                    <div class="h-full w-[12%] rounded-r-full bg-[var(--seg-cache)]" />
+                  </div>
+                </div>
+                <div class="grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[9.5px] text-[var(--muted)] tabular-nums">
+                  <span class="flex justify-between"><span>MCP Tools</span><b class="text-[var(--fg-2)]">13.2K</b></span>
+                  <span class="flex justify-between"><span>read_file</span><b class="text-[var(--fg-2)]">34.8K</b></span>
+                  <span class="flex justify-between"><span>System/Rules</span><b class="text-[var(--fg-2)]">8.4K</b></span>
+                  <span class="flex justify-between"><span>{isZh ? '模型回复' : 'Replies'}</span><b class="text-[var(--fg-2)]">18.9K</b></span>
+                </div>
+              </div>
+
+              {/* Per-Call Timing Waterfall */}
+              <div class="bento-well flex flex-col justify-between gap-2 p-3">
+                <div class="flex items-center justify-between font-mono text-[10px] tabular-nums">
+                  <span class="text-[var(--muted)]">{isZh ? '单次耗时瀑布图' : 'Call Timing Waterfall'}</span>
+                  <span class="font-semibold text-[var(--fg)]">8.2s · 128 t/s</span>
+                </div>
+                <div class="flex flex-col gap-1.5 font-mono text-[9.5px] tabular-nums">
+                  {[
+                    { lbl: 'TTFT', val: '1.4s', left: '0%', w: '17%', cls: 'bg-[var(--seg-input)]' },
+                    { lbl: isZh ? '思考' : 'Think', val: '2.8s', left: '17%', w: '34%', cls: 'bg-[var(--seg-think)]' },
+                    { lbl: 'TC-WAIT', val: '0.9s', left: '51%', w: '11%', cls: 'bg-[var(--seg-out)]' },
+                    { lbl: isZh ? '正文' : 'Reply', val: '3.1s', left: '62%', w: '38%', cls: 'bg-[var(--seg-cache)]' },
+                  ].map((s) => (
+                    <div key={s.lbl} class="flex items-center gap-2">
+                      <span class="w-[46px] shrink-0 text-[var(--muted)]">{s.lbl}</span>
+                      <div class="relative h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--surface-3)]">
+                        <div class={`absolute inset-y-0 rounded-full ${s.cls}`} style={{ left: s.left, width: s.w }} />
+                      </div>
+                      <span class="w-[30px] shrink-0 text-right text-[var(--fg-2)]">{s.val}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </article>
+
+          {/* ── Row 3: Global Gemini 7d/5m Curves + Cyber Arena PK (7) + Live TTFT Attribution (5) ── */}
           <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-7">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div class="min-w-0 flex-1">
@@ -63,42 +308,45 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
                   {isZh ? '🌐 全球大盘折线 · ⚔ 赛博斗蛐蛐' : '🌐 GLOBAL CURVES · ⚔ CYBER ARENA PK'}
                 </span>
                 <h3 class="display-heading mt-1 text-[19px] font-semibold text-[var(--fg)]">
-                  {isZh ? 'OpenRouter 7 天折线、24h 可用率 & 多模型同图 PK' : 'OpenRouter 7d/24h Gemini curves & head-to-head Arena PK'}
+                  {isZh ? 'Gemini 全球 7 天/5 分钟大盘，拿本机速度直接同图 PK' : 'Global 7d/5m Gemini curves & head-to-head Arena PK'}
                 </h3>
                 <p class="mt-1.5 text-[13.5px] leading-[1.65] text-[var(--muted)]">
                   {isZh
-                    ? '在 Calls 趋势图一键切到「🌐 大盘折线」对比 5 个 Gemini 模型及 Vertex / AI Studio 节点曲线；在 Account 打开「⚔ 赛博斗蛐蛐」，按 30m/24h/7d 同口径拿本机实测与全球大盘正面硬刚。'
-                    : 'Switch Calls Trend directly to Global 7d/24h curves across all Gemini models (and split Vertex vs AI Studio). Open Cyber Arena PK in Account to duel your local 30m/24h/7d speed against the global pool.'}
+                    ? '实时追踪 5 个 Gemini 模型的全网首字、吐字、缓存与 Vertex / AI Studio 节点可用率，并在「赛博斗蛐蛐」里把你本机的 30m/24h/7d 实测和全球大盘直接 1v1 对比。'
+                    : 'Tracks global TTFT, TPS, cache hit %, and Vertex vs AI Studio uptime across 5 Gemini models — overlay your local curve or duel your 30m/24h/7d metrics head-to-head in Cyber Arena PK.'}
                 </p>
               </div>
-              <div class="flex items-center gap-1.5">
+              <div class="flex flex-wrap items-center gap-1.5">
                 <TryButton
                   req={{ id: 'global-trend', tab: 'calls', action: 'global-trend' }}
-                  label={isZh ? '看大盘折线' : '7d Curves'}
+                  label={isZh ? '大盘折线' : '7d Curves'}
                 />
                 <TryButton
                   req={{ id: 'arena', tab: 'account', action: 'arena' }}
                   label={isZh ? '斗蛐蛐 PK' : 'Arena PK'}
                 />
+                <a
+                  href="./pulse/"
+                  class="inline-flex shrink-0 items-center gap-1 rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-semibold text-[var(--fg)] no-underline transition-colors hover:border-[var(--seg-cache)]"
+                >
+                  <span>{isZh ? '独立雷达' : '/pulse/'}</span>
+                  <span aria-hidden="true">→</span>
+                </a>
               </div>
             </div>
 
-            {/* Dual visual preview: Mini 7d Curves + Mini Red/Blue PK Duel */}
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div class="bento-well p-3">
                 <div class="flex items-center justify-between text-[10px] font-mono text-[var(--muted)]">
-                  <span>{isZh ? 'TTFT 7d + 近30m' : 'TTFT 7d + Live 30m'}</span>
+                  <span>{isZh ? 'TTFT 7d + 近5m' : 'TTFT 7d + 5m Live'}</span>
                   <span class="text-[var(--seg-cache)]">Hydro 1.52s</span>
                 </div>
                 <svg viewBox="0 0 220 74" class="mt-2 block h-[72px] w-full overflow-visible" aria-hidden="true">
                   <line x1="0" y1="18" x2="220" y2="18" stroke="var(--border)" stroke-dasharray="2 3" />
                   <line x1="0" y1="44" x2="220" y2="44" stroke="var(--border)" stroke-dasharray="2 3" />
                   <line x1="0" y1="68" x2="220" y2="68" stroke="var(--border)" />
-                  {/* Carbon (slow) */}
                   <path d="M4,24 C40,28 74,14 110,20 C146,26 180,10 214,15" fill="none" stroke="var(--seg-out)" stroke-width="1.8" stroke-linecap="round" />
-                  {/* Neon (mid) */}
                   <path d="M4,42 C40,38 74,35 110,40 C146,34 180,37 214,35" fill="none" stroke="var(--seg-input)" stroke-width="1.8" stroke-linecap="round" />
-                  {/* Hydrogen (fast) */}
                   <path d="M4,58 C40,56 74,59 110,55 C146,57 180,54 214,56" fill="none" stroke="var(--seg-cache)" stroke-width="2" stroke-linecap="round" />
                   <circle cx="214" cy="15" r="3" fill="var(--seg-out)" />
                   <circle cx="214" cy="35" r="3" fill="var(--seg-input)" />
@@ -113,7 +361,7 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
 
               <div class="bento-well flex flex-col justify-between gap-2 p-3">
                 <div class="flex items-center justify-between font-mono text-[10px]">
-                  <span class="font-bold text-[var(--seg-cache)]">{isZh ? '本机 Carbon · 96分' : 'Mine Carbon · 96'}</span>
+                  <span class="font-bold text-[var(--seg-cache)]">{isZh ? '本机 Neon · 96分' : 'Mine Neon · 96'}</span>
                   <span class="text-[var(--faint)]">VS</span>
                   <span class="font-bold text-[var(--seg-input)]">{isZh ? '大盘 30m · 61分' : 'Global 30m · 61'}</span>
                 </div>
@@ -156,7 +404,7 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
             </div>
           </article>
 
-          {/* Card 2 (5 cols): Live TTFT Root-Cause Attribution */}
+          {/* Card 6 (5 cols): Live TTFT Root-Cause Attribution */}
           <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-5">
             <div>
               <div class="flex items-start justify-between gap-2">
@@ -169,12 +417,12 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
                 />
               </div>
               <h3 class="display-heading mt-1 text-[19px] font-semibold text-[var(--fg)]">
-                {isZh ? '到底是大盘崩了，还是我账号/网络慢？' : 'Upstream outage, cold prefill, or your own account?'}
+                {isZh ? '到底是大盘崩了，还是我账号/网络慢？' : 'Upstream outage, large context, or your own account?'}
               </h3>
               <p class="mt-1.5 text-[13.5px] leading-[1.65] text-[var(--muted)]">
                 {isZh
-                  ? '联合 OpenRouter 30m 大盘、Google Cloud 状态、本机 7 天命中/冷启动分桶基线与并发数，直接给出 4 类精准结论。'
-                  : 'Combines OpenRouter 30m pulse, GCP status, stratified local cache-hit vs cold baselines, and live concurrency into an instant verdict.'}
+                  ? '联合全网 30m 大盘、Google Cloud 状态、按上下文分桶的本机基线与并发数，自动给出精准归因结论。'
+                  : 'Combines global 30m pulse, GCP status, context-bucketed local baselines, and live concurrency into an instant verdict.'}
               </p>
             </div>
 
@@ -189,8 +437,8 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
                 {
                   dot: 'bg-[var(--seg-input)]',
                   bg: 'bg-[var(--tint-accent)] border-[var(--tint-accent-border)] text-[var(--accent-ink)]',
-                  pill: isZh ? '冷预填充 92k' : 'Cold prefill 92k',
-                  desc: isZh ? '缓存失效触发重算' : 'Uncached large prompt',
+                  pill: isZh ? '冷预填充 / 大上下文' : 'Cold / Large ctx',
+                  desc: isZh ? '缓存失效或超长输入' : 'Uncached or >150k prompt',
                 },
                 {
                   dot: 'bg-[var(--seg-think)]',
@@ -216,12 +464,12 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
             </div>
           </article>
 
-          {/* Card 3 (5 cols): 2x PNG Wrapped Share Poster */}
-          <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-5">
+          {/* ── Row 4: 16w/52w Iceberg Heatmap + 2x Wrapped Poster (6) + Official Sidecar Safety (6) ── */}
+          <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-6">
             <div>
               <div class="flex items-start justify-between gap-2">
                 <span class="font-mono text-[10.5px] font-semibold text-[var(--seg-cache)]">
-                  {isZh ? '✨ 活跃趋势 & 分享战报' : '✨ WRAPPED 2X PNG POSTER'}
+                  {isZh ? '✨ 冰山热力图 · 2x 战报海报' : '✨ ICEBERG HEATMAP · 2X WRAPPED POSTER'}
                 </span>
                 <TryButton
                   req={{ id: 'wrapped', tab: 'account', action: 'wrapped' }}
@@ -229,16 +477,15 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
                 />
               </div>
               <h3 class="display-heading mt-1 text-[19px] font-semibold text-[var(--fg)]">
-                {isZh ? '一键生成 2x 高清社交战报海报' : 'One-click 2x Retina Wrapped share posters'}
+                {isZh ? '16w/52w Token 冰山热力图 & 一键 2x 高清战报海报' : '16w/52w Token Iceberg & one-click 2x Wrapped share posters'}
               </h3>
               <p class="mt-1.5 text-[13.5px] leading-[1.65] text-[var(--muted)]">
                 {isZh
-                  ? '自动解锁段位称号、连肝记录与巅峰单日；纯前端 Canvas 渲染暗夜霓虹 / 黑金 Ultra / 极简白 3 套海报，支持一键「隐藏金额」与复制 PNG。'
-                  : 'Auto-unlocks persona badges, streaks, and peak days. Zero-dependency Canvas 2D renders Cyber Dark, Obsidian Gold, or Minimal Light posters with a privacy $ toggle.'}
+                  ? '合并 App + CLI + IDE 全年活跃数据，单色冰山图一眼看清每日新增 vs 缓存读取杠杆；纯前端 Canvas 一键导出暗夜 / 黑金 / 极简白 2x PNG 战报，支持一键「隐藏金额」。'
+                  : 'Unifies App, CLI & IDE activity into a 16w/52w heatmap and Monochrome Token Iceberg (new vs cached), plus zero-dep 2x PNG Wrapped posters in 3 themes with a privacy $ toggle.'}
               </p>
             </div>
 
-            {/* Stylized mini Wrapped Poster card preview */}
             <div
               class="relative overflow-hidden rounded-xl border border-white/10 p-3.5 text-white"
               style={{
@@ -262,7 +509,6 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
                   {isZh ? '🔥 连肝 18 天' : '🔥 18d Streak'}
                 </div>
               </div>
-              {/* Mini 6x12 glowing heatmap preview */}
               <div class="mt-2.5 grid grid-cols-12 gap-[3px]">
                 {posterHeat.map((lvl, idx) => (
                   <span
@@ -290,103 +536,7 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
             </div>
           </article>
 
-          {/* Card 4 (7 cols): Calibrated Ultra 20x Quota Runway + Recursive Swarm Rollup */}
-          <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-7">
-            <div>
-              <span class="font-mono text-[10.5px] font-semibold text-[var(--seg-think)]">
-                {isZh ? '⚡ 配额自校准 · 🐝 SWARM 递归归账' : '⚡ IRLS QUOTA RUNWAY · 🐝 RECURSIVE SWARM ROLLUP'}
-              </span>
-              <h3 class="display-heading mt-1 text-[19px] font-semibold text-[var(--fg)]">
-                {isZh ? '抗并发污染的 5h/7d 配额续航，与主会话 + 全量 Swarm 合并统计' : 'Multi-agent-hardened 5h/7d runway + full Swarm session tree rollup'}
-              </h3>
-              <p class="mt-1.5 text-[13.5px] leading-[1.65] text-[var(--muted)]">
-                {isZh
-                  ? '对数空间 IRLS 与并发 Regime 守卫精准校准 Pro / Ultra 20x（$600/5h · $2.4k/7d）额度；「本会话」自动递归合并主对话、Swarm Workers、子 Agent 与 Side-Q 的真实总花费、输出与配额。'
-                  : 'Log-space IRLS with concurrency guards calibrates Pro & Ultra 20x pools; “This Session” recursively rolls up root chat, Swarm workers, nested subagents, and Side-Q spend & quota.'}
-              </p>
-            </div>
-
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {/* Hatched Runway Mini Visual */}
-              <div class="bento-well flex flex-col justify-between gap-2 p-3">
-                <div class="flex items-baseline justify-between font-mono text-[10.5px] tabular-nums">
-                  <span class="font-semibold text-[var(--fg)]">Gemini Pool · 5h</span>
-                  <span class="font-bold text-[var(--seg-cache)]">68.4% left</span>
-                </div>
-                <div class="relative h-2.5 w-full overflow-hidden rounded-full bg-[var(--surface-3)]">
-                  <div class="absolute inset-y-0 left-0 w-[68.4%] rounded-full bg-[var(--seg-cache)]" />
-                  <div class="hatched-runway absolute inset-y-0 left-[44%] w-[24.4%] rounded-r-full" />
-                </div>
-                <div class="flex items-center justify-between font-mono text-[9.5px] text-[var(--muted)] tabular-nums">
-                  <span>{isZh ? '预计重置时剩 44%' : 'Projected 44% at reset'}</span>
-                  <span>Ultra 20x</span>
-                </div>
-              </div>
-
-              {/* Recursive Session Tree Rollup Visual */}
-              <div class="bento-well flex flex-col justify-between gap-2 p-3">
-                <div class="flex items-baseline justify-between font-mono text-[10.5px] tabular-nums">
-                  <span class="font-semibold text-[var(--fg)]">
-                    {isZh ? '本会话总计 · +4 子' : 'Session Total · +4 sub'}
-                  </span>
-                  <span class="font-bold text-[var(--fg)]">$12.20</span>
-                </div>
-                <div class="flex flex-wrap items-center gap-1 font-mono text-[9.5px]">
-                  <span class="rounded bg-[var(--surface)] px-1.5 py-0.5 text-[var(--fg-2)]">
-                    {isZh ? '主会话 $2.40' : 'Main $2.40'}
-                  </span>
-                  <span class="text-[var(--faint)]">+</span>
-                  <span class="rounded bg-[var(--tint-think)] px-1.5 py-0.5 text-[var(--seg-think)]">
-                    {isZh ? '4 Swarm/子会话 $9.80' : '4 Workers $9.80'}
-                  </span>
-                </div>
-                <div class="font-mono text-[9.5px] text-[var(--seg-cache)]">
-                  {isZh ? '缓存累计省 $38.60 · 防环递归统计' : 'Saved $38.60 via cache · cycle-safe'}
-                </div>
-              </div>
-            </div>
-          </article>
-
-          {/* Card 5 (6 cols): Cache TTL Survival Curve + Context X-Ray */}
-          <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-6">
-            <div>
-              <span class="font-mono text-[10.5px] font-semibold text-[var(--seg-cache)]">
-                {isZh ? '🧊 缓存 TTL 存活曲线 · 🔍 上下文 X-RAY' : '🧊 CACHE TTL SURVIVAL · 🔍 CONTEXT X-RAY'}
-              </span>
-              <h3 class="display-heading mt-1 text-[19px] font-semibold text-[var(--fg)]">
-                {isZh ? '掉缓存前提前预警，展开每个工具的上下文账单' : 'Stay ahead of cache expiry & inspect every context token'}
-              </h3>
-              <p class="mt-1.5 text-[13.5px] leading-[1.65] text-[var(--muted)]">
-                {isZh
-                  ? '用对数逻辑斯蒂模型拟合本机 Gemini / Claude 真实缓存衰减，提醒你晾多久会触发重算；双列 X-Ray 拆解 System、MCP Tools、Skills、Rules 与工具输出。'
-                  : 'Fits your real local Gemini LRU / Claude 5m cache survival curve so you know before a pause causes a re-prefill, paired with a full breakdown of MCP tools, Skills, and tool outputs.'}
-              </p>
-            </div>
-
-            <div class="bento-well flex flex-col gap-2.5 p-3">
-              {/* Context Segmented Bar */}
-              <div>
-                <div class="flex items-center justify-between font-mono text-[10px] tabular-nums">
-                  <span class="text-[var(--muted)]">{isZh ? '上下文窗口' : 'Context Window'}</span>
-                  <span class="font-semibold text-[var(--fg)]">114.6K / 256K · 45%</span>
-                </div>
-                <div class="mt-1.5 flex h-2 w-full gap-[2px] overflow-hidden rounded-full bg-[var(--surface-3)]">
-                  <div class="h-full w-[8%] rounded-l-full bg-[var(--seg-think)]" />
-                  <div class="h-full w-[10%] bg-[var(--seg-input)]" />
-                  <div class="h-full w-[19%] bg-[var(--seg-out)]" />
-                  <div class="h-full w-[8%] rounded-r-full bg-[var(--seg-cache)]" />
-                </div>
-              </div>
-              <div class="flex flex-wrap items-center justify-between gap-2 font-mono text-[9.5px] text-[var(--muted)]">
-                <span class="inline-flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-think)]" />System/Skills</span>
-                <span class="inline-flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-input)]" />MCP Tools</span>
-                <span class="inline-flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-out)]" />Tool Results</span>
-                <span class="text-[var(--seg-cache)] font-semibold">{isZh ? '缓存存活 P50 ~8m' : 'Cache P50 ~8m'}</span>
-              </div>
-            </div>
-          </article>
-
-          {/* Card 6 (6 cols): Pure Official Sidecar Safety Comparison */}
+          {/* Card 8 (6 cols): Pure Official Sidecar Safety Comparison */}
           <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-6">
             <div>
               <span class="font-mono text-[10.5px] font-semibold text-[var(--accent-ink)]">
@@ -397,15 +547,15 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
               </h3>
               <p class="mt-1.5 text-[13.5px] leading-[1.65] text-[var(--muted)]">
                 {isZh
-                  ? '基于 Node.js 22.18+ 内置 node:sqlite（?mode=ro 只读），严格运行在 Antigravity 官方插件侧边栏内，并 1:1 对齐官方 Google Sans Flex 字体与 16 套主题。'
-                  : 'Built on Node.js 22.18+ built-in read-only node:sqlite (?mode=ro) with zero runtime npm deps, 1:1 Antigravity Hub typography, and 16-theme live sync.'}
+                  ? '基于 Node.js 22.18+ 内置只读 node:sqlite（?mode=ro），零第三方 npm 运行时依赖，1:1 对齐官方 Google Sans Flex 字体与全部 16 套主题，并内置安全一键自升级。'
+                  : 'Built on Node.js 22.18+ read-only node:sqlite (?mode=ro) with zero runtime npm deps, 1:1 Antigravity Hub typography, all 16 official themes, and atomic in-app self-updates.'}
               </p>
             </div>
 
             <div class="bento-well divide-y divide-[var(--border-subtle)] overflow-hidden text-[11.5px]">
               {[
                 {
-                  k: isZh ? 'Electron / app.asar' : 'Electron / app.asar',
+                  k: 'Electron / app.asar',
                   v: isZh ? '✓ 零修改，永不破坏签名与更新' : '✓ Untouched — survives every update',
                 },
                 {
@@ -413,12 +563,12 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
                   v: isZh ? '✓ 零 --remote-debugging-port，零抓包' : '✓ No debug port, no network proxy',
                 },
                 {
-                  k: isZh ? '运行时依赖与隐私' : 'Runtime & Privacy',
-                  v: isZh ? '✓ 零 npm 依赖 · 大盘可一键切纯离线' : '✓ Zero deps · 1-click offline toggle',
+                  k: isZh ? '运行时依赖与数据' : 'Runtime & Data',
+                  v: isZh ? '✓ 零 npm 依赖 · 纯本地 SQLite 只读' : '✓ Zero npm deps · Read-only SQLite',
                 },
                 {
-                  k: isZh ? '视觉融合度' : 'Native Craft',
-                  v: isZh ? '✓ 16 套主题 · 强对比 · 官方字体 1:1' : '✓ 16 themes · High contrast · Hub fonts',
+                  k: isZh ? '视觉融合与更新' : 'Native Craft & Updates',
+                  v: isZh ? '✓ 16 套主题 · 强对比 · 一键安全自升级' : '✓ 16 themes · High contrast · Atomic updates',
                 },
               ].map((row) => (
                 <div key={row.k} class="flex items-center justify-between gap-3 px-3 py-2">

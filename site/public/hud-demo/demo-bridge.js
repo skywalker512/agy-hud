@@ -231,8 +231,20 @@
               sBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
               sBtn.click();
             }
-          } else if (action === 'live-top') {
+          } else if (action === 'live-top' || action === 'calls-top' || action === 'quota') {
             window.scrollTo({ top: 0, behavior: 'smooth' });
+          } else if (action === 'swarm') {
+            var swHead = Array.prototype.slice.call(document.querySelectorAll('section, h2, h3, span')).find(function (el) {
+              var txt = (el.textContent || '').trim();
+              return txt.indexOf('Swarm') >= 0 || txt.indexOf('蜂群') >= 0;
+            });
+            if (swHead) swHead.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } else if (action === 'cache-ttl') {
+            var ttlEl = Array.prototype.slice.call(document.querySelectorAll('section, h2, h3, button')).find(function (el) {
+              var txt = (el.textContent || '').trim();
+              return txt.indexOf('Cache TTL') >= 0 || txt.indexOf('缓存 TTL') >= 0;
+            });
+            if (ttlEl) ttlEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
         }, 120);
       }

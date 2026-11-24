@@ -95,6 +95,7 @@ export function App() {
           demoJump={demoJump}
           onCycleTheme={handleCycleTheme}
           onSelectTheme={setThemeId}
+          onPreviewTheme={setPreviewThemeId}
           onJumpDemo={(req) => handleJumpDemo(req, false)}
         />
         <HighlightsSection

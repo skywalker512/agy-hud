@@ -66,14 +66,14 @@ export const COPY: Record<Locale, SiteCopy> = {
       github: 'GitHub',
     },
     hero: {
-      badge: 'v1.2 · OpenRouter 7d/24h Curves · Cyber Arena PK · 2x Wrapped Poster',
+      badge: 'v1.2 · Pure Official Sidecar · Zero Patching',
       pulseCta: 'Live Gemini Pulse Radar',
       headline: 'See what Antigravity is really doing.',
       subhead:
-        'A native telemetry cockpit built into Google Antigravity’s side pane — real GEN speed, TTFT root-cause attribution, global Gemini 7d/24h curves & Cyber Arena PK, calibrated Ultra 20x quota runway, recursive Swarm rollup, and 2x PNG Wrapped posters.',
-      meta: 'Pure Official Sidecar · Zero CDP / Zero Patching · 100% Local Read-Only · Node.js 22.18+',
-      interactiveHint: '100% real embedded AGY-HUD above — click the tour bar below the panel to jump directly to Global Curves, Arena PK, or 2x Wrapped Poster.',
-      themeStripLabel: 'Live 16-theme sync',
+        'A native side-pane telemetry cockpit for Google Antigravity — real-time speed, context, cache survival, quota burn, and Swarm visibility.',
+      meta: 'Node.js 22.18+ · Zero CDP · Zero Runtime Deps · 100% Local Read-Only',
+      interactiveHint: '100% real embedded AGY-HUD — click any stop below to jump across Live, Calls, Arena PK, or Wrapped Poster.',
+      themeStripLabel: 'All 16 official Antigravity themes',
       copy: 'Copy',
       copied: 'Copied',
       autoDetected: 'Recommended',
@@ -88,10 +88,10 @@ export const COPY: Record<Locale, SiteCopy> = {
       licenseTip: 'MIT License',
     },
     highlights: {
-      eyebrow: 'TELEMETRY COCKPIT',
-      heading: 'Every blind spot in Antigravity, made visible.',
+      eyebrow: 'EVERY BLIND SPOT, SOLVED',
+      heading: 'Built for the questions Antigravity leaves unanswered.',
       subhead:
-        'From why a single turn stalled to how your local account stacks up against the global Gemini pool — every chart below runs live in the embedded panel above.',
+        'Which model burns quota fastest, when prompt cache is about to expire, what your Swarm workers cost, and why a turn stalled — all live in one calm side pane.',
       tryLive: 'Try live',
     },
     credits: {
@@ -143,14 +143,14 @@ export const COPY: Record<Locale, SiteCopy> = {
       github: 'GitHub',
     },
     hero: {
-      badge: 'v1.2 · OpenRouter 7d/24h 大盘折线 · ⚔ 赛博斗蛐蛐 · 2x 战报海报',
+      badge: 'v1.2 · 纯官方 Sidecar · 零改包',
       pulseCta: '打开 Gemini 实时雷达',
       headline: '看清 Antigravity 正在发生的一切。',
       subhead:
-        '专为 Google Antigravity 打造的原生遥测驾驶舱——实时生成速度、首字慢归因、Gemini 全球 7 天/24h 大盘折线与赛博斗蛐蛐 PK、Ultra 20x 配额续航、Swarm 递归合并统计，以及一键生成 2x 高清分享战报海报。',
-      meta: '纯官方 Sidecar · 零改包 / 零 CDP · 100% 本地只读 · Node.js 22.18+',
-      interactiveHint: '上方即 100% 真实嵌入的 AGY-HUD 面板——点击底部导览栏，直接体验「大盘折线」「赛博斗蛐蛐」与「2x 战报海报」。',
-      themeStripLabel: '16 套官方主题实时同步',
+        'Google Antigravity 原生侧边栏遥测面板——实时洞察速度、上下文、缓存存活、配额消耗与 Swarm 蜂群状态。',
+      meta: 'Node.js 22.18+ · 零 CDP · 零运行时依赖 · 100% 本地只读',
+      interactiveHint: '上方即 100% 真实嵌入的 AGY-HUD 面板——点击底部导览栏可直接体验各核心视图。',
+      themeStripLabel: '全部 16 套 Antigravity 官方主题实时同步',
       copy: '复制',
       copied: '已复制',
       autoDetected: '推荐',
@@ -168,7 +168,7 @@ export const COPY: Record<Locale, SiteCopy> = {
       eyebrow: '全链路可观测性',
       heading: '把 Antigravity 的每个黑盒，变成透明仪表盘。',
       subhead:
-        '从「这一轮为什么卡首字」到「我的 Ultra 账号跟全球大盘比到底快不快」，下面每项能力都可以直接在上方真实面板中点开体验。',
+        '哪个模型最吃配额、暂停几分钟会掉缓存、Swarm 蜂群总共烧了多少、卡首字到底怪谁——下面每一项都能在上方真实面板里点开体验。',
       tryLive: '在面板中体验',
     },
     credits: {

@@ -9,7 +9,7 @@ import {
 export interface DemoJumpRequest {
   id: string;
   tab: 'live' | 'calls' | 'account';
-  action?: 'live-top' | 'global-trend' | 'arena' | 'wrapped';
+  action?: 'live-top' | 'swarm' | 'calls-top' | 'global-trend' | 'quota' | 'cache-ttl' | 'arena' | 'wrapped';
 }
 
 export interface DemoJumpCmd extends DemoJumpRequest {
