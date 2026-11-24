@@ -620,6 +620,10 @@
     @apply text-hud-warn;
     background: var(--tint-warn);
   }
+  .live-pill.is-bad {
+    @apply text-hud-bad;
+    background: var(--tint-bad);
+  }
   .live-pill.is-compact {
     @apply text-seg-think;
     background: var(--tint-think);

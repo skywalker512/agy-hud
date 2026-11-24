@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'preact/hooks';
 import type { Locale, SiteCopy } from '../i18n/content';
 import type { DemoJumpRequest } from './LiveHudFrame';
 
@@ -5,6 +6,197 @@ interface HighlightsSectionProps {
   locale: Locale;
   copy: SiteCopy;
   onJumpDemo: (req: DemoJumpRequest) => void;
+}
+
+function LiveTtftShowcase({ isZh }: { isZh: boolean }) {
+  const [scenario, setScenario] = useState<'slow' | 'fast'>('slow');
+  const [paused, setPaused] = useState(false);
+  const [tickMs, setTickMs] = useState(3200);
+
+  // Cycle lengths: Slow (wait 5.8s -> stream 3.6s = 9.4s), Fast (wait 1.3s -> stream 3.4s = 4.7s)
+  const waitTargetMs = scenario === 'slow' ? 5800 : 1300;
+  const cycleMs = waitTargetMs + (scenario === 'slow' ? 3600 : 3400);
+
+  useEffect(() => {
+    if (paused) return;
+    const id = window.setInterval(() => {
+      setTickMs((prev) => (prev + 120) % cycleMs);
+    }, 120);
+    return () => window.clearInterval(id);
+  }, [paused, cycleMs]);
+
+  const isWaiting = tickMs < waitTargetMs;
+  const elapsedSec = isWaiting ? tickMs / 1000 : waitTargetMs / 1000;
+  const genElapsedSec = isWaiting ? 0 : (tickMs - waitTargetMs) / 1000;
+  const avgSec = 1.44;
+  const isStalled = isWaiting && elapsedSec >= 3.8;
+  const isSlow = isWaiting && !isStalled && elapsedSec >= 2.2;
+
+  const recentBars = [1.1, 1.5, 0.9, 1.8, 1.3, 1.2, 1.6, 1.0, 1.4];
+  const allBars = [...recentBars, Math.max(0.25, elapsedSec)];
+  const maxBar = Math.max(...allBars, 2.2);
+  const avgTopPct = Math.max(8, Math.min(88, 100 - (avgSec / maxBar) * 100));
+
+  const barColor = (v: number) =>
+    v <= 2.0 ? 'var(--seg-cache)' : v <= 4.0 ? 'var(--seg-out)' : '#ef4444';
+
+  const statusPill = isWaiting
+    ? isStalled
+      ? { cls: 'border-[var(--tint-bad-border)] bg-[var(--tint-bad)] text-[var(--seg-bad)]', text: isZh ? '首字偏慢' : 'SLOW TTFT' }
+      : isSlow
+        ? { cls: 'border-[var(--tint-out-border)] bg-[var(--tint-out)] text-[var(--seg-out)]', text: isZh ? '等待偏长' : 'WAIT LONG' }
+        : { cls: 'border-[var(--tint-out-border)] bg-[var(--tint-out)] text-[var(--seg-out)]', text: isZh ? '等待首字' : 'WAIT TTFT' }
+    : { cls: 'border-[var(--tint-cache-border)] bg-[var(--tint-cache)] text-[var(--seg-cache)]', text: isZh ? '首字已出 · 114 t/s' : '1ST TOK · 114 t/s' };
+
+  const numColorCls = isStalled
+    ? 'text-[var(--seg-bad)]'
+    : isSlow
+      ? 'text-[var(--seg-out)]'
+      : isWaiting
+        ? 'text-[var(--fg)]'
+        : 'text-[var(--seg-cache)]';
+
+  const liveSubLine = isWaiting
+    ? elapsedSec >= 2.1
+      ? isZh
+        ? `已超均值 ${(elapsedSec / avgSec).toFixed(1)}× · 仍在等首字 (均 1.44s)`
+        : `${(elapsedSec / avgSec).toFixed(1)}× avg (1.44s) · still waiting…`
+      : isZh
+        ? '正在等首字返回… · 会话均值 1.44s'
+        : 'Waiting for first token… · avg 1.44s'
+    : isZh
+      ? `首字 ${elapsedSec.toFixed(1)}s 已到达 · 流式生成 ${genElapsedSec.toFixed(1)}s`
+      : `First token locked at ${elapsedSec.toFixed(1)}s · streaming ${genElapsedSec.toFixed(1)}s`;
+
+  return (
+    <div class="bento-well flex flex-col gap-2.5 p-3">
+      {/* Interactive Scenario Switcher */}
+      <div class="flex flex-wrap items-center justify-between gap-1.5">
+        <div class="inline-flex items-center gap-1 rounded-md bg-[var(--surface)] p-0.5 font-mono text-[9.5px]">
+          <button
+            type="button"
+            onClick={() => {
+              setScenario('slow');
+              setTickMs(200);
+              setPaused(false);
+            }}
+            class={`cursor-pointer rounded px-2 py-0.5 font-semibold transition-colors ${
+              scenario === 'slow'
+                ? 'bg-[var(--tint-bad)] text-[var(--seg-bad)]'
+                : 'text-[var(--muted)] hover:text-[var(--fg)]'
+            }`}
+          >
+            {isZh ? '🐢 卡首字慢响' : '🐢 Slow Wait'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setScenario('fast');
+              setTickMs(200);
+              setPaused(false);
+            }}
+            class={`cursor-pointer rounded px-2 py-0.5 font-semibold transition-colors ${
+              scenario === 'fast'
+                ? 'bg-[var(--tint-cache)] text-[var(--seg-cache)]'
+                : 'text-[var(--muted)] hover:text-[var(--fg)]'
+            }`}
+          >
+            {isZh ? '⚡ 正常快响' : '⚡ Fast TTFT'}
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setPaused((p) => !p)}
+          class="cursor-pointer rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 font-mono text-[9.5px] font-medium text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--fg)]"
+        >
+          {paused ? (isZh ? '▶ 继续' : '▶ Play') : (isZh ? '⏸ 暂停' : '⏸ Pause')}
+        </button>
+      </div>
+
+      {/* Live Hero TTFT Stopwatch Surface */}
+      <div class="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5">
+        <div class="flex items-center justify-between gap-2">
+          <span class="font-mono text-[10px] font-semibold text-[var(--muted)]">
+            {isZh ? '首字等待 · Orchestrator (Neon)' : 'FIRST TOKEN · Orchestrator (Neon)'}
+          </span>
+          <span class={`inline-flex items-center gap-1 rounded-full border px-2 py-[1px] font-mono text-[9.5px] font-semibold ${statusPill.cls}`}>
+            <span class={`h-1.5 w-1.5 rounded-full bg-current ${isWaiting && !paused ? 'animate-pulse' : ''}`} />
+            <span>{statusPill.text}</span>
+          </span>
+        </div>
+
+        <div class="mt-1.5 flex items-baseline justify-between gap-2">
+          <div class={`font-mono text-[24px] leading-none font-bold tabular-nums transition-colors ${numColorCls}`}>
+            {elapsedSec.toFixed(1)}
+            <span class="ml-0.5 text-[11px] font-medium text-[var(--muted)]">s</span>
+          </div>
+          {scenario === 'slow' && elapsedSec >= 2.6 ? (
+            <span class="inline-flex items-center gap-1 rounded-full border border-[var(--tint-out-border)] bg-[var(--tint-out)] px-2 py-0.5 font-mono text-[9.5px] font-semibold text-[var(--seg-out)]">
+              <span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-out)]" />
+              <span>{isZh ? '大盘偏慢 · 6.4s' : 'Global slow · 6.4s'}</span>
+            </span>
+          ) : (
+            <span class="inline-flex items-center gap-1 font-mono text-[9.5px] text-[var(--muted)]">
+              <span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-cache)]" />
+              <span>{isZh ? '全网 P50 · 1.5s' : 'Global P50 · 1.5s'}</span>
+            </span>
+          )}
+        </div>
+
+        <div class="mt-1 truncate font-mono text-[10px] text-[var(--muted)] tabular-nums">
+          {liveSubLine}
+        </div>
+
+        {/* 10-Bar Live Growing TTFT Bar Chart vs Session Avg Dashed Line */}
+        <div class="relative mt-2.5 h-[36px] w-full">
+          <div
+            class="pointer-events-none absolute inset-x-0 border-t border-dashed border-[var(--border-strong)]"
+            style={{ top: `${avgTopPct.toFixed(1)}%` }}
+          />
+          <span
+            class="pointer-events-none absolute right-0 font-mono text-[8px] text-[var(--muted)] opacity-75"
+            style={{ top: `calc(${avgTopPct.toFixed(1)}% - 10px)` }}
+          >
+            {isZh ? '均 1.4s' : 'avg 1.4s'}
+          </span>
+          <div class="grid h-full grid-cols-10 items-end gap-1">
+            {allBars.map((v, i) => {
+              const isLiveBar = i === allBars.length - 1;
+              const hPct = Math.max(10, Math.min(100, (v / maxBar) * 100));
+              return (
+                <div key={i} class="flex h-full items-end">
+                  <div
+                    class={`w-full rounded-t-[2.5px] transition-all duration-100 ${isLiveBar && isWaiting && !paused ? 'animate-pulse' : ''}`}
+                    style={{
+                      height: `${hPct.toFixed(1)}%`,
+                      background: barColor(v),
+                      opacity: isLiveBar ? 0.96 : 0.45,
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* 4-Way Root-Cause Attribution Badges */}
+      <div class="grid grid-cols-2 gap-1.5 font-mono text-[9.5px]">
+        {[
+          { dot: 'bg-[var(--seg-out)]', label: isZh ? '大盘偏慢 · 全网排队' : 'Upstream slow' },
+          { dot: 'bg-[var(--seg-input)]', label: isZh ? '冷预填充 / 大上下文' : 'Cold / Large ctx' },
+          { dot: 'bg-[var(--seg-think)]', label: isZh ? '多路并发排队' : 'Parallel queue' },
+          { dot: 'bg-[var(--seg-bad)]', label: isZh ? '仅本地慢 · 账号/代理' : 'Local slow / proxy' },
+        ].map((v) => (
+          <div key={v.label} class="flex items-center gap-1.5 rounded-md bg-[var(--surface)] px-2 py-1 text-[var(--fg-2)]">
+            <span class={`h-1.5 w-1.5 shrink-0 rounded-full ${v.dot}`} />
+            <span class="truncate">{v.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectionProps) {
@@ -505,64 +697,29 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
             </div>
           </article>
 
-          {/* Card 6 (5 cols): Live TTFT Root-Cause Attribution */}
+          {/* Card 6 (5 cols): Live First-Token Stopwatch & TTFT Attribution */}
           <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-5">
             <div>
               <div class="flex items-start justify-between gap-2">
                 <span class="font-mono text-[10.5px] font-semibold text-[var(--seg-out)]">
-                  {isZh ? '🎯 首字慢归因诊断' : '🎯 LIVE TTFT ATTRIBUTION'}
+                  {isZh ? '⏱ 实时首字读秒 · 慢首字归因' : '⏱ LIVE TTFT STOPWATCH · ATTRIBUTION'}
                 </span>
                 <TryButton
-                  req={{ id: 'live', tab: 'live', action: 'live-top' }}
-                  label={isZh ? '看实时面板' : 'Open Live'}
+                  req={{ id: 'simulate-ttft', tab: 'live', action: 'simulate-ttft' }}
+                  label={isZh ? '模拟等首字' : 'Sim TTFT'}
                 />
               </div>
               <h3 class="display-heading mt-1 text-[19px] font-semibold text-[var(--fg)]">
-                {isZh ? '到底是大盘崩了，还是我账号/网络慢？' : 'Upstream outage, large context, or your own account?'}
+                {isZh ? '模型卡住了吗？实时看首字读秒与慢首字归因' : 'Is the model stuck? Watch live first-token wait & instant cause'}
               </h3>
               <p class="mt-1.5 text-[13.5px] leading-[1.65] text-[var(--muted)]">
                 {isZh
-                  ? '联合全网 30m 大盘、Google Cloud 状态、按上下文分桶的本机基线与并发数，自动给出精准归因结论。'
-                  : 'Combines global 30m pulse, GCP status, context-bucketed local baselines, and live concurrency into an instant verdict.'}
+                  ? '请求发出后实时跳秒追踪是否还在等首字，柱状条越过会话均值立即变黄/变红预警，并联合全网 5m/30m 大盘、上下文大小与并发数给出精准归因。'
+                  : 'Ticks live the instant a request starts — turning amber/red as wait exceeds your session baseline, while attributing slowness to upstream queues, cold prefill, concurrency, or local proxy.'}
               </p>
             </div>
 
-            <div class="grid grid-cols-2 gap-2">
-              {[
-                {
-                  dot: 'bg-[var(--seg-out)]',
-                  bg: 'bg-[var(--tint-out)] border-[var(--tint-out-border)] text-[var(--seg-out)]',
-                  pill: isZh ? '大盘偏慢 · 6.4s' : 'Upstream · 6.4s',
-                  desc: isZh ? '全网节点一起波动' : 'Global Gemini elevated',
-                },
-                {
-                  dot: 'bg-[var(--seg-input)]',
-                  bg: 'bg-[var(--tint-accent)] border-[var(--tint-accent-border)] text-[var(--accent-ink)]',
-                  pill: isZh ? '冷预填充 / 大上下文' : 'Cold / Large ctx',
-                  desc: isZh ? '缓存失效或超长输入' : 'Uncached or >150k prompt',
-                },
-                {
-                  dot: 'bg-[var(--seg-think)]',
-                  bg: 'bg-[var(--tint-think)] border-[var(--tint-think-border)] text-[var(--seg-think)]',
-                  pill: isZh ? '3 路并发排队' : '3× parallel',
-                  desc: isZh ? '多会话/Worker 争抢' : 'Multi-agent queueing',
-                },
-                {
-                  dot: 'bg-[var(--seg-bad)]',
-                  bg: 'bg-[var(--tint-bad)] border-[var(--tint-bad-border)] text-[var(--seg-bad)]',
-                  pill: isZh ? '仅本地慢' : 'Local slow',
-                  desc: isZh ? '大盘健康·疑似限速/代理' : 'Global ok · account/proxy',
-                },
-              ].map((v) => (
-                <div key={v.pill} class="bento-well flex flex-col gap-1.5 p-2.5">
-                  <span class={`inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold ${v.bg}`}>
-                    <span class={`h-1.5 w-1.5 rounded-full ${v.dot}`} />
-                    <span>{v.pill}</span>
-                  </span>
-                  <span class="text-[11px] text-[var(--muted)]">{v.desc}</span>
-                </div>
-              ))}
-            </div>
+            <LiveTtftShowcase isZh={isZh} />
           </article>
 
           {/* ── Row 4: 16w/52w Iceberg Heatmap + 2x Wrapped Poster (6) + Official Sidecar Safety (6) ── */}
@@ -679,6 +836,78 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
               ))}
             </div>
           </article>
+        </div>
+
+        {/* Built-in Power-User Capabilities Strip (Excavated Real Product Features) */}
+        <div class="mt-8 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/70 p-5 sm:p-6">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div class="font-mono text-[10.5px] font-semibold tracking-[0.1em] uppercase text-[var(--accent-ink)]">
+                {isZh ? '更多已内置的实用细节' : 'MORE BUILT-IN TELEMETRY CRAFT'}
+              </div>
+              <h3 class="mt-1 text-[16px] font-semibold text-[var(--fg)]">
+                {isZh ? '从单次排障到全年复盘，这些细节也已经全部做好' : 'Everyday engineering details already wired into the side pane'}
+              </h3>
+            </div>
+            <span class="font-mono text-[11px] text-[var(--muted)]">
+              {isZh ? '全部开箱即用 · 零额外配置' : 'Zero config · Ready out of the box'}
+            </span>
+          </div>
+
+          <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              {
+                icon: '📋',
+                title: isZh ? '5 维排序筛选 + 一键导出报告' : '5-Way Sort & 1-Click Report Export',
+                desc: isZh
+                  ? '调用日志支持按最慢、最高首字、最低 TPS、最高费用或仅看 /compact 筛选；一键复制 Markdown 诊断报告或下载完整 JSON 快照。'
+                  : 'Sort calls by slowest, worst TTFT, lowest TPS, highest cost, or /compact-only — copy a Markdown report or export full JSON in one click.',
+              },
+              {
+                icon: '🔀',
+                title: isZh ? 'Orchestrator 双模型配比透视' : 'Per-Session Model Mix Breakdown',
+                desc: isZh
+                  ? '编排模式或中途切模型时自动展开模型配比表，分别列出每个模型的调用次数、均速、首字、缓存命中与 5h 配额占比。'
+                  : 'Automatically splits multi-model & Orchestrator sessions by model — comparing calls, TPS, TTFT, cache hit %, cost, and 5h quota.',
+              },
+              {
+                icon: '🖥️',
+                title: isZh ? 'App + CLI + IDE 三端合并 & 远程消耗' : 'App · CLI · IDE + Remote Spend',
+                desc: isZh
+                  ? '自动聚合本机桌面端、agy CLI 与 IDE 全部会话数据库，并通过配额扣减差值识别跨设备远程消耗与 7d 周配额卡控。'
+                  : 'Unifies Desktop App, agy CLI, and IDE databases locally while estimating cross-device remote spend and weekly-cap holds.',
+              },
+              {
+                icon: '💓',
+                title: isZh ? '吸顶微脉搏条 + 一键复制 JSONL' : 'Scroll PulseBar & Transcript Copy',
+                desc: isZh
+                  ? '翻看长日志时顶部自动滑出超薄脉搏条（速度/上下文/缓存年龄/花费）；顶栏一键复制会话 ID 与 transcript.jsonl 路径。'
+                  : 'Slim scroll-aware PulseBar keeps TPS, context headroom, cache age, and spend pinned — plus 1-click session ID & JSONL path copy.',
+              },
+              {
+                icon: '🗜️',
+                title: isZh ? '全历史缩略图缩放 & /compact 复盘' : 'Minimap Zoom & /compact Replay',
+                desc: isZh
+                  ? '趋势图内置底部缩略图刷选与滚轮缩放，点任意散点直达调用详情；完整记录每次 /compact 压缩前后体积、耗时与摘要。'
+                  : 'Brush-zoom full session history with a minimap, click any dot to jump to that call, and inspect before/after /compact checkpoints.',
+              },
+              {
+                icon: '🔄',
+                title: isZh ? '240px 极窄自适应 & 应用内原子升级' : '240px Narrow Rail & Atomic Updates',
+                desc: isZh
+                  ? '侧边栏拉到最窄 240px 依旧清晰不溢出；内置版本检测与一键原子热更新，失败自动回滚，无需重跑安装命令。'
+                  : 'Reflows cleanly down to a 240px side rail with zero clipping, plus built-in release checks and atomic rollback-safe self-updates.',
+              },
+            ].map((item) => (
+              <div key={item.title} class="bento-well flex flex-col gap-1.5 p-3">
+                <div class="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--fg)]">
+                  <span aria-hidden="true">{item.icon}</span>
+                  <span>{item.title}</span>
+                </div>
+                <p class="text-[12px] leading-[1.6] text-[var(--muted)]">{item.desc}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>

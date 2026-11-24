@@ -478,6 +478,11 @@ export const zh: Translations = {
 
   ttftHeroLabel: '首字等待',
   ttftHeroSub: (avgTtft, e2eTps) => `均 ${avgTtft} · E2E ${e2eTps}`,
+  ttftLiveWaitingSub: (avgTtft) => `正在等首字 · 均 ${avgTtft}`,
+  ttftLiveSlowSub: (mult, avgTtft) => `超均值 ${mult}× · 仍在等首字 (均 ${avgTtft})`,
+  ttftLiveStreamSub: (genSec, avgTtft) => `首字已出 · 生成中 ${genSec}s (均 ${avgTtft})`,
+  ttftLiveLockedBadge: '首字已出',
+  ttftLiveStallBadge: '首字偏慢',
   ttftBarsTip: (n, latestTtft, ttftSharePct, avgTtft) =>
     `近 ${n} 次调用首字等待 (TTFT) 趋势\n本轮：${latestTtft}（占本轮耗时 ${ttftSharePct}%）· 会话均值：${avgTtft}\n绿 <2s · 黄 2–6s · 红 >6s（虚线为均值）`,
   liveQuotaTitle: '当前额度',

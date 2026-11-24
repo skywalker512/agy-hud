@@ -478,6 +478,11 @@ export const en: Translations = {
 
   ttftHeroLabel: 'FIRST TOKEN',
   ttftHeroSub: (avgTtft, e2eTps) => `Avg ${avgTtft} · E2E ${e2eTps}`,
+  ttftLiveWaitingSub: (avgTtft) => `Waiting 1st tok · avg ${avgTtft}`,
+  ttftLiveSlowSub: (mult, avgTtft) => `${mult}× avg (${avgTtft}) · still waiting…`,
+  ttftLiveStreamSub: (genSec, avgTtft) => `1st tok in · gen ${genSec}s (avg ${avgTtft})`,
+  ttftLiveLockedBadge: '1ST TOK',
+  ttftLiveStallBadge: 'SLOW TTFT',
   ttftBarsTip: (n, latestTtft, ttftSharePct, avgTtft) =>
     `Last ${n} calls Time-To-First-Token (TTFT)\nLatest: ${latestTtft} (${ttftSharePct}% of turn wall time) · Session avg: ${avgTtft}\nGreen <2s · Amber 2–6s · Red >6s (dashed line = avg)`,
   liveQuotaTitle: 'QUOTA TANK',

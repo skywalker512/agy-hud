@@ -12,6 +12,70 @@
   var currentLang = initialLang;
   var appliedHostVarKeys = [];
   var etagCounter = 1;
+  var liveTtftSim = null; // { startMs, firstTokenAtMs, endAtMs }
+  var liveTtftTimers = [];
+
+  function clearLiveTtftTimers() {
+    for (var i = 0; i < liveTtftTimers.length; i++) {
+      clearTimeout(liveTtftTimers[i]);
+    }
+    liveTtftTimers = [];
+  }
+
+  function startLiveTtftSim() {
+    clearLiveTtftTimers();
+    var now = Date.now();
+    // 5.6s waiting for first token (climbs green -> amber -> red), then 4.6s live streaming
+    liveTtftSim = {
+      startMs: now,
+      firstTokenAtMs: now + 5600,
+      endAtMs: now + 10200,
+    };
+    etagCounter += 1;
+    liveTtftTimers.push(
+      setTimeout(function () {
+        etagCounter += 1;
+      }, 5650),
+    );
+    liveTtftTimers.push(
+      setTimeout(function () {
+        liveTtftSim = null;
+        etagCounter += 1;
+      }, 10300),
+    );
+  }
+
+  function getSimulatedActiveStep(isZh) {
+    if (!liveTtftSim) return null;
+    var now = Date.now();
+    if (now >= liveTtftSim.endAtMs) {
+      liveTtftSim = null;
+      return null;
+    }
+    var isStreaming = now >= liveTtftSim.firstTokenAtMs;
+    return {
+      stepIdx: 134,
+      stepType: 15,
+      status: 8,
+      statusName: isStreaming ? 'GENERATING' : 'WAITING',
+      model: 'gemini-pro-orchestrator-neon',
+      modelId: 'gemini-pro-orchestrator-neon',
+      modelDisplay: 'Orchestrator (Neon)',
+      createdAtMs: liveTtftSim.startMs,
+      streamStartMs: isStreaming ? liveTtftSim.firstTokenAtMs : 0,
+      thinkingPreview: isStreaming
+        ? (isZh
+            ? '首字在 5.6s 到达：对比当前全球 Neon 30m P50（6.4s），本轮等待主要源于大盘排队波动，现已进入高速流式输出。'
+            : 'First token arrived at 5.6s: matches elevated global Neon 30m P50 (6.4s), now streaming smoothly.')
+        : '',
+      replyPreview: isStreaming
+        ? (isZh
+            ? '已定位配额校准回归边界，正在流式输出修复补丁与回归测试用例…'
+            : 'Located quota solver edge case; streaming patch and regression test assertions…')
+        : '',
+      toolCalls: [],
+    };
+  }
 
   // Always start the website demo cleanly on the requested language & Live tab
   try {
@@ -176,11 +240,23 @@
     if (url.pathname.endsWith('/api/stats')) {
       var reqConv = url.searchParams.get('conversationId') || url.searchParams.get('conv') || '';
       var isSwitchingWorker = Boolean(reqConv && reqConv !== fx.snapshot.conversationId);
+      var simActive = isSwitchingWorker ? null : getSimulatedActiveStep(currentLang === 'zh');
       var snap = isSwitchingWorker
         ? buildWorkerSnapshot(fx.snapshot, reqConv)
         : Object.assign({}, fx.snapshot, {
             serverTimeMs: Date.now(),
-            etag: 'demo-coord-' + currentLang + '-' + etagCounter,
+            activeStep: simActive,
+            currentModel: simActive
+              ? Object.assign({}, fx.snapshot.currentModel, {
+                  model: simActive.model,
+                  modelId: simActive.modelId,
+                  modelDisplay: simActive.modelDisplay,
+                  isActive: true,
+                  stepType: 15,
+                  statusName: simActive.statusName,
+                })
+              : fx.snapshot.currentModel,
+            etag: 'demo-coord-' + currentLang + '-' + etagCounter + (simActive ? (simActive.streamStartMs > 0 ? '-stream' : '-wait') : ''),
           });
       if (isSwitchingWorker && window.scrollY > 120) {
         setTimeout(function () {
@@ -308,6 +384,14 @@
               sBtn.click();
             }
           } else if (action === 'live-top' || action === 'calls-top' || action === 'quota') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          } else if (action === 'simulate-ttft') {
+            var backToCoord = btns.find(function (b) {
+              var txt = (b.textContent || '').trim();
+              return txt.indexOf('@coordinator') >= 0;
+            });
+            if (backToCoord) backToCoord.click();
+            startLiveTtftSim();
             window.scrollTo({ top: 0, behavior: 'smooth' });
           } else if (action === 'swarm') {
             // If currently inside a worker session, click the @coordinator back button first

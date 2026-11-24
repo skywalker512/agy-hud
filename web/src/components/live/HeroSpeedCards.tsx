@@ -1,4 +1,5 @@
 import { useId, useMemo } from 'preact/hooks';
+import { useNowMs } from '../../hooks/useNow';
 import type { Translations } from '../../i18n';
 import type { ActiveStep, GeminiPulseSnapshot, Invocation } from '../../types/telemetry';
 import { cacheTier, fmtCachePct, fmtNum, fmtSec, fmtTps } from '../../utils/format';
@@ -8,6 +9,7 @@ interface HeroSpeedCardsProps {
   latest: Invocation | null | undefined;
   latestSustained: Invocation | null | undefined;
   activeStep: ActiveStep | null | undefined;
+  serverTimeMs?: number;
   invocations?: Invocation[];
   avgGenTps?: number;
   avgTtftSec?: number;
@@ -73,6 +75,7 @@ export function HeroSpeedCards({
   latest,
   latestSustained,
   activeStep,
+  serverTimeMs,
   invocations = [],
   avgGenTps = 0,
   avgTtftSec = 0,
@@ -80,12 +83,32 @@ export function HeroSpeedCards({
   t,
 }: HeroSpeedCardsProps) {
   const gradId = useId();
+  const nowMs = useNowMs();
 
   let genValue = '--';
   let genSub = 'OUT -- · GEN --';
   let currentGenNum = 0;
   let ttftDisp = { num: '--', unit: '' };
   let ttftSub = 'Avg -- · E2E --';
+
+  const isStreaming = Boolean(found && activeStep?.stepType === 15);
+  const isActivelyGenerating = Boolean(isStreaming && activeStep && activeStep.streamStartMs > 0);
+  const isWaitingTtft = Boolean(isStreaming && activeStep && !(activeStep.streamStartMs > 0));
+
+  const baselineTtft = avgTtftSec > 0 ? avgTtftSec : latest?.ttftSec || 1.8;
+  const liveStartMs = activeStep?.createdAtMs || serverTimeMs || nowMs;
+  const liveWaitSec = isWaitingTtft ? Math.max(0, (nowMs - liveStartMs) / 1000) : 0;
+  const liveLockedTtftSec =
+    isActivelyGenerating && activeStep && activeStep.createdAtMs > 0 && activeStep.streamStartMs >= activeStep.createdAtMs
+      ? (activeStep.streamStartMs - activeStep.createdAtMs) / 1000
+      : null;
+  const liveGenElapsedSec =
+    isActivelyGenerating && activeStep && activeStep.streamStartMs > 0
+      ? Math.max(0, (nowMs - activeStep.streamStartMs) / 1000)
+      : 0;
+
+  const isTtftStalled = isWaitingTtft && (liveWaitSec >= 6.0 || (baselineTtft > 0 && liveWaitSec >= Math.max(3.5, baselineTtft * 2.5)));
+  const isTtftSlow = isWaitingTtft && !isTtftStalled && (liveWaitSec >= 2.2 || (baselineTtft > 0 && liveWaitSec >= Math.max(1.8, baselineTtft * 1.5)));
 
   if (found && latest) {
     if (latest.isBuffered) {
@@ -106,16 +129,37 @@ export function HeroSpeedCards({
     ttftSub = t.ttftHeroSub(avgRef, fmtTps(latest.e2eTps));
   }
 
-  const isStreaming = Boolean(found && activeStep?.stepType === 15);
-  const isActivelyGenerating = Boolean(isStreaming && activeStep && activeStep.streamStartMs > 0);
+  // Live in-flight First-Token Stopwatch overrides the TTFT Hero card in real time
+  if (isWaitingTtft) {
+    ttftDisp = { num: liveWaitSec < 10 ? liveWaitSec.toFixed(1) : liveWaitSec.toFixed(0), unit: 's' };
+    const avgRef = fmtSec(baselineTtft);
+    if (baselineTtft > 0 && liveWaitSec >= Math.max(1.8, baselineTtft * 1.5)) {
+      ttftSub = t.ttftLiveSlowSub((liveWaitSec / baselineTtft).toFixed(1), avgRef);
+    } else {
+      ttftSub = t.ttftLiveWaitingSub(avgRef);
+    }
+  } else if (isActivelyGenerating && liveLockedTtftSec !== null) {
+    ttftDisp = fmtTtftNum(liveLockedTtftSec);
+    const avgRef = fmtSec(baselineTtft);
+    ttftSub = t.ttftLiveStreamSub(liveGenElapsedSec.toFixed(1), avgRef);
+  }
 
   let livePill: { cls: string; text: string } | null = null;
   if (isStreaming) {
     livePill = isActivelyGenerating
       ? { cls: 'live-pill', text: t.liveRowTagStream }
-      : { cls: 'live-pill is-wait', text: t.liveWaitBadge };
+      : { cls: isTtftStalled ? 'live-pill is-bad' : 'live-pill is-wait', text: t.liveWaitBadge };
   } else if (found && activeStep?.stepType === 23) {
     livePill = { cls: 'live-pill is-compact', text: t.compactLiveBadge };
+  }
+
+  let ttftLivePill: { cls: string; text: string } | null = null;
+  if (isWaitingTtft) {
+    ttftLivePill = isTtftStalled
+      ? { cls: 'live-pill is-bad', text: t.ttftLiveStallBadge }
+      : { cls: 'live-pill is-wait', text: t.liveWaitBadge };
+  } else if (isActivelyGenerating && liveLockedTtftSec !== null) {
+    ttftLivePill = { cls: 'live-pill', text: t.ttftLiveLockedBadge };
   }
 
   const deltaInfo = useMemo(() => {
@@ -171,13 +215,18 @@ export function HeroSpeedCards({
     };
   }, [found, invocations]);
 
-  // Last 10 calls TTFT mini-bars (orthogonal physical latency chart matching 24px slot height)
+  // Last 10 calls TTFT mini-bars (+ live growing in-flight bar when waiting/streaming)
+  const liveBarSec = isWaitingTtft ? Math.max(0.15, liveWaitSec) : liveLockedTtftSec;
   const ttftBars = useMemo(() => {
-    if (!found || invocations.length < 2) return null;
-    const slice = invocations.filter((r) => r.ttftSec >= 0).slice(-10);
-    if (slice.length < 2) return null;
+    if (!found || (invocations.length < 2 && liveBarSec === null)) return null;
+    const histLimit = liveBarSec !== null ? 9 : 10;
+    const slice = invocations.filter((r) => r.ttftSec >= 0).slice(-histLimit);
+    if (slice.length < 1 && liveBarSec === null) return null;
 
     const vals = slice.map((r) => Math.max(0.05, r.ttftSec));
+    if (liveBarSec !== null) vals.push(Math.max(0.15, liveBarSec));
+    if (vals.length < 2) return null;
+
     const maxVal = Math.max(...vals, avgTtftSec || 0, 1.5);
     const w = 160;
     const h = 24;
@@ -199,19 +248,20 @@ export function HeroSpeedCards({
         h: barH,
         color: ttftBarColor(v),
         isLast,
+        isLive: isLast && liveBarSec !== null,
       };
     });
 
     const avgY =
       avgTtftSec > 0 ? Math.max(padTop + 1, Math.min(h - padBottom - 1, h - padBottom - (avgTtftSec / maxVal) * plotH)) : null;
 
-    const latestSec = latest?.ttftSec || vals[vals.length - 1];
+    const latestSec = liveBarSec !== null ? liveBarSec : latest?.ttftSec || vals[vals.length - 1];
     const totalSec = Math.max(latest?.totalSec || 0, latestSec + (latest?.genSec || 0));
     const sharePct = totalSec > 0 ? Math.round((latestSec / totalSec) * 100) : 0;
     const tip = t.ttftBarsTip(vals.length, fmtSec(latestSec), sharePct, fmtSec(avgTtftSec || latestSec));
 
     return { w, h, bars, avgY, tip };
-  }, [found, invocations, avgTtftSec, latest, t]);
+  }, [found, invocations, avgTtftSec, latest, liveBarSec, t]);
 
   const pulseIndicator = useMemo(() => {
     const attr = geminiPulse?.attribution;
@@ -335,12 +385,21 @@ export function HeroSpeedCards({
         )}
       </div>
 
-      {/* Right Hero: First Token Wait (TTFT) + Cache Hit + 10-Call Latency Bar Chart */}
-      <div className="hud-card min-w-0 max-w-full flex flex-col justify-between overflow-hidden">
+      {/* Right Hero: First Token Wait (TTFT) + Live Stopwatch + Cache Hit + 10-Call Latency Bar Chart */}
+      <div
+        className={`hud-card min-w-0 max-w-full flex flex-col justify-between overflow-hidden${
+          isWaitingTtft ? ' is-streaming' : ''
+        }`}
+      >
         <div>
           <div className="flex items-center justify-between gap-1.5 min-w-0">
             <span className="card-k truncate">{t.ttftHeroLabel}</span>
-            {found && latest && latest.cacheHitPct !== null && (
+            {ttftLivePill ? (
+              <span className={`${ttftLivePill.cls} shrink-0`}>
+                {isWaitingTtft && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}
+                <span>{ttftLivePill.text}</span>
+              </span>
+            ) : found && latest && latest.cacheHitPct !== null ? (
               <span
                 className={`cache-pill cursor-help shrink-0 ${cacheTier(latest.cacheHitPct)}`}
                 data-tip={t.heroCacheTip(
@@ -351,9 +410,13 @@ export function HeroSpeedCards({
               >
                 {t.heroCachePill(fmtCachePct(latest.cacheHitPct))}
               </span>
-            )}
+            ) : null}
           </div>
-          <div className="hero-v mt-1.5 flex items-baseline justify-between gap-1 font-hud-mono text-[24px] font-bold leading-[1.08] tabular-nums min-w-0">
+          <div
+            className={`hero-v mt-1.5 flex items-baseline justify-between gap-1 font-hud-mono text-[24px] font-bold leading-[1.08] tabular-nums min-w-0${
+              isTtftStalled ? ' text-hud-bad' : isTtftSlow ? ' text-hud-warn' : ''
+            }`}
+          >
             <div className="flex items-baseline gap-1 min-w-0">
               <span className="truncate">{ttftDisp.num}</span>
               {ttftDisp.unit && <span className="hud-unit text-[11px] shrink-0">{ttftDisp.unit}</span>}

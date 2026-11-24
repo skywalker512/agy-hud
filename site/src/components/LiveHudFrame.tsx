@@ -9,7 +9,7 @@ import {
 export interface DemoJumpRequest {
   id: string;
   tab: 'live' | 'calls' | 'account';
-  action?: 'live-top' | 'swarm' | 'calls-top' | 'global-trend' | 'quota' | 'cache-ttl' | 'arena' | 'wrapped';
+  action?: 'live-top' | 'simulate-ttft' | 'swarm' | 'calls-top' | 'global-trend' | 'quota' | 'cache-ttl' | 'arena' | 'wrapped';
 }
 
 export interface DemoJumpCmd extends DemoJumpRequest {
@@ -89,7 +89,7 @@ export function LiveHudFrame({
   }, [syncFrame]);
 
   const tourStops: Array<DemoJumpRequest & { label: string }> = [
-    { id: 'live', tab: 'live', action: 'live-top', label: isZh ? '⚡ 实时归因' : '⚡ Live & TTFT' },
+    { id: 'simulate-ttft', tab: 'live', action: 'simulate-ttft', label: isZh ? '⏱ 模拟等首字' : '⏱ Sim TTFT' },
     { id: 'global-trend', tab: 'calls', action: 'global-trend', label: isZh ? '🌐 大盘折线' : '🌐 7d Curves' },
     { id: 'arena', tab: 'account', action: 'arena', label: isZh ? '⚔ 斗蛐蛐 PK' : '⚔ Arena PK' },
     { id: 'wrapped', tab: 'account', action: 'wrapped', label: isZh ? '✨ 战报海报' : '✨ 2x Poster' },

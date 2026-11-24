@@ -462,6 +462,11 @@ export interface Translations {
   // Panoramic Live Tab: TTFT Hero, Live Quota Tank, 3-col Context & Session Strip
   ttftHeroLabel: string;
   ttftHeroSub: (avgTtft: string, e2eTps: string) => string;
+  ttftLiveWaitingSub: (avgTtft: string) => string;
+  ttftLiveSlowSub: (mult: string, avgTtft: string) => string;
+  ttftLiveStreamSub: (genSec: string, avgTtft: string) => string;
+  ttftLiveLockedBadge: string;
+  ttftLiveStallBadge: string;
   ttftBarsTip: (n: number, latestTtft: string, ttftSharePct: number, avgTtft: string) => string;
   liveQuotaTitle: string;
   liveQuotaAll: string;

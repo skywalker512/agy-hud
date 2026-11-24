@@ -153,6 +153,7 @@ export function LiveTab({
         latest={latest}
         latestSustained={snap?.latestSustained}
         activeStep={found ? snap?.activeStep : null}
+        serverTimeMs={snap?.serverTimeMs}
         invocations={invocations}
         avgGenTps={found ? snap?.summary?.avgGenTps : undefined}
         avgTtftSec={found ? snap?.summary?.avgTtftSec : undefined}
