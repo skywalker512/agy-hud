@@ -173,13 +173,18 @@
 
     if (url.pathname.endsWith('/api/stats')) {
       var reqConv = url.searchParams.get('conversationId') || url.searchParams.get('conv') || '';
-      var snap =
-        reqConv && reqConv !== fx.snapshot.conversationId
-          ? buildWorkerSnapshot(fx.snapshot, reqConv)
-          : Object.assign({}, fx.snapshot, {
-              serverTimeMs: Date.now(),
-              etag: 'demo-coord-' + currentLang + '-' + etagCounter,
-            });
+      var isSwitchingWorker = Boolean(reqConv && reqConv !== fx.snapshot.conversationId);
+      var snap = isSwitchingWorker
+        ? buildWorkerSnapshot(fx.snapshot, reqConv)
+        : Object.assign({}, fx.snapshot, {
+            serverTimeMs: Date.now(),
+            etag: 'demo-coord-' + currentLang + '-' + etagCounter,
+          });
+      if (isSwitchingWorker && window.scrollY > 120) {
+        setTimeout(function () {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }, 60);
+      }
       return Promise.resolve(jsonResponse(snap));
     }
 
@@ -271,7 +276,7 @@
       }
       var action = data.action || '';
       if (action) {
-        setTimeout(function () {
+        var runAction = function () {
           var btns = Array.prototype.slice.call(document.querySelectorAll('button'));
           if (action === 'global-trend') {
             var gBtn = btns.find(function (b) {
@@ -303,19 +308,42 @@
           } else if (action === 'live-top' || action === 'calls-top' || action === 'quota') {
             window.scrollTo({ top: 0, behavior: 'smooth' });
           } else if (action === 'swarm') {
-            var swHead = Array.prototype.slice.call(document.querySelectorAll('section, h2, h3, span')).find(function (el) {
-              var txt = (el.textContent || '').trim();
-              return txt.indexOf('Swarm') >= 0 || txt.indexOf('蜂群') >= 0;
+            // If currently inside a worker session, click the @coordinator back button first
+            var backCoord = btns.find(function (b) {
+              var txt = (b.textContent || '').trim();
+              return txt.indexOf('@coordinator') >= 0;
             });
-            if (swHead) swHead.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            if (backCoord) {
+              backCoord.click();
+              setTimeout(function () {
+                var swCard = document.getElementById('child-sessions-card');
+                if (swCard) swCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, 220);
+              return;
+            }
+            var swCard = document.getElementById('child-sessions-card');
+            if (swCard) {
+              swCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
           } else if (action === 'cache-ttl') {
-            var ttlEl = Array.prototype.slice.call(document.querySelectorAll('section, h2, h3, button')).find(function (el) {
-              var txt = (el.textContent || '').trim();
-              return txt.indexOf('Cache TTL') >= 0 || txt.indexOf('缓存 TTL') >= 0;
+            var sections = Array.prototype.slice.call(document.querySelectorAll('section'));
+            var ttlSec = sections.find(function (sec) {
+              var txt = (sec.textContent || '').trim();
+              return (
+                txt.indexOf('缓存存活曲线') >= 0 ||
+                txt.indexOf('CACHE SURVIVAL') >= 0 ||
+                txt.indexOf('Cache TTL') >= 0 ||
+                txt.indexOf('缓存 TTL') >= 0
+              );
             });
-            if (ttlEl) ttlEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            if (ttlSec) {
+              var expBtn = ttlSec.querySelector('button[aria-expanded="false"]');
+              if (expBtn) expBtn.click();
+              ttlSec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
           }
-        }, 120);
+        };
+        setTimeout(runAction, 140);
       }
     }
   });

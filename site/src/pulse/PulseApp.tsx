@@ -56,7 +56,8 @@ export function PulseApp() {
   const [data, setData] = useState<PulseDashboardData | null>(() => loadCachedPulse());
   const [loading, setLoading] = useState<boolean>(true);
   const [metric, setMetric] = useState<PulseChartMetric>('ttft');
-  const [granularity, setGranularity] = useState<'7d' | '5m'>('7d');
+  const [granularity, setGranularity] = useState<'7d' | '5m'>('5m');
+  const [userPickedGranularity, setUserPickedGranularity] = useState<boolean>(false);
   const [intradayHours, setIntradayHours] = useState<2 | 6 | 24>(24);
   const [splitProviders, setSplitProviders] = useState<boolean>(false);
   const [selectedFamilies, setSelectedFamilies] = useState<string[]>(() =>
@@ -109,6 +110,93 @@ export function PulseApp() {
     () => models.reduce((acc, m) => Math.max(acc, m.series.intraday30m.length), 0),
     [models],
   );
+
+  // Default to 5m high-res ring buffer; auto-fallback to 7d only if no 5m data is available yet
+  useEffect(() => {
+    if (userPickedGranularity || loading || !models.length) return;
+    if (maxIntradayPts >= 2 && granularity !== '5m') {
+      setGranularity('5m');
+    } else if (maxIntradayPts < 2 && granularity !== '7d') {
+      setGranularity('7d');
+    }
+  }, [maxIntradayPts, loading, models.length, userPickedGranularity, granularity]);
+
+  // Synthesize live global insights directly from Worker / OpenRouter telemetry
+  const insights = useMemo(() => {
+    if (!models.length) return null;
+    const withTtft = models.filter((m) => m.p50TtftSec !== null);
+    const fastestTtft = [...withTtft].sort((a, b) => (a.p50TtftSec ?? 999) - (b.p50TtftSec ?? 999))[0] || null;
+
+    const withTps = models.filter((m) => m.p50Tps !== null);
+    const fastestTps = [...withTps].sort((a, b) => (b.p50Tps ?? 0) - (a.p50Tps ?? 0))[0] || null;
+
+    // 5m trend delta for the primary flagship (Neon) or fastest model vs earlier 5m window
+    const trendTarget = models.find((m) => m.family === 'gemini-4-neon' && m.series.intraday30m.length >= 4)
+      || models.find((m) => m.series.intraday30m.length >= 4)
+      || null;
+    let ttftTrendPct: number | null = null;
+    if (trendTarget) {
+      const pts = trendTarget.series.intraday30m.filter((p) => p.p50TtftSec !== null);
+      if (pts.length >= 4) {
+        const latestV = pts[pts.length - 1].p50TtftSec!;
+        const earlier = pts.slice(Math.max(0, pts.length - 25), pts.length - 1).map((p) => p.p50TtftSec!);
+        const avgEarlier = earlier.reduce((s, v) => s + v, 0) / earlier.length;
+        if (avgEarlier > 0) ttftTrendPct = ((latestV - avgEarlier) / avgEarlier) * 100;
+      }
+    }
+
+    // Best real-world cache discount (list promptPerM vs effectiveInputPrice)
+    let bestDiscount: { model: PulseModelData; listIn: number; effIn: number; savePct: number } | null = null;
+    for (const m of models) {
+      const stdRoute = m.routes.find((r) => r.promptPerM !== null && r.promptPerM > 0);
+      const listIn = stdRoute?.promptPerM ?? null;
+      if (listIn && m.effectiveInputPrice !== null && m.effectiveInputPrice > 0 && m.effectiveInputPrice < listIn) {
+        const savePct = ((listIn - m.effectiveInputPrice) / listIn) * 100;
+        if (!bestDiscount || savePct > bestDiscount.savePct) {
+          bestDiscount = { model: m, listIn, effIn: m.effectiveInputPrice, savePct };
+        }
+      }
+    }
+
+    // Reliability & tail risk signals
+    const lowestUp1d = [...models]
+      .filter((m) => m.uptime1dPct !== null)
+      .sort((a, b) => (a.uptime1dPct ?? 100) - (b.uptime1dPct ?? 100))[0] || null;
+    const highestToolErr = [...models]
+      .filter((m) => m.toolCallErrorPct !== null)
+      .sort((a, b) => (b.toolCallErrorPct ?? 0) - (a.toolCallErrorPct ?? 0))[0] || null;
+    const worstTail = [...models]
+      .filter((m) => m.p50TtftSec && m.p99TtftSec)
+      .map((m) => ({ model: m, ratio: m.p99TtftSec! / m.p50TtftSec! }))
+      .sort((a, b) => b.ratio - a.ratio)[0] || null;
+
+    // Global 30m traffic volume + top reasoning/context model
+    const totalReq30m = models.reduce((s, m) => s + (m.requestCount30m || 0), 0);
+    const totalToolCalls24h = models.reduce((s, m) => s + (m.toolCalls24h || 0), 0);
+    const topTraffic = [...models].sort((a, b) => (b.requestCount30m || 0) - (a.requestCount30m || 0))[0] || null;
+    const topReasoning = [...models]
+      .filter((m) => m.reasoningSharePct !== null)
+      .sort((a, b) => (b.reasoningSharePct ?? 0) - (a.reasoningSharePct ?? 0))[0] || null;
+    const topContext = [...models]
+      .filter((m) => m.avgPromptTokens !== null)
+      .sort((a, b) => (b.avgPromptTokens ?? 0) - (a.avgPromptTokens ?? 0))[0] || null;
+
+    return {
+      fastestTtft,
+      fastestTps,
+      trendTarget,
+      ttftTrendPct,
+      bestDiscount,
+      lowestUp1d,
+      highestToolErr,
+      worstTail,
+      totalReq30m,
+      totalToolCalls24h,
+      topTraffic,
+      topReasoning,
+      topContext,
+    };
+  }, [models]);
 
   const singleModel: PulseModelData | null =
     selectedFamilies.length === 1 ? models.find((m) => m.family === selectedFamilies[0]) || null : null;
@@ -206,7 +294,7 @@ export function PulseApp() {
                   ? 'border-[var(--seg-cache)]/50 bg-[var(--seg-cache)]/10 text-[var(--fg)]'
                   : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--fg)]'
               }`}
-              title={isZh ? '接入你自己的 Cloudflare Worker 采集源以解锁 48h 30m 曲线、P99 与 Tool 错误率' : 'Connect your Cloudflare Worker feed for 48h 30m curves, P99 & tool error rate'}
+              title={isZh ? '接入你自己的 Cloudflare Worker 采集源以解锁 5 分钟粒度曲线、P99 长尾与 Tool 错误率' : 'Connect your Cloudflare Worker feed for 5-minute curves, P99 tail latency & tool error rate'}
             >
               <span class="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
               <span class="hidden sm:inline">
@@ -267,12 +355,12 @@ export function PulseApp() {
             <div class="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <h2 class="text-[14px] font-semibold text-[var(--fg)]">
-                  {isZh ? '接入 Cloudflare Worker 30m 采集源（可选 · 免费免绑卡）' : 'Connect Cloudflare Worker 30m Feed (Optional · $0 Free Tier)'}
+                  {isZh ? '接入 Cloudflare Worker 5m 采集源（可选 · 免费免绑卡）' : 'Connect Cloudflare Worker 5m Feed (Optional · $0 Free Tier)'}
                 </h2>
                 <p class="mt-1 text-[12.5px] text-[var(--muted)]">
                   {isZh
-                    ? '默认浏览器直连 OpenRouter + GCP 官方接口即可看 7 天曲线与实时可用率；填上你部署的 Worker 地址可额外解锁真 30m 粒度 48h 曲线、P99 长尾延迟、Tool Call 报错率与 Vertex/AI Studio 节点拆解。'
-                    : 'Direct browser mode already streams live 7d curves & 5m/30m/1d uptime with zero backend. Add your deployed Worker URL to unlock true 48h 30m curves, P99 tail latency, Tool Call error rate, and Vertex vs AI Studio splits.'}
+                    ? '默认浏览器直连 OpenRouter + GCP 官方接口即可看 7 天曲线与实时可用率；填上你部署的 Worker 地址可额外解锁真 5 分钟粒度趋势曲线、P99 长尾延迟、Tool Call 报错率与 Vertex/AI Studio 节点拆解。'
+                    : 'Direct browser mode already streams live 7d curves & 5m/30m/1d uptime with zero backend. Add your deployed Worker URL to unlock true 5-minute intraday curves, P99 tail latency, Tool Call error rate, and Vertex vs AI Studio splits.'}
                 </p>
               </div>
               <a
@@ -411,8 +499,11 @@ export function PulseApp() {
             ...s,
             status: 'ok' as const,
             p50TtftSec: null,
+            p75TtftSec: null,
             p90TtftSec: null,
+            p95TtftSec: null,
             p99TtftSec: null,
+            meanTtftSec: null,
             p50Tps: null,
             p90Tps: null,
             e2eLatestSec: null,
@@ -520,6 +611,159 @@ export function PulseApp() {
           })}
         </section>
 
+        {/* Live Global Insights Strip (auto-computed from 5m Worker + OpenRouter data) */}
+        {insights && (
+          <section class="mb-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Insight 1: Fastest Speed & 5m Trend */}
+            <div class="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+              <div class="font-mono text-[10.5px] font-semibold uppercase tracking-wide text-[var(--seg-cache)]">
+                {isZh ? '⚡ 当前速度标杆' : '⚡ SPEED LEADERS NOW'}
+              </div>
+              <div class="mt-2 flex flex-col gap-1.5 text-[12.5px]">
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="text-[var(--muted)]">{isZh ? '首字最快' : 'Fastest TTFT'}</span>
+                  <span class="font-mono font-bold text-[var(--fg)] tabular-nums">
+                    {insights.fastestTtft
+                      ? `${insights.fastestTtft.shortLabel} · ${insights.fastestTtft.p50TtftSec?.toFixed(2)}s`
+                      : '--'}
+                  </span>
+                </div>
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="text-[var(--muted)]">{isZh ? '吐字最快' : 'Highest TPS'}</span>
+                  <span class="font-mono font-bold text-[var(--fg)] tabular-nums">
+                    {insights.fastestTps
+                      ? `${insights.fastestTps.shortLabel} · ${Math.round(insights.fastestTps.p50Tps || 0)} t/s`
+                      : '--'}
+                  </span>
+                </div>
+              </div>
+              {insights.trendTarget && insights.ttftTrendPct !== null && (
+                <div class="mt-2.5 border-t border-[var(--border)] pt-2 font-mono text-[10.5px] text-[var(--muted)] tabular-nums">
+                  {insights.trendTarget.shortLabel} 5m TTFT{' '}
+                  <span
+                    class={
+                      insights.ttftTrendPct > 12
+                        ? 'font-semibold text-amber-400'
+                        : insights.ttftTrendPct < -10
+                          ? 'font-semibold text-emerald-400'
+                          : 'text-[var(--fg-2)]'
+                    }
+                  >
+                    {insights.ttftTrendPct >= 0 ? '+' : ''}
+                    {insights.ttftTrendPct.toFixed(0)}%
+                  </span>{' '}
+                  {isZh ? '对比近 2h 均值' : 'vs 2h avg'}
+                </div>
+              )}
+            </div>
+
+            {/* Insight 2: Real-World Prompt Cache Discount */}
+            <div class="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+              <div class="font-mono text-[10.5px] font-semibold uppercase tracking-wide text-[var(--accent-ink)]">
+                {isZh ? '💰 全网缓存真实省钱' : '💰 REAL CACHE SAVINGS'}
+              </div>
+              {insights.bestDiscount ? (
+                <>
+                  <div class="mt-2 flex items-baseline justify-between gap-2">
+                    <span class="text-[13px] font-semibold text-[var(--fg)]">
+                      {insights.bestDiscount.model.shortLabel}
+                    </span>
+                    <span class="rounded-full bg-emerald-500/15 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-400 tabular-nums">
+                      -{Math.round(insights.bestDiscount.savePct)}%
+                    </span>
+                  </div>
+                  <div class="mt-1 font-mono text-[12px] text-[var(--fg-2)] tabular-nums">
+                    {fmtPrice(insights.bestDiscount.listIn)} →{' '}
+                    <span class="font-bold text-[var(--seg-cache)]">{fmtPrice(insights.bestDiscount.effIn)}</span> / 1M in
+                  </div>
+                  <div class="mt-2.5 border-t border-[var(--border)] pt-2 font-mono text-[10.5px] text-[var(--muted)] tabular-nums">
+                    {isZh
+                      ? `全网缓存命中 ${Math.round(insights.bestDiscount.model.cacheHitPct || 0)}% 折后实付价`
+                      : `Effective input price at ${Math.round(insights.bestDiscount.model.cacheHitPct || 0)}% cache hit`}
+                  </div>
+                </>
+              ) : (
+                <p class="mt-2 text-[12px] text-[var(--muted)]">
+                  {isZh ? '接入 Worker 采集源后展示缓存折后实付价' : 'Available with Worker feed'}
+                </p>
+              )}
+            </div>
+
+            {/* Insight 3: Reliability, Tool Error & P99 Tail Risk */}
+            <div class="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+              <div class="font-mono text-[10.5px] font-semibold uppercase tracking-wide text-amber-400">
+                {isZh ? '⚠️ 稳定性 & Agent 风险' : '⚠️ TAIL & AGENT RISKS'}
+              </div>
+              <div class="mt-2 flex flex-col gap-1.5 text-[12px] tabular-nums">
+                {insights.lowestUp1d && (
+                  <div class="flex items-baseline justify-between gap-2">
+                    <span class="text-[var(--muted)]">{isZh ? '24h 最低可用率' : 'Lowest 1d Up'}</span>
+                    <span
+                      class={`font-mono font-semibold ${
+                        (insights.lowestUp1d.uptime1dPct ?? 100) < 97 ? 'text-amber-400' : 'text-[var(--fg)]'
+                      }`}
+                    >
+                      {insights.lowestUp1d.shortLabel} · {insights.lowestUp1d.uptime1dPct?.toFixed(1)}%
+                    </span>
+                  </div>
+                )}
+                {insights.highestToolErr && (
+                  <div class="flex items-baseline justify-between gap-2">
+                    <span class="text-[var(--muted)]">{isZh ? 'Tool 最高报错' : 'Peak Tool Err'}</span>
+                    <span
+                      class={`font-mono font-semibold ${
+                        (insights.highestToolErr.toolCallErrorPct ?? 0) >= 3 ? 'text-amber-400' : 'text-[var(--fg)]'
+                      }`}
+                    >
+                      {insights.highestToolErr.shortLabel} · {insights.highestToolErr.toolCallErrorPct}%
+                    </span>
+                  </div>
+                )}
+              </div>
+              {insights.worstTail && (
+                <div class="mt-2.5 border-t border-[var(--border)] pt-2 font-mono text-[10.5px] text-[var(--muted)] tabular-nums">
+                  {isZh ? '最陡长尾：' : 'Steepest tail: '}
+                  <span class="font-semibold text-[var(--fg-2)]">
+                    {insights.worstTail.model.shortLabel} P99 {insights.worstTail.model.p99TtftSec?.toFixed(0)}s (
+                    {insights.worstTail.ratio.toFixed(0)}×)
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Insight 4: Global Traffic & Workload Profile */}
+            <div class="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+              <div class="font-mono text-[10.5px] font-semibold uppercase tracking-wide text-[var(--seg-think)]">
+                {isZh ? '🧠 全网流量 & 思考画像' : '🧠 TRAFFIC & WORKLOAD'}
+              </div>
+              <div class="mt-2 flex items-baseline justify-between gap-2 tabular-nums">
+                <span class="font-mono text-[18px] font-bold text-[var(--fg)]">
+                  {insights.totalReq30m > 0 ? `${Math.round(insights.totalReq30m / 1000)}K` : '--'}
+                </span>
+                <span class="font-mono text-[11px] text-[var(--muted)]">
+                  {insights.totalReq30m > 0
+                    ? `${(insights.totalReq30m / 30_000).toFixed(1)}K req/min`
+                    : isZh ? '近 30 分钟请求' : '30m requests'}
+                </span>
+              </div>
+              <div class="mt-1 font-mono text-[11px] text-[var(--fg-2)] tabular-nums">
+                {insights.topReasoning
+                  ? isZh
+                    ? `思考最重：${insights.topReasoning.shortLabel} (${Math.round(insights.topReasoning.reasoningSharePct || 0)}%)`
+                    : `Top thinking: ${insights.topReasoning.shortLabel} (${Math.round(insights.topReasoning.reasoningSharePct || 0)}%)`
+                  : '--'}
+              </div>
+              <div class="mt-2.5 border-t border-[var(--border)] pt-2 font-mono text-[10.5px] text-[var(--muted)] tabular-nums">
+                {insights.topContext
+                  ? isZh
+                    ? `最大平均上下文：${insights.topContext.shortLabel} · ${Math.round((insights.topContext.avgPromptTokens || 0) / 1000)}K`
+                    : `Largest avg ctx: ${insights.topContext.shortLabel} · ${Math.round((insights.topContext.avgPromptTokens || 0) / 1000)}K`
+                  : '--'}
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* Main Interactive Multi-Model Curve Panel */}
         <section class="mb-7 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6">
           <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -555,21 +799,27 @@ export function PulseApp() {
                 <div class="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5 font-mono text-[11px]">
                   <button
                     type="button"
-                    onClick={() => setGranularity('7d')}
-                    class={`cursor-pointer rounded-md px-2.5 py-1 transition-colors ${
-                      granularity === '7d' ? 'bg-[var(--surface)] font-semibold text-[var(--fg)]' : 'text-[var(--muted)]'
-                    }`}
-                  >
-                    7d
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setGranularity('5m')}
+                    onClick={() => {
+                      setUserPickedGranularity(true);
+                      setGranularity('5m');
+                    }}
                     class={`cursor-pointer rounded-md px-2.5 py-1 transition-colors ${
                       granularity === '5m' ? 'bg-[var(--surface)] font-semibold text-[var(--fg)]' : 'text-[var(--muted)]'
                     }`}
                   >
                     {maxIntradayPts > 0 ? `5m (${maxIntradayPts})` : '5m'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserPickedGranularity(true);
+                      setGranularity('7d');
+                    }}
+                    class={`cursor-pointer rounded-md px-2.5 py-1 transition-colors ${
+                      granularity === '7d' ? 'bg-[var(--surface)] font-semibold text-[var(--fg)]' : 'text-[var(--muted)]'
+                    }`}
+                  >
+                    7d
                   </button>
                 </div>
               )}
@@ -659,6 +909,161 @@ export function PulseApp() {
             locale={locale}
           />
         </section>
+
+        {/* Full-Model Deep Telemetry & Economics Matrix */}
+        {models.length > 0 && (
+          <section class="mb-7 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6">
+            <div class="mb-4 flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 class="text-[15px] font-semibold text-[var(--fg)]">
+                  {isZh ? '全模型深度指标与 Agent 负载矩阵' : 'Full-Model Deep Telemetry & Agent Workload Matrix'}
+                </h2>
+                <p class="mt-0.5 text-[12px] text-[var(--muted)]">
+                  {isZh
+                    ? '完整展开 P50–P99 长尾延迟阶梯、平均上下文、思考占比、24h Tool Call 报错率、缓存折后实付输入价与 30m 流量占比。'
+                    : 'Full P50–P99 latency ladder, average prompt/output context, reasoning share, 24h Tool Call error rate, effective post-cache input cost, and 30m traffic share.'}
+                </p>
+              </div>
+              {insights && insights.totalToolCalls24h > 0 && (
+                <span class="font-mono text-[11px] text-[var(--muted)] tabular-nums">
+                  {isZh
+                    ? `24h 合计 ${(insights.totalToolCalls24h / 1_000_000).toFixed(2)}M 次 Tool Call`
+                    : `${(insights.totalToolCalls24h / 1_000_000).toFixed(2)}M Tool Calls / 24h`}
+                </span>
+              )}
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full border-collapse text-left text-[12px] tabular-nums">
+                <thead>
+                  <tr class="border-b border-[var(--border)] text-[10.5px] font-semibold uppercase tracking-wide text-[var(--faint)]">
+                    <th class="py-2 pr-3">{isZh ? '模型' : 'Model'}</th>
+                    <th class="py-2 pr-3">TTFT P50 / P75 / P90 / P95 / P99</th>
+                    <th class="py-2 pr-3">{isZh ? '吞吐 P50/P90' : 'TPS P50/P90'}</th>
+                    <th class="py-2 pr-3">{isZh ? '均上下文 (In/Out)' : 'Avg Ctx (In/Out)'}</th>
+                    <th class="py-2 pr-3">{isZh ? '思考占比' : 'Reasoning'}</th>
+                    <th class="py-2 pr-3">{isZh ? 'Tool 报错 (24h)' : 'Tool Err (24h)'}</th>
+                    <th class="py-2 pr-3">{isZh ? '折后输入价' : 'Eff. In /1M'}</th>
+                    <th class="py-2 pr-2">{isZh ? '30m 流量' : '30m Traffic'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {models.map((m) => {
+                    const totalReq = insights?.totalReq30m || 0;
+                    const reqShare = totalReq > 0 && m.requestCount30m > 0 ? (m.requestCount30m / totalReq) * 100 : 0;
+                    const tailMult = m.p50TtftSec && m.p99TtftSec ? m.p99TtftSec / m.p50TtftSec : null;
+                    const isRouteSel = routeModelFamily === m.family;
+                    return (
+                      <tr
+                        key={m.family}
+                        onClick={() => setRouteModelFamily(m.family)}
+                        class={`cursor-pointer border-b border-[var(--border)]/60 transition-colors last:border-b-0 hover:bg-[var(--surface-2)]/60 ${
+                          isRouteSel ? 'bg-[var(--surface-2)]/40' : ''
+                        }`}
+                      >
+                        <td class="py-2.5 pr-3 font-semibold text-[var(--fg)] whitespace-nowrap">
+                          <span class="inline-flex items-center gap-2">
+                            <span class="h-2 w-2 rounded-full shrink-0" style={{ background: m.color }} />
+                            <span>{m.shortLabel}</span>
+                          </span>
+                        </td>
+                        <td class="py-2.5 pr-3 font-mono whitespace-nowrap">
+                          <span class="font-semibold text-[var(--fg)]">
+                            {m.p50TtftSec !== null ? `${m.p50TtftSec.toFixed(1)}s` : '--'}
+                          </span>
+                          <span class="text-[var(--faint)]"> / </span>
+                          <span class="text-[var(--fg-2)]">
+                            {m.p75TtftSec !== null ? `${m.p75TtftSec.toFixed(1)}s` : '--'}
+                          </span>
+                          <span class="text-[var(--faint)]"> / </span>
+                          <span class="text-[var(--fg-2)]">
+                            {m.p90TtftSec !== null ? `${m.p90TtftSec.toFixed(1)}s` : '--'}
+                          </span>
+                          <span class="text-[var(--faint)]"> / </span>
+                          <span class="text-[var(--muted)]">
+                            {m.p95TtftSec !== null ? `${m.p95TtftSec.toFixed(1)}s` : '--'}
+                          </span>
+                          <span class="text-[var(--faint)]"> / </span>
+                          <span class={tailMult && tailMult >= 12 ? 'font-semibold text-amber-400' : 'text-[var(--muted)]'}>
+                            {m.p99TtftSec !== null ? `${m.p99TtftSec.toFixed(0)}s` : '--'}
+                          </span>
+                        </td>
+                        <td class="py-2.5 pr-3 font-mono whitespace-nowrap">
+                          <span class="font-semibold text-[var(--fg)]">
+                            {m.p50Tps !== null ? Math.round(m.p50Tps) : '--'}
+                          </span>
+                          <span class="text-[var(--faint)]"> / </span>
+                          <span class="text-[var(--muted)]">
+                            {m.p90Tps !== null ? `${Math.round(m.p90Tps)} t/s` : '--'}
+                          </span>
+                        </td>
+                        <td class="py-2.5 pr-3 font-mono whitespace-nowrap text-[var(--fg-2)]">
+                          {m.avgPromptTokens !== null ? `${Math.round(m.avgPromptTokens / 1000)}K` : '--'}
+                          <span class="text-[var(--faint)]"> / </span>
+                          <span class="text-[var(--muted)]">
+                            {m.avgOutputTokens !== null ? `${(m.avgOutputTokens / 1000).toFixed(1)}K` : '--'}
+                          </span>
+                        </td>
+                        <td class="py-2.5 pr-3 font-mono whitespace-nowrap">
+                          {m.reasoningSharePct !== null ? (
+                            <div class="flex items-center gap-1.5">
+                              <div class="h-1.5 w-12 overflow-hidden rounded-full bg-[var(--surface-3)]">
+                                <div
+                                  class="h-full rounded-full bg-[var(--seg-think)]"
+                                  style={{ width: `${Math.min(100, m.reasoningSharePct)}%` }}
+                                />
+                              </div>
+                              <span class="text-[var(--fg-2)]">{Math.round(m.reasoningSharePct)}%</span>
+                            </div>
+                          ) : (
+                            <span class="text-[var(--muted)]">--</span>
+                          )}
+                        </td>
+                        <td class="py-2.5 pr-3 font-mono whitespace-nowrap">
+                          {m.toolCallErrorPct !== null ? (
+                            <span class={m.toolCallErrorPct >= 3 ? 'font-semibold text-amber-400' : 'text-[var(--fg-2)]'}>
+                              {m.toolCallErrorPct}%
+                              {m.toolCalls24h > 0 && (
+                                <span class="ml-1 text-[10.5px] font-normal text-[var(--faint)]">
+                                  ({m.toolCalls24h >= 1_000_000
+                                    ? `${(m.toolCalls24h / 1_000_000).toFixed(1)}M`
+                                    : `${Math.round(m.toolCalls24h / 1000)}K`})
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span class="text-[var(--muted)]">--</span>
+                          )}
+                        </td>
+                        <td class="py-2.5 pr-3 font-mono whitespace-nowrap">
+                          <span class="font-semibold text-[var(--seg-cache)]">{fmtPrice(m.effectiveInputPrice)}</span>
+                          {m.cacheHitPct !== null && (
+                            <span class="ml-1 text-[10.5px] text-[var(--faint)]">({Math.round(m.cacheHitPct)}%)</span>
+                          )}
+                        </td>
+                        <td class="py-2.5 pr-2 font-mono whitespace-nowrap">
+                          {m.requestCount30m > 0 ? (
+                            <div class="flex items-center gap-1.5">
+                              <div class="h-1.5 w-12 overflow-hidden rounded-full bg-[var(--surface-3)]">
+                                <div
+                                  class="h-full rounded-full"
+                                  style={{ width: `${Math.max(4, reqShare)}%`, background: m.color }}
+                                />
+                              </div>
+                              <span class="text-[var(--fg-2)]">{Math.round(m.requestCount30m / 1000)}K</span>
+                            </div>
+                          ) : (
+                            <span class="text-[var(--muted)]">--</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         {/* Provider Routes & Live Pricing Table (Vertex vs AI Studio) */}
         <section class="mb-8 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6">

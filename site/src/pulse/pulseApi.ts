@@ -49,8 +49,11 @@ export interface PulseModelData {
   color: string;
   status: PulseHealthStatus;
   p50TtftSec: number | null;
+  p75TtftSec: number | null;
   p90TtftSec: number | null;
+  p95TtftSec: number | null;
   p99TtftSec: number | null;
+  meanTtftSec: number | null;
   p50Tps: number | null;
   p90Tps: number | null;
   e2eLatestSec: number | null;
@@ -252,8 +255,11 @@ async function tryFetchWorkerFeed(feedUrl: string): Promise<PulseDashboardData |
       color: spec.color,
       status: m.status === 'outage' || m.status === 'degraded' ? m.status : 'ok',
       p50TtftSec: finiteNum(m.p50TtftSec),
+      p75TtftSec: finiteNum(m.p75TtftSec),
       p90TtftSec: finiteNum(m.p90TtftSec),
+      p95TtftSec: finiteNum(m.p95TtftSec),
       p99TtftSec: finiteNum(m.p99TtftSec),
+      meanTtftSec: finiteNum(m.meanTtftSec),
       p50Tps: finiteNum(m.p50Tps),
       p90Tps: finiteNum(m.p90Tps),
       e2eLatestSec: e2e7d.length ? e2e7d[e2e7d.length - 1].value : null,
@@ -393,8 +399,11 @@ export async function fetchLiveGeminiPulse(feedUrl?: string): Promise<PulseDashb
       color: r.spec.color,
       status,
       p50TtftSec: r.latestTtft,
+      p75TtftSec: null,
       p90TtftSec: null,
+      p95TtftSec: null,
       p99TtftSec: null,
+      meanTtftSec: null,
       p50Tps: r.latestTps,
       p90Tps: null,
       e2eLatestSec: r.latestE2e,

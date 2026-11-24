@@ -21,6 +21,8 @@ interface LiveHudFrameProps {
   theme: AgyTheme;
   contrast: ContrastMode;
   jumpCmd?: DemoJumpCmd | null;
+  canReturnToFeature?: boolean;
+  onReturnToFeature?: () => void;
   onCycleTheme: () => void;
   onJumpDemo: (req: DemoJumpRequest) => void;
 }
@@ -30,6 +32,8 @@ export function LiveHudFrame({
   theme,
   contrast,
   jumpCmd,
+  canReturnToFeature,
+  onReturnToFeature,
   onCycleTheme,
   onJumpDemo,
 }: LiveHudFrameProps) {
@@ -111,21 +115,32 @@ export function LiveHudFrame({
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick={onCycleTheme}
-          title={isZh ? '点击切换下一套 Antigravity 主题' : 'Click to cycle Antigravity theme'}
-          class="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 font-mono text-[10px] font-medium text-[var(--fg-2)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--fg)]"
-        >
-          <span
-            class="h-2 w-2 rounded-full"
-            style={{ backgroundColor: theme.swatches[2] }}
-          />
-          <span class="max-w-[116px] truncate">{theme.name}</span>
-          {contrast === 'strong' && (
-            <span class="text-[9px] text-[var(--muted)]">HC</span>
+        <div class="flex shrink-0 items-center gap-1.5">
+          {canReturnToFeature && onReturnToFeature && (
+            <button
+              type="button"
+              onClick={onReturnToFeature}
+              class="inline-flex cursor-pointer items-center gap-1 rounded-full border border-[var(--tint-accent-border)] bg-[var(--tint-accent)] px-2 py-0.5 font-mono text-[10px] font-semibold text-[var(--accent-ink)] transition-opacity hover:opacity-85"
+            >
+              <span>↩ {isZh ? '返回刚才位置' : 'Back'}</span>
+            </button>
           )}
-        </button>
+          <button
+            type="button"
+            onClick={onCycleTheme}
+            title={isZh ? '点击切换下一套 Antigravity 主题' : 'Click to cycle Antigravity theme'}
+            class="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 font-mono text-[10px] font-medium text-[var(--fg-2)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--fg)]"
+          >
+            <span
+              class="h-2 w-2 rounded-full"
+              style={{ backgroundColor: theme.swatches[2] }}
+            />
+            <span class="max-w-[116px] truncate">{theme.name}</span>
+            {contrast === 'strong' && (
+              <span class="text-[9px] text-[var(--muted)]">HC</span>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Real compiled `web/` HUD iframe driven by shared organic fixture + live host theme sync */}

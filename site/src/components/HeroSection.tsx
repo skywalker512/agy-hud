@@ -1,3 +1,4 @@
+import { useState } from 'preact/hooks';
 import type { Locale, SiteCopy } from '../i18n/content';
 import { AGY_DARK_THEMES, AGY_LIGHT_THEMES, type AgyTheme, type ContrastMode } from '../themes/agyThemes';
 import { InstallSwitcher } from './InstallSwitcher';
@@ -10,9 +11,10 @@ interface HeroSectionProps {
   contrast: ContrastMode;
   copy: SiteCopy;
   demoJump: DemoJumpCmd | null;
+  canReturnToFeature?: boolean;
+  onReturnToFeature?: () => void;
   onCycleTheme: () => void;
   onSelectTheme: (themeId: string) => void;
-  onPreviewTheme: (themeId: string | null) => void;
   onJumpDemo: (req: DemoJumpRequest) => void;
 }
 
@@ -23,12 +25,15 @@ export function HeroSection({
   contrast,
   copy,
   demoJump,
+  canReturnToFeature,
+  onReturnToFeature,
   onCycleTheme,
   onSelectTheme,
-  onPreviewTheme,
   onJumpDemo,
 }: HeroSectionProps) {
   const isZh = locale === 'zh';
+  const [hoveredTheme, setHoveredTheme] = useState<AgyTheme | null>(null);
+  const labelTheme = hoveredTheme || theme;
 
   return (
     <section id="top" class="relative pt-8 pb-16 sm:pt-12 sm:pb-24">
@@ -70,7 +75,7 @@ export function HeroSection({
               {copy.hero.meta}
             </p>
 
-            {/* Sleek 1-Row 16-Theme Interactive Swatch Dock (12 Dark | 4 Light, hover-to-preview) */}
+            {/* Sleek 1-Row 16-Theme Swatch Dock (12 Dark | 4 Light, click to switch — no hover flicker) */}
             <div class="mt-6 max-w-xl rounded-xl border border-[var(--border)] bg-[var(--surface)]/75 px-3.5 py-2.5">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="flex items-center gap-2 text-[11.5px]">
@@ -81,16 +86,16 @@ export function HeroSection({
                   <span class="inline-flex items-center gap-1.5 font-mono text-[11px] font-semibold text-[var(--fg)]">
                     <span
                       class="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: theme.swatches[2] }}
+                      style={{ backgroundColor: labelTheme.swatches[2] }}
                     />
-                    <span>{theme.name}</span>
+                    <span>{labelTheme.name}</span>
                     <span class="font-normal text-[var(--faint)]">
-                      {theme.mode === 'dark' ? (isZh ? '深色' : 'Dark') : (isZh ? '浅色' : 'Light')}
+                      {labelTheme.mode === 'dark' ? (isZh ? '深色' : 'Dark') : (isZh ? '浅色' : 'Light')}
                     </span>
                   </span>
                 </div>
                 <span class="font-mono text-[10px] text-[var(--faint)]">
-                  {isZh ? '滑过预览 · 点击锁定' : 'Hover · Click'}
+                  {isZh ? '点击切换主题' : 'Click to switch'}
                 </span>
               </div>
 
@@ -98,11 +103,10 @@ export function HeroSection({
                 class="mt-2.5 flex flex-wrap items-center gap-1.5"
                 role="radiogroup"
                 aria-label={copy.hero.themeStripLabel}
-                onMouseLeave={() => onPreviewTheme(null)}
+                onMouseLeave={() => setHoveredTheme(null)}
               >
                 {AGY_DARK_THEMES.map((th) => {
                   const isActive = activeThemeId === th.id;
-                  const isPreviewed = theme.id === th.id;
                   return (
                     <button
                       key={th.id}
@@ -112,15 +116,13 @@ export function HeroSection({
                       aria-label={`${th.name} (${isZh ? '深色' : 'Dark'})`}
                       title={th.name}
                       onClick={() => onSelectTheme(th.id)}
-                      onMouseEnter={() => onPreviewTheme(th.id)}
-                      onFocus={() => onPreviewTheme(th.id)}
-                      onBlur={() => onPreviewTheme(null)}
+                      onMouseEnter={() => setHoveredTheme(th)}
+                      onFocus={() => setHoveredTheme(th)}
+                      onBlur={() => setHoveredTheme(null)}
                       class={`relative flex h-6 w-6 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                         isActive
                           ? 'scale-110 ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--surface)]'
-                          : isPreviewed
-                            ? 'scale-120 ring-1 ring-[var(--border-strong)]'
-                            : 'hover:scale-120'
+                          : 'hover:scale-115'
                       }`}
                     >
                       <span
@@ -140,7 +142,6 @@ export function HeroSection({
 
                 {AGY_LIGHT_THEMES.map((th) => {
                   const isActive = activeThemeId === th.id;
-                  const isPreviewed = theme.id === th.id;
                   return (
                     <button
                       key={th.id}
@@ -150,15 +151,13 @@ export function HeroSection({
                       aria-label={`${th.name} (${isZh ? '浅色' : 'Light'})`}
                       title={th.name}
                       onClick={() => onSelectTheme(th.id)}
-                      onMouseEnter={() => onPreviewTheme(th.id)}
-                      onFocus={() => onPreviewTheme(th.id)}
-                      onBlur={() => onPreviewTheme(null)}
+                      onMouseEnter={() => setHoveredTheme(th)}
+                      onFocus={() => setHoveredTheme(th)}
+                      onBlur={() => setHoveredTheme(null)}
                       class={`relative flex h-6 w-6 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                         isActive
                           ? 'scale-110 ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--surface)]'
-                          : isPreviewed
-                            ? 'scale-120 ring-1 ring-[var(--border-strong)]'
-                            : 'hover:scale-120'
+                          : 'hover:scale-115'
                       }`}
                     >
                       <span
@@ -181,6 +180,8 @@ export function HeroSection({
               theme={theme}
               contrast={contrast}
               jumpCmd={demoJump}
+              canReturnToFeature={canReturnToFeature}
+              onReturnToFeature={onReturnToFeature}
               onCycleTheme={onCycleTheme}
               onJumpDemo={onJumpDemo}
             />

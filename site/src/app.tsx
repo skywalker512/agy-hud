@@ -22,6 +22,7 @@ export function App() {
   const [contrast, setContrast] = useState<ContrastMode>(() => getInitialContrast());
   const [locale, setLocale] = useState<Locale>(() => detectInitialLocale());
   const [demoJump, setDemoJump] = useState<DemoJumpCmd | null>(null);
+  const [returnScrollY, setReturnScrollY] = useState<number | null>(null);
 
   const activeTheme = getThemeById(themeId);
   const displayTheme = previewThemeId ? getThemeById(previewThemeId) : activeTheme;
@@ -56,6 +57,9 @@ export function App() {
   }, []);
 
   const handleJumpDemo = useCallback((req: DemoJumpRequest, scrollIntoView = false) => {
+    if (scrollIntoView) {
+      setReturnScrollY(window.scrollY);
+    }
     setDemoJump((prev) => ({
       seq: (prev?.seq || 0) + 1,
       tab: req.tab,
@@ -69,6 +73,13 @@ export function App() {
       }
     }
   }, []);
+
+  const handleReturnToFeature = useCallback(() => {
+    if (returnScrollY !== null) {
+      window.scrollTo({ top: returnScrollY, behavior: 'smooth' });
+      setReturnScrollY(null);
+    }
+  }, [returnScrollY]);
 
   const copy = COPY[locale];
 
@@ -93,9 +104,10 @@ export function App() {
           contrast={contrast}
           copy={copy}
           demoJump={demoJump}
+          canReturnToFeature={returnScrollY !== null}
+          onReturnToFeature={handleReturnToFeature}
           onCycleTheme={handleCycleTheme}
           onSelectTheme={setThemeId}
-          onPreviewTheme={setPreviewThemeId}
           onJumpDemo={(req) => handleJumpDemo(req, false)}
         />
         <HighlightsSection
