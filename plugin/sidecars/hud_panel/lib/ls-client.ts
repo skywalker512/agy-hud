@@ -290,6 +290,7 @@ export function normalizeUserStatus(raw) {
   return {
     available: true,
     name: us.name || '',
+    email: typeof us.email === 'string' ? us.email.trim() : '',
     tierName: ut.name || ut.id || '',
     planName: pi.planName || '',
     teamsTier: pi.teamsTier || '',
@@ -748,6 +749,7 @@ async function refreshUserStatus(forceRefresh = false) {
       : {
           available: true,
           name: quotaCache.data?.name || '',
+          email: quotaCache.data?.email || '',
           tierName: quotaCache.data?.tierName || '',
           planName: quotaCache.data?.planName || '',
           teamsTier: quotaCache.data?.teamsTier || '',
@@ -761,6 +763,7 @@ async function refreshUserStatus(forceRefresh = false) {
       const preserved = {
         ...quotaCache.data,
         name: base.name || quotaCache.data.name,
+        email: base.email || quotaCache.data.email || '',
         tierName: base.tierName || quotaCache.data.tierName,
         planName: base.planName || quotaCache.data.planName,
         teamsTier: base.teamsTier || quotaCache.data.teamsTier,
@@ -825,23 +828,50 @@ export async function getUserStatusCached(waitIfCold = true, force = false) {
 
 let lastEventCallSig = '';
 let lastEventSampleAtMs = 0;
+let firstPendingCallAtMs = 0;
 let pendingEventSampleTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function schedulePostCallQuotaSample(callSig: string, delayMs = 4500, minCooldownMs = 15_000) {
-  if (!callSig || callSig === lastEventCallSig) return;
+export function schedulePostCallQuotaSample(
+  callSig: string,
+  delayMs = 4500,
+  minCooldownMs = 15_000,
+  opts: { isIdle?: boolean; maxDeferMs?: number } = {},
+) {
+  if (!callSig) return;
   if (!process.env.ANTIGRAVITY_LS_ADDRESS || !process.env.ANTIGRAVITY_CSRF_TOKEN) return;
+  const isIdle = opts.isIdle !== false;
+  const maxDeferMs = opts.maxDeferMs ?? 60_000;
+  const sigChanged = callSig !== lastEventCallSig;
+
+  if (!sigChanged && (!firstPendingCallAtMs || !isIdle)) return;
+
   const isFirstInit = lastEventCallSig === '';
   lastEventCallSig = callSig;
   if (isFirstInit && quotaCache.fetchedAtMs > 0) return;
 
+  const now = Date.now();
+  if (!firstPendingCallAtMs) firstPendingCallAtMs = now;
+
+  // During active streaming / concurrent Swarm bursts, defer calibration sampling until all
+  // conversations settle idle (capped at maxDeferMs so UI quota still refreshes on long bursts).
+  if (!isIdle && now - firstPendingCallAtMs < maxDeferMs) {
+    if (pendingEventSampleTimer) {
+      clearTimeout(pendingEventSampleTimer);
+      pendingEventSampleTimer = null;
+    }
+    return;
+  }
+
   if (pendingEventSampleTimer) clearTimeout(pendingEventSampleTimer);
+  const waitMs = isIdle ? delayMs : 1500;
   pendingEventSampleTimer = setTimeout(() => {
     pendingEventSampleTimer = null;
-    const now = Date.now();
-    const sinceLast = now - Math.max(quotaCache.fetchedAtMs || 0, lastEventSampleAtMs);
+    const fireNow = Date.now();
+    const sinceLast = fireNow - Math.max(quotaCache.fetchedAtMs || 0, lastEventSampleAtMs);
     if (sinceLast < minCooldownMs || quotaCache.inFlight) return;
-    lastEventSampleAtMs = now;
+    lastEventSampleAtMs = fireNow;
+    firstPendingCallAtMs = 0;
     void getUserStatusCached(false, true).catch(() => {});
-  }, delayMs);
+  }, waitMs);
   pendingEventSampleTimer?.unref?.();
 }

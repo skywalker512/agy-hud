@@ -14,7 +14,7 @@
 import { getCurrentPricingSig, poolKeyForModel, resolveModelPricing } from './pricing.ts';
 
 export const FIT_STORE_VERSION = 1;
-export const FIT_SCHEMA_VERSION = 3;
+export const FIT_SCHEMA_VERSION = 4;
 export const FAMILY_CLASSIFIER_VERSION = 2;
 export const SHORT_WINDOW_MAX_SEC = 900; // <= 15m short windows train model parameters; long windows only evaluate external burn
 
@@ -58,10 +58,33 @@ export const POOL_FULL5H_PRIORS = Object.freeze({
   claude_gpt: 11.35,
 });
 
+// Legitimate discrete 5h list-price equivalent tier caps per pool (e.g., Pro $30, Ultra 5x $150, Ultra 20x $600).
+// Used to distinguish valid multi-tier accounts from genuine model-rate drift (>3σ off every known tier).
+export const POOL_KNOWN_FULL5H_CAPS: Readonly<Record<string, readonly number[]>> = Object.freeze({
+  gemini: [30.0, 150.0, 600.0],
+});
+
 export const POOL_GAMMA_PRIORS = Object.freeze({
   gemini: 4.0,
   claude_gpt: 2.0,
 });
+
+export function resolveMatchedPriorRefBeta(poolKind: string, refBeta: number): number {
+  const defaultPrior = getPoolPriorRefBeta(poolKind);
+  const knownCaps = POOL_KNOWN_FULL5H_CAPS[poolKind];
+  if (!knownCaps?.length || !(refBeta > 0)) return defaultPrior;
+  const estFull = 100 / refBeta;
+  let bestCap: number | null = null;
+  let bestRel = Infinity;
+  for (const cap of knownCaps) {
+    const rel = Math.abs(estFull - cap) / cap;
+    if (rel < bestRel) {
+      bestRel = rel;
+      bestCap = cap;
+    }
+  }
+  return bestCap !== null && bestRel <= 0.10 ? (100 / bestCap) : defaultPrior;
+}
 
 export function hasPoolPrior(poolKind) {
   return Boolean(POOL_FULL5H_PRIORS[poolKind] > 0);
@@ -248,6 +271,7 @@ export interface QuotaPoolFit {
   relErrPct: number;
   anomalySpikeCount: number;
   anomalySpikeExcessPct: number;
+  regimeStartMs?: number;
   models: Record<string, QuotaModelFitEntry>;
   updatedAtMs: number;
 }
@@ -257,6 +281,7 @@ export interface QuotaPoolState {
   gammaHistory?: number[];
   lastSnap?: {
     fetchedAtMs: number;
+    reqStartedAtMs?: number;
     boundaryClean: boolean;
     w5ResetAtMs: number;
     w5UsedPct: number | null;
@@ -269,9 +294,16 @@ export interface QuotaPoolState {
   pricingSig?: string;
 }
 
+export interface AccountTimelineSpan {
+  accountId: string;
+  fromMs: number;
+  toMs: number;
+}
+
 export interface QuotaFitStore {
   version: number;
   pools: Record<string, QuotaPoolState>;
+  accountTimeline?: AccountTimelineSpan[];
 }
 
 interface WeightedPair {
@@ -456,8 +488,46 @@ function isWithinSingleSamplePriorBand(val: number, priorBeta: number) {
 }
 
 /**
+ * 1D consensus-cluster estimator (RANSAC mode): finds the highest-weight cluster of rates
+ * agreeing within ±tolRel, preferring the most recent cluster on ties. Immune to heavy
+ * asymmetric outlier contamination (both upward external-burn spikes and downward straddles).
+ */
+function findConsensusRate(pairs: WeightedPair[], tolRel = 0.06): number {
+  if (!pairs.length) return 0;
+  if (pairs.length < 4) return weightedQuantile(pairs, 0.5);
+
+  let bestWeight = -1;
+  let bestCount = 0;
+  let bestCluster: WeightedPair[] = [];
+
+  for (let i = 0; i < pairs.length; i++) {
+    const center = pairs[i].val;
+    if (!(center > 0)) continue;
+    let wSum = 0;
+    const cluster: WeightedPair[] = [];
+    for (let j = 0; j < pairs.length; j++) {
+      if (Math.abs(pairs[j].val - center) / center <= tolRel) {
+        wSum += pairs[j].weight;
+        cluster.push(pairs[j]);
+      }
+    }
+    if (
+      cluster.length >= 2
+      && (wSum > bestWeight + 1e-9 || (Math.abs(wSum - bestWeight) <= 1e-9 && cluster.length >= bestCount))
+    ) {
+      bestWeight = wSum;
+      bestCount = cluster.length;
+      bestCluster = cluster;
+    }
+  }
+
+  return bestCluster.length >= 2 ? weightedQuantile(bestCluster, 0.5) : weightedQuantile(pairs, 0.5);
+}
+
+/**
  * Estimate initial 1x pool reference rate (refBeta) from short training windows.
- * Guards 1-sample and discordant 2-sample cold starts against external-burn / cache-flush spikes.
+ * Guards 1-sample and discordant 2-sample cold starts against external-burn / cache-flush spikes,
+ * and uses consensus clustering for >=4 samples to reject asymmetric contamination.
  */
 function estimateInitialRefBeta(trainSet: QuotaSample[], priorRefBeta: number, poolKind: string) {
   const refRatePairs: WeightedPair[] = [];
@@ -468,7 +538,7 @@ function estimateInitialRefBeta(trainSet: QuotaSample[], priorRefBeta: number, p
     }
     if (priorWeightedUSD > 0) {
       const val = s.du5 / priorWeightedUSD;
-      if (Number.isFinite(val) && val > 0.01 && val < 200) {
+      if (Number.isFinite(val) && val > 0.005 && val < 200) {
         refRatePairs.push({ val, weight: 1 / Math.sqrt(Math.max(1, s.callCount || 1)) });
       }
     }
@@ -503,7 +573,7 @@ function estimateInitialRefBeta(trainSet: QuotaSample[], priorRefBeta: number, p
     return (emp * 2 + priorRefBeta * 1.5) / 3.5;
   }
 
-  return weightedQuantile(refRatePairs, 0.5);
+  return findConsensusRate(refRatePairs, poolKind === 'claude_gpt' ? 0.15 : 0.06);
 }
 
 function initializeFamilyBetas(fittedFamilies: string[], trainSet: QuotaSample[], refBetaCurr: number) {
@@ -525,7 +595,7 @@ function initializeFamilyBetas(fittedFamilies: string[], trainSet: QuotaSample[]
         return getFamilyPriorK(fam) * refBetaCurr;
       }
     }
-    return purePairs.length >= 2 ? weightedQuantile(purePairs, 0.5) : getFamilyPriorK(fam) * refBetaCurr;
+    return purePairs.length >= 2 ? findConsensusRate(purePairs, 0.08) : getFamilyPriorK(fam) * refBetaCurr;
   });
 }
 
@@ -758,7 +828,7 @@ function evaluateResidualsAndQuality({
   const oosRelErrors: number[] = [];
   for (const s of holdoutSet) {
     const pred = predictSamplePct(s, tempModels, refBetaCurr);
-    if (pred > 0 && s.du5 <= pred * 1.8) {
+    if (pred > 0 && s.du5 >= pred * 0.55 && s.du5 <= pred * 1.8) {
       oosRelErrors.push(Math.abs(s.du5 - pred) / s.du5);
     }
   }
@@ -812,9 +882,10 @@ function evaluateResidualsAndQuality({
     driftReasons.push(`oos_exceeded(${oosMedianPct.toFixed(2)}%>${GEMINI_OOS_MAX_PCT}%)`);
   }
 
+  const effectivePriorRefBeta = resolveMatchedPriorRefBeta(poolKind, refBeta);
   for (const st of fittedStats) {
     if (nominalSet.has(st.fam)) continue;
-    const priorBetaAbs = st.kPrior * priorRefBeta;
+    const priorBetaAbs = st.kPrior * effectivePriorRefBeta;
     const priorRelDiffPct = ((st.beta - priorBetaAbs) / priorBetaAbs) * 100;
     const priorZScore = Math.abs(st.beta - priorBetaAbs) / Math.max(1e-9, st.se);
     st.priorBeta = priorBetaAbs;
@@ -936,6 +1007,105 @@ function buildModelsMap({
   return models;
 }
 
+const REGIME_MIN_OLD_SAMPLES = 3;
+const REGIME_MIN_NEW_INLIERS = 3;
+const REGIME_MIN_STEP_RATIO = 1.30;
+const REGIME_OLD_BAND = 0.15;
+
+function samplePriorNormalizedRate(s: QuotaSample): number | null {
+  let priorWeightedUSD = 0;
+  for (const [fam, usd] of Object.entries(s.byModel || {})) {
+    if (usd > 0) priorWeightedUSD += getFamilyPriorK(fam) * usd;
+  }
+  if (!(priorWeightedUSD > 0) || !(s.du5 > 0)) return null;
+  const val = s.du5 / priorWeightedUSD;
+  return Number.isFinite(val) && val > 0.005 && val < 200 ? val : null;
+}
+
+/**
+ * Detect an abrupt quota-cap regime shift (e.g., upgrading 5x Ultra $150 -> 20x Ultra $600
+ * or switching accounts under the same tier label) where a tight recent tail of short windows
+ * consistently clusters at a substantially different rate than the preceding history.
+ * Tolerates isolated external-burn spikes inside the new tail while refusing to trigger on
+ * noisy/reverting spikes.
+ */
+function detectRegimeShiftSlice(
+  primarySet: QuotaSample[],
+  poolKind: string,
+): { activePrimary: QuotaSample[]; regimeStartMs: number | null; shifted: boolean } {
+  if (primarySet.length < REGIME_MIN_OLD_SAMPLES + REGIME_MIN_NEW_INLIERS) {
+    return { activePrimary: primarySet, regimeStartMs: null, shifted: false };
+  }
+
+  const rates = primarySet.map(samplePriorNormalizedRate);
+  const coreTol = poolKind === 'claude_gpt' ? 0.15 : 0.10;
+  const bandTol = 0.35;
+
+  let bestSplitIdx = -1;
+  let lockedTailMed: number | null = null;
+
+  for (let splitIdx = primarySet.length - REGIME_MIN_NEW_INLIERS; splitIdx >= REGIME_MIN_OLD_SAMPLES; splitIdx--) {
+    const boundaryRate = rates[splitIdx];
+    if (boundaryRate === null) continue;
+
+    const tailRates: number[] = [];
+    for (let i = splitIdx; i < primarySet.length; i++) {
+      if (rates[i] !== null) tailRates.push(rates[i]!);
+    }
+    if (tailRates.length < REGIME_MIN_NEW_INLIERS) continue;
+
+    const tailMed = median(tailRates);
+    if (!(tailMed > 0)) continue;
+
+    // Boundary sample itself must sit in the new regime band (preferring tight core).
+    if (Math.abs(boundaryRate - tailMed) / tailMed > coreTol) continue;
+
+    // If we already locked onto the most recent regime, only extend backwards within the same regime.
+    if (lockedTailMed !== null && Math.abs(tailMed - lockedTailMed) / lockedTailMed > bandTol) {
+      continue;
+    }
+
+    // Most recent samples at the very end of the series must still belong to the new regime band
+    // (guards against multi-shift lock-on to an older intermediate regime).
+    const recentTail = tailRates.slice(-Math.min(3, tailRates.length));
+    const recentInBand = recentTail.filter((r) => Math.abs(r - tailMed) / tailMed <= bandTol).length;
+    const minRecentAgree = recentTail.length <= 2 ? recentTail.length : 2;
+    if (recentInBand < minRecentAgree) continue;
+
+    // Require both a tight core (>=3 samples within coreTol) AND majority consistency (>=60% within bandTol).
+    const tailCore = tailRates.filter((r) => Math.abs(r - tailMed) / tailMed <= coreTol).length;
+    const tailBand = tailRates.filter((r) => Math.abs(r - tailMed) / tailMed <= bandTol).length;
+    if (tailCore < REGIME_MIN_NEW_INLIERS || tailBand / tailRates.length < 0.6) continue;
+
+    const oldRates: number[] = [];
+    for (let i = 0; i < splitIdx; i++) {
+      if (rates[i] !== null) oldRates.push(rates[i]!);
+    }
+    if (oldRates.length < REGIME_MIN_OLD_SAMPLES) continue;
+
+    const oldMed = median(oldRates);
+    if (!(oldMed > 0)) continue;
+
+    const ratio = Math.max(tailMed / oldMed, oldMed / tailMed);
+    if (ratio < REGIME_MIN_STEP_RATIO) continue;
+
+    // Zero samples in the new regime tail may revert back into the old regime band.
+    const revertedToOld = tailRates.some((r) => Math.abs(r - oldMed) / oldMed <= REGIME_OLD_BAND);
+    if (revertedToOld) continue;
+
+    bestSplitIdx = splitIdx;
+    if (lockedTailMed === null) lockedTailMed = tailMed;
+  }
+
+  if (bestSplitIdx < 0) {
+    return { activePrimary: primarySet, regimeStartMs: null, shifted: false };
+  }
+
+  const activePrimary = primarySet.slice(bestSplitIdx);
+  const regimeStartMs = activePrimary[0]?.t0 || activePrimary[0]?.t1 || null;
+  return { activePrimary, regimeStartMs, shifted: true };
+}
+
 export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = ''): QuotaPoolFit | null {
   const rawSamples = Array.isArray(poolState?.samples) ? poolState.samples : [];
   if (!rawSamples.length) {
@@ -946,17 +1116,26 @@ export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = 
   const allSamples = coalesceZeroDeltaSamples(rawSamples);
   const poolKind = inferPoolKindFromState(poolState, explicitPoolKind);
   const priorRefBeta = getPoolPriorRefBeta(poolKind);
-  const inventory = collectFamilyInventory(allSamples);
 
   const shortClean = allSamples.filter((s) => s.isShort && s.boundaryClean && s.totalBaseUSD > 0 && s.du5 > 0);
   const shortAny = allSamples.filter((s) => s.isShort && s.totalBaseUSD > 0 && s.du5 > 0);
-  const primarySet = shortClean.length > 0 ? shortClean : shortAny;
+  const rawPrimarySet = shortClean.length > 0 ? shortClean : shortAny;
 
-  if (!primarySet.length) {
+  if (!rawPrimarySet.length) {
+    const inventory = collectFamilyInventory(allSamples);
     const priorFit = buildColdStartPriorFit(poolState, poolKind, priorRefBeta, allSamples, inventory);
     poolState.fit = priorFit;
     return priorFit;
   }
+
+  const { activePrimary: primarySet, regimeStartMs, shifted } = detectRegimeShiftSlice(rawPrimarySet, poolKind);
+  const effectiveSamples = shifted && regimeStartMs !== null
+    ? allSamples.filter((s) => (s.t1 || s.t0) >= regimeStartMs)
+    : allSamples;
+  const activeShortCleanCount = shifted
+    ? primarySet.filter((s) => s.boundaryClean).length
+    : shortClean.length;
+  const inventory = collectFamilyInventory(effectiveSamples);
 
   const { trainSet, holdoutSet } = splitTrainHoldout(primarySet);
   const famShortTrainWins = new Map<string, number>();
@@ -996,7 +1175,7 @@ export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = 
     famShortTrainWins,
     trainSet,
     holdoutSet,
-    shortCleanCount: shortClean.length,
+    shortCleanCount: activeShortCleanCount,
     omegas,
     beta,
     refBetaCurr,
@@ -1006,12 +1185,13 @@ export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = 
     nominalSet: inventory.nominalSet,
   });
 
+  const matchedPriorRefBeta = resolveMatchedPriorRefBeta(poolKind, stats.refBeta);
   const models = buildModelsMap({
     fittedStats: stats.fittedStats,
     tokenModels,
     quality: stats.quality,
     refBeta: stats.refBeta,
-    priorRefBeta,
+    priorRefBeta: matchedPriorRefBeta,
     rawDof: stats.rawDof,
     s2: stats.s2,
     relErrFloor: stats.relErrFloor,
@@ -1033,7 +1213,16 @@ export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = 
   }
 
   const full5hUSD = stats.refBeta > 0 ? 100 / stats.refBeta : null;
-  const gamma = (poolState.gamma ?? 0) > 0 ? poolState.gamma! : null;
+  let gamma = (poolState.gamma ?? 0) > 0 ? poolState.gamma! : null;
+  if (shifted) {
+    const regimeGammas = effectiveSamples
+      .filter((s) => s.du5 >= 0.015 && (s.du7 ?? 0) >= 0.003)
+      .map((s) => s.du5 / s.du7!)
+      .filter((g) => g >= 1.1 && g <= 20);
+    if (regimeGammas.length >= 3) {
+      gamma = median(regimeGammas);
+    }
+  }
   const full7dUSD = full5hUSD !== null && full5hUSD > 0 && gamma !== null && gamma > 0 ? full5hUSD * gamma : null;
 
   const fit = {
@@ -1046,14 +1235,15 @@ export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = 
     full5hUSD,
     full7dUSD,
     gamma,
-    sampleCount: allSamples.length,
-    shortCleanCount: shortClean.length,
+    sampleCount: effectiveSamples.length,
+    shortCleanCount: activeShortCleanCount,
     inlierCount: stats.inlierCount,
     holdoutCount: stats.oosRelErrors.length,
     oosRelErrPct: stats.oosMedianPct,
     relErrPct: stats.empiricalRelErr * 100,
     anomalySpikeCount,
     anomalySpikeExcessPct,
+    ...(shifted && regimeStartMs !== null ? { regimeStartMs } : {}),
     models,
     updatedAtMs: Date.now(),
   };

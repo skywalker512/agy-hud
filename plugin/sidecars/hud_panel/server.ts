@@ -290,11 +290,23 @@ async function startServer() {
     }
 
     const liveOverlay = await fetchLiveActiveStep(target.id, lsSummaries ?? undefined);
+    const anyLsActive = Boolean(
+      lsSummaries && Object.values(lsSummaries).some((s: any) => isCascadeStatusActive(s?.status)),
+    );
+    const hasInFlight = Boolean(liveOverlay?.liveStep || graph.inFlightCount > 0 || anyLsActive);
+    if (hasInFlight && !(graph.inFlightCount > 0)) {
+      graph.inFlightCount = 1;
+    }
     const sessionInfoFull = buildSessionInfo(target.id, graph);
     const { childKeys, swarmSig, ...sessionInfo } = sessionInfoFull;
     const accountHistory = buildAccountHistory(graph);
     if (!graph.indexing && accountHistory.totalCalls > 0) {
-      schedulePostCallQuotaSample(`${accountHistory.totalCalls}:${accountHistory.totalCostUSD.toFixed(5)}`);
+      schedulePostCallQuotaSample(
+        `${accountHistory.totalCalls}:${accountHistory.totalCostUSD.toFixed(5)}`,
+        4000,
+        15_000,
+        { isIdle: !hasInFlight },
+      );
     }
 
     const nowMs = Date.now();

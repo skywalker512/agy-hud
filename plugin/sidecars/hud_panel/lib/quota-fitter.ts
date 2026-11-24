@@ -5,9 +5,10 @@
  * Delegates structural priors, math & statistical fitting to ./quota-solver.mjs,
  * re-exporting its public symbols for backwards compatibility.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { resolveQuotaFitPath } from './constants.ts';
+import { resolveQuotaFitPath, statSafe } from './constants.ts';
 import { getCurrentPricingSig, poolKeyForGroupLabel, resolveModelPricing } from './pricing.ts';
 import {
   FAMILY_CLASSIFIER_VERSION,
@@ -42,20 +43,85 @@ export {
 } from './quota-solver.ts';
 
 const MAX_SAMPLES_PER_POOL = 200;
+const MAX_ACCOUNT_TIMELINE_SPANS = 64;
 const BOUNDARY_GEN_PAD_MS = 1500;
-const fitStoreMemCache = new Map<string, QuotaFitStore>();
+const fitStoreMemCache = new Map<string, { store: QuotaFitStore; mtimeMs: number; size: number }>();
+
+export function resolveAccountId(accountQuota: any): string {
+  const rawEmail = typeof accountQuota?.email === 'string' ? accountQuota.email.trim().toLowerCase() : '';
+  if (!rawEmail) return '';
+  return `acct:${createHash('sha256').update(rawEmail).digest('hex').slice(0, 8)}`;
+}
+
+export function buildAccountTierKey(accountQuota: any): string {
+  const tierPart = [accountQuota?.planName, accountQuota?.tierName, accountQuota?.teamsTier]
+    .filter(Boolean)
+    .join(':')
+    .toLowerCase() || 'default';
+  const accountId = resolveAccountId(accountQuota);
+  return accountId ? `${accountId}:${tierPart}` : tierPart;
+}
+
+export function recordAccountTimeline(store: QuotaFitStore, accountId: string, nowMs: number): boolean {
+  if (!accountId || !(nowMs > 0)) return false;
+  if (!Array.isArray(store.accountTimeline)) store.accountTimeline = [];
+  const tl = store.accountTimeline;
+  const last = tl[tl.length - 1];
+  if (last && last.accountId === accountId) {
+    if (nowMs > last.toMs) {
+      last.toMs = nowMs;
+      return true;
+    }
+    return false;
+  }
+  if (last && nowMs < last.fromMs) return false;
+  tl.push({ accountId, fromMs: nowMs, toMs: nowMs });
+  if (tl.length > MAX_ACCOUNT_TIMELINE_SPANS) {
+    tl.splice(0, tl.length - MAX_ACCOUNT_TIMELINE_SPANS);
+  }
+  return true;
+}
+
+/**
+ * Returns true if a local IDE (`app`) call at timestamp `ts` occurred during a recorded
+ * timeline interval where a DIFFERENT known account was logged into the IDE.
+ */
+export function isCallOwnedByOtherAccount(
+  store: QuotaFitStore | null | undefined,
+  activeAccountId: string,
+  ts: number,
+  source = 'app',
+): boolean {
+  if (!activeAccountId || !(ts > 0) || source === 'cli') return false;
+  const tl = store?.accountTimeline;
+  if (!Array.isArray(tl) || tl.length < 2) return false;
+  let owner: { accountId: string; fromMs: number; toMs: number } | null = null;
+  for (let i = tl.length - 1; i >= 0; i--) {
+    if (tl[i].fromMs <= ts + 5_000) {
+      owner = tl[i];
+      break;
+    }
+  }
+  if (!owner || owner.accountId === activeAccountId) return false;
+  return ts <= owner.toMs + 60_000;
+}
 
 export function loadQuotaFitStore(fitPath = resolveQuotaFitPath()): QuotaFitStore {
   if (!fitPath) return { version: FIT_STORE_VERSION, pools: {} };
+  const st = statSafe(fitPath);
   const cached = fitStoreMemCache.get(fitPath);
-  if (cached) return cached;
+  if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) return cached.store;
 
   let store: QuotaFitStore | null = null;
   try {
     if (existsSync(fitPath)) {
       const raw = JSON.parse(readFileSync(fitPath, 'utf-8'));
       if (raw && typeof raw === 'object' && raw.version === FIT_STORE_VERSION && raw.pools && typeof raw.pools === 'object') {
-        store = { version: FIT_STORE_VERSION, pools: { ...raw.pools } };
+        store = {
+          version: FIT_STORE_VERSION,
+          pools: { ...raw.pools },
+          ...(Array.isArray(raw.accountTimeline) ? { accountTimeline: raw.accountTimeline } : {}),
+        };
       }
     }
   } catch {
@@ -67,7 +133,8 @@ export function loadQuotaFitStore(fitPath = resolveQuotaFitPath()): QuotaFitStor
   } else {
     reconcileStoreOnLoad(fitPath, store);
   }
-  fitStoreMemCache.set(fitPath, store);
+  const afterSt = statSafe(fitPath);
+  fitStoreMemCache.set(fitPath, { store, mtimeMs: afterSt.mtimeMs, size: afterSt.size });
   return store;
 }
 
@@ -76,22 +143,29 @@ function reconcileStoreOnLoad(fitPath: string, store: QuotaFitStore) {
   let reconciledOnLoad = false;
   for (const [poolKey, ps] of Object.entries(store.pools)) {
     if (!ps || !Array.isArray(ps.samples) || !ps.samples.length) continue;
-    if (ps.pricingSig === currentSig && ps.samples.every((s) => s.pricingSig === currentSig)) continue;
-    const allHaveTokens = ps.samples.every(
-      (s) => s.tsMode === 'completed_v2' && s.byModelTokens && typeof s.byModelTokens === 'object',
-    );
-    if (!allHaveTokens) continue;
+    const pricingStale = ps.pricingSig !== currentSig || ps.samples.some((s) => s.pricingSig !== currentSig);
+    const schemaStale = !ps.fit || ps.fit.schemaVersion !== FIT_SCHEMA_VERSION;
+    if (!pricingStale && !schemaStale) continue;
     const explicitPk = poolKey.endsWith('|claude_gpt')
       ? 'claude_gpt'
       : poolKey.endsWith('|gemini')
         ? 'gemini'
         : '';
     const pk = inferPoolKindFromState(ps, explicitPk);
-    reconcilePoolSamplesPricing(ps, {
-      currentSig,
-      rateFn: getFamilyBaseRates,
-      poolKey: pk,
-    });
+    if (pricingStale) {
+      const allHaveTokens = ps.samples.every(
+        (s) => s.tsMode === 'completed_v2' && s.byModelTokens && typeof s.byModelTokens === 'object',
+      );
+      if (allHaveTokens) {
+        reconcilePoolSamplesPricing(ps, {
+          currentSig,
+          rateFn: getFamilyBaseRates,
+          poolKey: pk,
+        });
+      } else if (!schemaStale) {
+        continue;
+      }
+    }
     solvePoolFitModel(ps, pk);
     reconciledOnLoad = true;
   }
@@ -105,6 +179,8 @@ function saveQuotaFitStore(fitPath, store) {
   try {
     mkdirSync(dirname(fitPath), { recursive: true });
     writeFileSync(fitPath, JSON.stringify(store, null, 2), 'utf-8');
+    const st = statSafe(fitPath);
+    fitStoreMemCache.set(fitPath, { store, mtimeMs: st.mtimeMs, size: st.size });
   } catch {
     /* ignore non-fatal write errors */
   }
@@ -130,16 +206,27 @@ function isSnapshotBoundaryClean(calls, poolKey, reqStartedAtMs, fetchedAtMs) {
   return true;
 }
 
-function aggregateCallsInInterval(calls, poolKey, t0, t1) {
+function aggregateCallsInInterval(
+  calls,
+  poolKey,
+  t0,
+  t1,
+  opts: { store?: QuotaFitStore; activeAccountId?: string } = {},
+) {
   const byModel = Object.create(null);
   const byModelTokens = Object.create(null);
   const nominalFamilies = new Set<string>();
   let callCount = 0;
   let totalBaseUSD = 0;
+  let appCallCount = 0;
+  let cliCallCount = 0;
 
   for (const c of calls) {
     if (c.ts <= t0 || c.ts > t1) continue;
     if (poolKey !== 'other' && c.poolKey !== poolKey) continue;
+    if (opts.activeAccountId && isCallOwnedByOtherAccount(opts.store, opts.activeAccountId, c.ts, c.source)) {
+      continue;
+    }
     const family = c.family || resolveModelFamily(c.modelId, c.modelDisplay, c.model);
     const baseUSD = typeof c.baseUSD === 'number'
       ? c.baseUSD
@@ -156,9 +243,19 @@ function aggregateCallsInInterval(calls, poolKey, t0, t1) {
     if (!c.priced) nominalFamilies.add(family);
     totalBaseUSD += baseUSD;
     callCount += 1;
+    if (c.source === 'cli') cliCallCount += 1;
+    else appCallCount += 1;
   }
 
-  return { byModel, byModelTokens, callCount, totalBaseUSD, nominalFamilies: [...nominalFamilies] };
+  return {
+    byModel,
+    byModelTokens,
+    callCount,
+    totalBaseUSD,
+    nominalFamilies: [...nominalFamilies],
+    appCallCount,
+    cliCallCount,
+  };
 }
 
 export interface ReconcileSamplesOptions {
@@ -167,6 +264,8 @@ export interface ReconcileSamplesOptions {
   allCalls?: any[];
   earliestCallTs?: number;
   poolKey?: string;
+  store?: QuotaFitStore;
+  activeAccountId?: string;
 }
 
 export interface IngestQuotaOptions {
@@ -182,10 +281,13 @@ export function reconcilePoolSamplesPricing(ps: QuotaPoolState, {
   allCalls = [],
   earliestCallTs = Infinity,
   poolKey = 'gemini',
+  store,
+  activeAccountId = '',
 }: ReconcileSamplesOptions = {}): boolean {
   if (!Array.isArray(ps?.samples)) return false;
   let changed = false;
   const nextSamples: QuotaSample[] = [];
+  const aggOpts = { store, activeAccountId };
 
   for (const s of ps.samples) {
     const needsUpgrade = !s.byModelTokens || s.tsMode !== 'completed_v2';
@@ -200,7 +302,7 @@ export function reconcilePoolSamplesPricing(ps: QuotaPoolState, {
     // 1) If raw DB retention covers [t0, t1], re-aggregate from raw calls so family reclassifications
     //    (e.g. Orchestrator (Neon) -> gemini-4-neon) and nominalFlags heal identically to live samples.
     if (allCalls.length > 0 && s.t0 >= earliestCallTs - 60_000) {
-      const reAgg = aggregateCallsInInterval(allCalls, poolKey, s.t0, s.t1);
+      const reAgg = aggregateCallsInInterval(allCalls, poolKey, s.t0, s.t1, aggOpts);
       if (reAgg.callCount > 0) {
         nextSamples.push({
           ...s,
@@ -209,8 +311,11 @@ export function reconcilePoolSamplesPricing(ps: QuotaPoolState, {
           callCount: reAgg.callCount,
           totalBaseUSD: reAgg.totalBaseUSD,
           nominalFamilies: reAgg.nominalFamilies,
-          boundaryClean: isSnapshotBoundaryClean(allCalls, poolKey, 0, s.t0)
+          boundaryClean: Boolean(
+            reAgg.cliCallCount === 0
+            && isSnapshotBoundaryClean(allCalls, poolKey, 0, s.t0)
             && isSnapshotBoundaryClean(allCalls, poolKey, 0, s.t1),
+          ),
           tsMode: 'completed_v2',
           pricingSig: currentSig,
           familyVersion: FAMILY_CLASSIFIER_VERSION,
@@ -302,10 +407,10 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
 
   const fetchedAtMs = accountQuota.fetchedAtMs || opts.nowMs || Date.now();
   const reqStartedAtMs = accountQuota.reqStartedAtMs || 0;
-  const tierKey = [accountQuota.planName, accountQuota.tierName, accountQuota.teamsTier]
-    .filter(Boolean)
-    .join(':')
-    .toLowerCase() || 'default';
+  const activeAccountId = resolveAccountId(accountQuota);
+  const tierKey = buildAccountTierKey(accountQuota);
+  const hasActiveInFlight = (graph?.inFlightCount || 0) > 0;
+  const aggOpts = { store, activeAccountId };
 
   const allCalls: any[] = [];
   let earliestCallTs = Infinity;
@@ -316,7 +421,7 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
     }
   }
 
-  let dirty = false;
+  let dirty = recordAccountTimeline(store, activeAccountId, fetchedAtMs);
   for (const p of accountQuota.pools) {
     const pk = poolKeyForGroupLabel(p.label);
     const calPoolKey = pk === 'other' ? `other:${String(p.label || '').toLowerCase()}` : pk;
@@ -332,6 +437,8 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
       allCalls,
       earliestCallTs,
       poolKey: pk,
+      store,
+      activeAccountId,
     });
     if (upgradedSamples) dirty = true;
 
@@ -346,14 +453,15 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
     const u5 = w5 ? Math.max(0, 100 - (w5.remainingPct || 0)) : null;
     const u7 = w7 ? Math.max(0, 100 - (w7.remainingPct || 0)) : null;
     const w5StartMs = w5 ? w5.resetAtMs - 5 * 3_600_000 : 0;
-    const w5CumAgg = w5 ? aggregateCallsInInterval(allCalls, pk, w5StartMs, fetchedAtMs) : null;
-    const currClean = isSnapshotBoundaryClean(allCalls, pk, reqStartedAtMs, fetchedAtMs);
+    const w5CumAgg = w5 ? aggregateCallsInInterval(allCalls, pk, w5StartMs, fetchedAtMs, aggOpts) : null;
+    const currClean = !hasActiveInFlight && isSnapshotBoundaryClean(allCalls, pk, reqStartedAtMs, fetchedAtMs);
     const prev = ps.lastSnap;
 
     let addedSample = false;
     let deferSnapAdvance = false;
     const pushSample = (sample) => {
-      ps.samples.push({ ...sample, tsMode: 'completed_v2', pricingSig: currentSig, familyVersion: FAMILY_CLASSIFIER_VERSION });
+      const { appCallCount: _ac, cliCallCount: _cc, ...persistedSample } = sample;
+      ps.samples.push({ ...persistedSample, tsMode: 'completed_v2', pricingSig: currentSig, familyVersion: FAMILY_CLASSIFIER_VERSION });
       if (ps.samples.length > MAX_SAMPLES_PER_POOL) {
         ps.samples.splice(0, ps.samples.length - MAX_SAMPLES_PER_POOL);
       }
@@ -367,6 +475,10 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
       const same7d = Boolean(w7 && prev.w7ResetAtMs && Math.abs(w7.resetAtMs - prev.w7ResetAtMs) < 60_000);
       const du5 = same5h && u5 !== null && prev.w5UsedPct !== null ? u5 - prev.w5UsedPct : null;
       const du7 = same7d && u7 !== null && prev.w7UsedPct !== null ? u7 - prev.w7UsedPct : null;
+      // Retroactively re-check prev's boundary against allCalls now that calls in-flight across t0
+      // have completed and landed in the DB (critical during concurrent swarm / subagent runs).
+      const prevCleanNow = isSnapshotBoundaryClean(allCalls, pk, prev.reqStartedAtMs || 0, prev.fetchedAtMs);
+      const intervalClean = Boolean(prev.boundaryClean && prevCleanNow && currClean);
 
       if (du5 !== null && du7 !== null && du5 >= 0.015 && du7 >= 0.003) {
         const obsGamma = du5 / du7;
@@ -381,9 +493,12 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
         // Quota usage within an active 5h window is strictly non-decreasing; ignore stale rewind reads.
         deferSnapAdvance = true;
       } else if (same5h && du5 !== null && du5 >= -0.0005) {
-        const agg = aggregateCallsInInterval(allCalls, pk, prev.fetchedAtMs, fetchedAtMs);
-        // Hold prev.lastSnap open if local calls landed but server remainingPct has not settled yet.
-        if (agg.totalBaseUSD > 0.002 && du5 < 0.0003 && dtSec < 300) {
+        const agg = aggregateCallsInInterval(allCalls, pk, prev.fetchedAtMs, fetchedAtMs, aggOpts);
+        const cliOnly = agg.appCallCount === 0 && agg.cliCallCount > 0;
+        const sourceClean = agg.cliCallCount === 0;
+        // Hold prev.lastSnap open if IDE (`app`) calls landed but server remainingPct has not settled yet.
+        // Do NOT hold open for CLI-only calls, since CLI may be on gcloud ADC or a different account.
+        if (!cliOnly && agg.totalBaseUSD > 0.002 && du5 < 0.0003 && dtSec < 300) {
           deferSnapAdvance = true;
         } else {
           const historyConsistent = prev.w5CumBaseUSD === undefined
@@ -397,7 +512,7 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
               du5: Math.max(0, du5),
               du7: du7 !== null ? Math.max(0, du7) : null,
               source: '5h_delta',
-              boundaryClean: Boolean(prev.boundaryClean && currClean),
+              boundaryClean: Boolean(intervalClean && sourceClean),
               isShort: dtSec <= SHORT_WINDOW_MAX_SEC,
               ...agg,
             });
@@ -405,7 +520,7 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
         }
       } else {
         if (!same5h && same7d && du7 !== null && du7 >= 0.0002 && (ps.gamma ?? 0) > 0) {
-          const agg = aggregateCallsInInterval(allCalls, pk, prev.fetchedAtMs, fetchedAtMs);
+          const agg = aggregateCallsInInterval(allCalls, pk, prev.fetchedAtMs, fetchedAtMs, aggOpts);
           pushSample({
             t0: prev.fetchedAtMs,
             t1: fetchedAtMs,
@@ -413,7 +528,7 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
             du5: Math.max(0, du7) * ps.gamma!,
             du7: Math.max(0, du7),
             source: '7d_scaled',
-            boundaryClean: Boolean(prev.boundaryClean && currClean),
+            boundaryClean: Boolean(intervalClean && agg.cliCallCount === 0),
             isShort: dtSec <= SHORT_WINDOW_MAX_SEC,
             ...agg,
           });
@@ -422,7 +537,7 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
           const w5Start = w5.resetAtMs - 5 * 3_600_000;
           if (w5Start >= prev.fetchedAtMs - 60_000) {
             const anchorSec = Math.max(1, (fetchedAtMs - w5Start) / 1000);
-            const agg = aggregateCallsInInterval(allCalls, pk, w5Start, fetchedAtMs);
+            const agg = aggregateCallsInInterval(allCalls, pk, w5Start, fetchedAtMs, aggOpts);
             pushSample({
               t0: w5Start,
               t1: fetchedAtMs,
@@ -430,7 +545,7 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
               du5: u5,
               du7: null,
               source: '5h_anchor',
-              boundaryClean: currClean,
+              boundaryClean: Boolean(currClean && agg.cliCallCount === 0),
               isShort: anchorSec <= SHORT_WINDOW_MAX_SEC,
               ...agg,
             });
@@ -440,7 +555,7 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
     } else if (!prev && w5 && u5 !== null && u5 >= 0.002) {
       const w5Start = w5.resetAtMs - 5 * 3_600_000;
       const anchorSec = Math.max(1, (fetchedAtMs - w5Start) / 1000);
-      const agg = aggregateCallsInInterval(allCalls, pk, w5Start, fetchedAtMs);
+      const agg = aggregateCallsInInterval(allCalls, pk, w5Start, fetchedAtMs, aggOpts);
       if (agg.callCount > 0) {
         pushSample({
           t0: w5Start,
@@ -449,7 +564,7 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
           du5: u5,
           du7: null,
           source: '5h_boot',
-          boundaryClean: currClean,
+          boundaryClean: Boolean(currClean && agg.cliCallCount === 0),
           isShort: anchorSec <= SHORT_WINDOW_MAX_SEC,
           ...agg,
         });
@@ -459,6 +574,7 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
     if (!deferSnapAdvance && (!prev || fetchedAtMs > prev.fetchedAtMs)) {
       ps.lastSnap = {
         fetchedAtMs,
+        reqStartedAtMs,
         boundaryClean: currClean,
         w5ResetAtMs: w5?.resetAtMs || 0,
         w5UsedPct: u5,
@@ -471,7 +587,25 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
 
     const schemaStale = ps.fit && ps.fit.schemaVersion !== FIT_SCHEMA_VERSION;
     if (addedSample || upgradedSamples || schemaStale || (!ps.fit && ps.samples.length > 0)) {
-      solvePoolFitModel(ps, pk);
+      const nextFit = solvePoolFitModel(ps, pk);
+      // Once a new quota-cap regime is firmly confirmed (>=5 inliers), prune pre-regime samples
+      // so obsolete tier history doesn't linger in quota-model-fit.json.
+      if (nextFit?.regimeStartMs && nextFit.inlierCount >= 5) {
+        const cutoffMs = nextFit.regimeStartMs;
+        const kept = ps.samples.filter((s) => (s.t1 || s.t0) >= cutoffMs);
+        if (kept.length >= 5 && kept.length < ps.samples.length) {
+          ps.samples = kept;
+          const keptGammas = kept
+            .filter((s) => s.du5 >= 0.015 && (s.du7 ?? 0) >= 0.003)
+            .map((s) => s.du5 / s.du7!)
+            .filter((g) => g >= 1.1 && g <= 20);
+          if (keptGammas.length >= 3) {
+            ps.gammaHistory = keptGammas.slice(-32);
+            ps.gamma = median(ps.gammaHistory);
+          }
+          solvePoolFitModel(ps, pk);
+        }
+      }
       dirty = true;
     }
   }
@@ -484,11 +618,8 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
 
 export function resolveActiveTierPrefix(accountQuota, fitStore) {
   if (accountQuota?.available) {
-    const tk = [accountQuota.planName, accountQuota.tierName, accountQuota.teamsTier]
-      .filter(Boolean)
-      .join(':')
-      .toLowerCase();
-    if (tk) return `${tk}|`;
+    const tk = buildAccountTierKey(accountQuota);
+    if (tk && tk !== 'default') return `${tk}|`;
   }
   const keys = Object.keys(fitStore?.pools || {});
   if (!keys.length) return 'default|';

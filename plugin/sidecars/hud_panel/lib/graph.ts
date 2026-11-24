@@ -8,6 +8,7 @@
 import { basename, dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  ACTIVE_STEP_STATUSES,
   clipText,
   KNOWN_MODEL_ENUMS,
   localDayKey,
@@ -94,6 +95,9 @@ export function summarizeConversationDb(conv) {
   let unpricedCount = 0;
   let stepLatestTsMs = 0;
   let latestTsMs = 0;
+  let hasActiveGenStep = false;
+  let activeGenStepStartMs = 0;
+  let resolvedSource = (conv.source && conv.source !== 'app') ? conv.source : 'app';
   const dayBuckets: Record<string, any> = Object.create(null);
   const familyUsage: Record<string, any> = Object.create(null);
   const recentCutoffMs = Date.now() - 30 * 86_400_000;
@@ -113,6 +117,10 @@ export function summarizeConversationDb(conv) {
       if (tm && Number.isFinite(tm.trajectory_type)) trajectoryType = tm.trajectory_type;
       if (tm && Number.isFinite(tm.source)) dbSourceCode = tm.source;
     } catch { /* table missing */ }
+
+    if (resolvedSource === 'app' && dbSourceCode === 17) {
+      resolvedSource = 'cli';
+    }
 
     try {
       const prRows = db.prepare('SELECT data FROM parent_references').all();
@@ -178,6 +186,18 @@ export function summarizeConversationDb(conv) {
           }
         }
       }
+      // Inspect tail steps to see if an LLM generation / compaction step is currently in-flight.
+      for (let i = stRows.length - 1; i >= 0; i--) {
+        const s = stRows[i];
+        if (s.step_type !== 15 && s.step_type !== 23) continue;
+        const meta = parseStepMetadata(s.metadata);
+        const isDone = TERMINAL_STEP_STATUSES.has(s.status) || meta.endAtMs > 0 || meta.completedAtMs > 0;
+        if (!isDone && (ACTIVE_STEP_STATUSES.has(s.status) || s.status > 0)) {
+          hasActiveGenStep = true;
+          activeGenStepStartMs = meta.startedAtMs || meta.createdAtMs || conv.updatedMs || 0;
+        }
+        break;
+      }
     } catch { /* table missing */ }
 
     latestTsMs = stepLatestTsMs;
@@ -213,6 +233,7 @@ export function summarizeConversationDb(conv) {
         recentCalls.push({
           ts,
           genUncertainStartTs,
+          source: resolvedSource,
           poolKey: ref.poolKey,
           family: ref.family,
           newInput: newIn,
@@ -309,9 +330,9 @@ export function summarizeConversationDb(conv) {
         const completedTs = stepTs || conv.dbMtimeMs || conv.updatedMs || 0;
         if (completedTs > latestTsMs) latestTsMs = completedTs;
         const firstToolMs = firstToolCreatedByGmIdx.get(row.idx) || 0;
-        const genUncertainStartTs = (firstToolMs > 0 && stepTs > 0 && firstToolMs <= stepTs)
-          ? firstToolMs
-          : completedTs;
+        let genUncertainStartTs = completedTs;
+        if (firstToolMs > 0 && firstToolMs < genUncertainStartTs) genUncertainStartTs = firstToolMs;
+        if (stepStartTs > 0 && stepStartTs < genUncertainStartTs) genUncertainStartTs = stepStartTs;
 
         const currFamily = resolveModelFamily(parsed.modelId, parsed.modelDisplay, parsed.model);
         const currTotalPrompt = parsed.totalPromptTokens || (parsed.cachedInput + parsed.newInput);
@@ -404,10 +425,6 @@ export function summarizeConversationDb(conv) {
     try { db?.close(); } catch { /* ignore */ }
   }
 
-  const resolvedSource = (conv.source && conv.source !== 'app')
-    ? conv.source
-    : (dbSourceCode === 17 ? 'cli' : 'app');
-
   return {
     id: conv.id,
     source: resolvedSource,
@@ -415,6 +432,8 @@ export function summarizeConversationDb(conv) {
     updatedMs: conv.updatedMs,
     stepLatestTsMs,
     latestTsMs: latestTsMs || conv.updatedMs,
+    hasActiveGenStep,
+    activeGenStepStartMs,
     title: anno.title || fallbackTitle || '',
     annoTitle: anno.title || '',
     sideQuestionIds: anno.sideQuestionIds,
@@ -674,11 +693,16 @@ export function getConversationGraph(
   }
 
   const sourceCounts = { app: 0, cli: 0, ide: 0 };
+  const nowForFlight = Date.now();
+  let inFlightCount = 0;
   for (const conv of conversations) {
     const sum = byId.get(conv.id);
     const rawSrc = sum?.source || conv.source;
     const src = rawSrc === 'cli' || rawSrc === 'ide' ? rawSrc : 'app';
     sourceCounts[src] += 1;
+    if (sum?.hasActiveGenStep && sum.activeGenStepStartMs > 0 && nowForFlight - sum.activeGenStepStartMs < 600_000) {
+      inFlightCount += 1;
+    }
   }
 
   return {
@@ -689,6 +713,7 @@ export function getConversationGraph(
     sqTitleOverrides,
     sourceCounts,
     swarmIndex,
+    inFlightCount,
     indexing: pendingBgSummaries.size > 0,
     totalDbFiles: conversations.length,
   };
