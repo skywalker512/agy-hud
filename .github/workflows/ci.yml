@@ -35,7 +35,7 @@ jobs:
           npm --prefix site ci
           npm --prefix workers/gemini-pulse ci
 
-      - name: Typecheck web, site, and worker
+      - name: Typecheck web, site, worker, and sidecar
         run: npm run typecheck
 
       - name: Run sidecar and tools unit tests

@@ -3,7 +3,7 @@
 <img src="docs/assets/banner.svg" alt="AGY-HUD Banner" width="100%" />
 
 <p>
-  <strong>Live telemetry for Google Antigravity — real-time speed, TTFT root-cause attribution, Gemini Global Pulse 7d/5m radar &amp; Arena PK, prompt cache survival, calibrated quota runway, recursive Swarm rollup, and 2x Wrapped posters right in your side pane.</strong>
+  <strong>Live telemetry for Google Antigravity — real-time speed, live first-token TTFT monitor, Gemini Global Pulse 7d/5m radar &amp; Arena PK, prompt cache survival, calibrated quota runway, recursive Swarm rollup, and 2x Wrapped posters right in your side pane.</strong>
 </p>
 
 <p>
@@ -120,7 +120,7 @@ AGY-HUD organizes everything into three calm, glanceable views designed for a na
 - **Search, Filter & Export**: Hit `/` to search across models, prompts, and tool names; filter anomalies (`Slow TTFT >3s`, `Low Cache <60%`, `Stall / Buf`, `Compacts`); sort by slowest or costliest; or copy a clean **Markdown / JSON** report in one click.
 
 ### 3. Account — *How long will my quota last?*
-- **Gemini Global Pulse, TTFT Attribution & Cyber Arena PK**: Compare your local 30m/24h/7d Gemini latency, TPS, and cache hit rate against the live global pool ([`agy-hud.512.pub/pulse/`](https://agy-hud.512.pub/pulse/)), see automatic TTFT root-cause verdicts (`upstream_degraded`, `cache_miss`, `large_context`, `local_concurrency`, `account_or_network`), and duel models head-to-head in **Cyber Arena PK**.
+- **Gemini Global Pulse, Local-vs-Global Comparison & Cyber Arena PK**: Compare your local 30m/24h/7d Gemini TTFT, TPS, and cache hit rate against the live global pool ([`agy-hud.512.pub/pulse/`](https://agy-hud.512.pub/pulse/)), inspect context-bucketed latency hints alongside GCP Service Health incidents, and duel models head-to-head in **Cyber Arena PK**.
 - **Dual 5h / 7d Quota Runway & Calibrated `k`-Rules**: Hatched diagonal runway bars show projected burn before reset right inside the progress bar alongside empirically fitted per-model `k`-multipliers and 7-bucket Prompt Cache TTL survival curves (`P80` / `P50` horizons and expired-cache cost).
 - **Unified Ledger, 16w/52w Iceberg Heatmap & 2x Wrapped Poster**: Automatically merges App, CLI (`agy`), ACP, and IDE stores into one spend grid, a **16w / 52w Activity Heatmap**, a **Monochrome Token Iceberg** view, one-click **2x PNG Wrapped share posters** (Cyber / Gold / Light), and safe in-app updates.
 

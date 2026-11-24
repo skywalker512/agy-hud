@@ -1,4 +1,4 @@
-import type { AccountHistory, DailyHeatmapDay } from '../types/telemetry';
+import type { AccountHistory, DailyHeatmapDay } from '../types/telemetry.ts';
 
 export type PersonaTier = 'mythic' | 'gold' | 'emerald' | 'cyan' | 'slate';
 

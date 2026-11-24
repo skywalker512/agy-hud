@@ -11,7 +11,8 @@
     "typecheck:web": "npm --prefix web run typecheck",
     "typecheck:site": "npm --prefix site run typecheck",
     "typecheck:worker": "npm --prefix workers/gemini-pulse run typecheck",
-    "typecheck": "npm run typecheck:web && npm run typecheck:site && npm run typecheck:worker",
+    "typecheck:sidecar": "npm --prefix plugin/sidecars/hud_panel run typecheck",
+    "typecheck": "npm run typecheck:web && npm run typecheck:site && npm run typecheck:worker && npm run typecheck:sidecar",
     "build:ui": "npm --prefix web run build",
     "build:site": "npm --prefix site run build",
     "check": "npm run typecheck && npm test"

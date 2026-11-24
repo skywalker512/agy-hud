@@ -564,7 +564,7 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
                 last.t1 = fetchedAtMs;
                 last.dtSec = Math.max(1, (fetchedAtMs - last.t0) / 1000);
                 last.du5 = mergedDu5;
-                if (last.du7 !== null && du7 !== null) {
+                if (last.du7 != null && du7 != null) {
                   last.du7 = Math.max(0, last.du7 + du7);
                 }
                 addedSample = true;

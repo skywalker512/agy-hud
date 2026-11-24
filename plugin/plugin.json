@@ -2,7 +2,7 @@
   "name": "agy-hud",
   "displayName": "AGY-HUD",
   "version": "1.2.0",
-  "description": "Native side-pane telemetry for Google Antigravity: live GEN/E2E TPS, TTFT attribution, Gemini Global Pulse & Arena PK, Cache TTL survival, calibrated 5h/7d quota runway, Swarm Cockpit, and 2x Wrapped posters.",
+  "description": "Native side-pane telemetry for Google Antigravity: live GEN/E2E TPS, live first-token TTFT monitor, Gemini Global Pulse & Arena PK, Cache TTL survival, calibrated 5h/7d quota runway, Swarm Cockpit, and 2x Wrapped posters.",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
     "Open the AGY-HUD panel",
