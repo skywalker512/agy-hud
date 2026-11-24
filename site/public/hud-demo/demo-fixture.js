@@ -844,6 +844,15 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
     return buckets;
   };
 
+  const mkLocalDaily = (baseTtft, baseTps, baseCache) =>
+    pulseDayDates.map((x, idx) => ({
+      x,
+      calls: 12 + (idx % 4) * 5,
+      p50TtftSec: clamp(round(baseTtft + Math.sin(idx * 1.1 + baseTtft) * 0.24, 2), 0.4, 8),
+      p50Tps: clamp(round(baseTps + Math.cos(idx * 0.8 + baseTtft) * 6.5, 1), 30, 180),
+      cacheHitPct: clamp(round(baseCache + Math.sin(idx * 0.7) * 3.2, 1), 40, 97),
+    }));
+
   const geminiPulseModels = [
     {
       family: 'gemini-4-neon',
@@ -888,6 +897,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         p50Ttft24hSec: 1.74,
         p50Tps24h: 99.1,
         cacheHit24hPct: 89.8,
+        daily7d: mkLocalDaily(1.78, 98.4, 89.2),
       },
     },
     {
@@ -933,6 +943,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         p50Ttft24hSec: 0.95,
         p50Tps24h: 149.4,
         cacheHit24hPct: 85.0,
+        daily7d: mkLocalDaily(0.95, 148.6, 84.5),
       },
     },
     {
@@ -978,6 +989,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         p50Ttft24hSec: 1.46,
         p50Tps24h: 95.1,
         cacheHit24hPct: 89.1,
+        daily7d: mkLocalDaily(1.48, 94.2, 88.6),
       },
     },
     {
@@ -1023,6 +1035,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         p50Ttft24hSec: 0.77,
         p50Tps24h: 122.5,
         cacheHit24hPct: 83.2,
+        daily7d: mkLocalDaily(0.78, 121.4, 82.1),
       },
     },
   ];

@@ -599,6 +599,14 @@ export interface GeminiEndpointPulse {
   windowMinutes: number;
 }
 
+export interface GeminiLocalDailyPoint {
+  x: string;
+  calls: number;
+  p50TtftSec: number | null;
+  p50Tps: number | null;
+  cacheHitPct: number | null;
+}
+
 export interface GeminiLocalBaseline {
   calls7d: number;
   p50TtftSec: number | null;
@@ -615,6 +623,7 @@ export interface GeminiLocalBaseline {
   p50Ttft24hSec?: number | null;
   p50Tps24h?: number | null;
   cacheHit24hPct?: number | null;
+  daily7d?: GeminiLocalDailyPoint[];
 }
 
 export interface GeminiTimeSeriesPoint {

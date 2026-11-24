@@ -92,6 +92,8 @@ test('computeLocalGeminiBaselines stratifies hit vs cold-miss TTFT and evaluateT
   assert.equal(hb.calls30m, 3);
   assert.equal(hb.p50Ttft30mSec, 1.2);
   assert.equal(hb.p50Tps30m, 145);
+  assert.ok(Array.isArray(hb.daily7d) && hb.daily7d.length >= 1);
+  assert.equal(hb.daily7d[0].calls, 6);
   assert.equal(hb.hitP50TtftSec, 1.2);
   assert.equal(hb.missP50TtftSec, 5.0);
   assert.equal(baselines['claude-opus-5-5'], undefined);

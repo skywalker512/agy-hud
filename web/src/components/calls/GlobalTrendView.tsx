@@ -17,17 +17,37 @@ interface SeriesLine {
   label: string;
   color: string;
   dashed?: boolean;
+  isLocal?: boolean;
   points: Array<{ xIdx: number; xLabel: string; val: number; isLive30m?: boolean }>;
   latestVal: number;
 }
 
-const SERIES_COLORS = [
+const FALLBACK_COLORS = [
   'var(--seg-input)',
   'var(--seg-cache)',
   'var(--seg-think)',
   'var(--seg-out)',
   'var(--hud-bad)',
 ] as const;
+
+// Stable, permanent color per Gemini family so toggling models NEVER shifts line/pill colors!
+export const GEMINI_FAMILY_COLORS: Record<string, string> = {
+  'gemini-4-neon': 'var(--seg-input)',
+  'gemini-4-hydrogen': 'var(--seg-cache)',
+  'gemini-4-carbon': 'var(--seg-think)',
+  'gemini-4-argon': 'var(--seg-out)',
+  'gemini-3.8-flash': 'var(--hud-bad)',
+};
+
+export function stableGeminiModelColor(family: string, modelListIndex = 0): string {
+  return GEMINI_FAMILY_COLORS[family] || FALLBACK_COLORS[modelListIndex % FALLBACK_COLORS.length];
+}
+
+function stableProviderColor(provider: string, idx: number): string {
+  if (/vertex/i.test(provider)) return 'var(--seg-input)';
+  if (/ai\s*studio/i.test(provider)) return 'var(--seg-out)';
+  return FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
+}
 
 function shortName(label: string): string {
   return label
@@ -54,7 +74,6 @@ function fmtAxisTick(val: number, metric: GlobalTrendMetric): string {
 function fmtShortX(xLabel: string, metric: GlobalTrendMetric, isZh: boolean): string {
   if (xLabel === '__live30m__') return isZh ? '近30m' : '30m';
   if (metric === 'uptime') {
-    // "2026-11-23 03:50" -> convert UTC string to local HH:mm
     const ms = Date.parse(`${xLabel.replace(' ', 'T')}:00Z`);
     if (Number.isFinite(ms)) {
       const d = new Date(ms);
@@ -77,6 +96,7 @@ export function GlobalTrendView({
   const [svgW, setSvgW] = useState(380);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [splitProviders, setSplitProviders] = useState<boolean>(false);
+  const [showLocalOverlay, setShowLocalOverlay] = useState<boolean>(true);
   const [selectedFamilies, setSelectedFamilies] = useState<string[] | null>(null);
 
   useEffect(() => {
@@ -91,6 +111,11 @@ export function GlobalTrendView({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  const modelIndexMap = useMemo(
+    () => new Map(models.map((m, idx) => [m.family, idx])),
+    [models],
+  );
 
   // Default selection: active Gemini model + top 2 peers (3 lines cleanly readable)
   const defaultFamilies = useMemo(() => {
@@ -151,18 +176,23 @@ export function GlobalTrendView({
 
   const effectiveSplit = splitProviders && canSplitProviders && singleSelectedModel !== null;
 
+  const hasAnyLocalCurve = useMemo(
+    () => metric !== 'uptime' && models.some((m) => (m.local?.calls7d || 0) > 0),
+    [metric, models],
+  );
+
   // Build unified X-axis labels & plotted SeriesLine[]
   const { xLabels, seriesLines } = useMemo(() => {
     if (!models.length || !activeFamilies.length) {
       return { xLabels: [] as string[], seriesLines: [] as SeriesLine[] };
     }
 
+    const targetModels = activeFamilies
+      .map((f) => models.find((m) => m.family === f))
+      .filter((m): m is GeminiModelGlobalPulse => Boolean(m));
+
     if (metric === 'uptime') {
       const labelSet = new Set<string>();
-      const targetModels = activeFamilies
-        .map((f) => models.find((m) => m.family === f))
-        .filter((m): m is GeminiModelGlobalPulse => Boolean(m));
-
       for (const m of targetModels) {
         for (const b of m.series?.uptime24h || []) labelSet.add(b.x);
       }
@@ -201,26 +231,33 @@ export function GlobalTrendView({
       }
 
       const lines: SeriesLine[] = [];
-      targetModels.forEach((m, mi) => {
+      for (const m of targetModels) {
         const pts = (m.series?.uptime24h || [])
           .filter((b) => idxMap.has(b.x))
           .map((b) => ({ xIdx: idxMap.get(b.x)!, xLabel: b.x, val: b.availability }));
-        if (!pts.length) return;
+        if (!pts.length) continue;
         lines.push({
           id: m.family,
           label: shortName(m.label),
-          color: SERIES_COLORS[mi % SERIES_COLORS.length],
+          color: stableGeminiModelColor(m.family, modelIndexMap.get(m.family) || 0),
           points: pts,
           latestVal: pts[pts.length - 1].val,
         });
-      });
+      }
       return { xLabels: sortedX, seriesLines: lines };
     }
 
-    // 7d daily series (ttft / tps / cache) + live 30m point appended at right edge!
-    const targetModels = activeFamilies
-      .map((f) => models.find((m) => m.family === f))
-      .filter((m): m is GeminiModelGlobalPulse => Boolean(m));
+    // 7d daily series (ttft / tps / cache) + live 30m point + optional LOCAL 7d+30m overlay curve!
+    const localFocusModel: GeminiModelGlobalPulse | null =
+      (singleSelectedModel && (singleSelectedModel.local?.calls7d || 0) > 0
+        ? singleSelectedModel
+        : null) ||
+      targetModels.find((m) => m.family === geminiPulse?.activeFamily && (m.local?.calls7d || 0) > 0) ||
+      [...targetModels]
+        .filter((m) => (m.local?.calls7d || 0) > 0)
+        .sort((a, b) => (b.local?.calls7d || 0) - (a.local?.calls7d || 0))[0] ||
+      models.find((m) => m.family === geminiPulse?.activeFamily && (m.local?.calls7d || 0) > 0) ||
+      null;
 
     const getArr = (m: GeminiModelGlobalPulse) =>
       metric === 'ttft'
@@ -230,18 +267,71 @@ export function GlobalTrendView({
           : m.series?.cache7d || [];
     const getLive30m = (m: GeminiModelGlobalPulse): number | null =>
       metric === 'ttft' ? m.p50TtftSec : metric === 'tps' ? m.p50Tps : m.cacheHitPct;
+    const getLocalDailyVal = (pt: {
+      p50TtftSec: number | null;
+      p50Tps: number | null;
+      cacheHitPct: number | null;
+    }): number | null => (metric === 'ttft' ? pt.p50TtftSec : metric === 'tps' ? pt.p50Tps : pt.cacheHitPct);
+    const getLocalLive30m = (m: GeminiModelGlobalPulse): number | null => {
+      const loc = m.local;
+      if (!loc) return null;
+      const v30 = metric === 'ttft' ? loc.p50Ttft30mSec : metric === 'tps' ? loc.p50Tps30m : loc.cacheHit30mPct;
+      if (typeof v30 === 'number' && v30 > 0) return v30;
+      const v24 = metric === 'ttft' ? loc.p50Ttft24hSec : metric === 'tps' ? loc.p50Tps24h : loc.cacheHit24hPct;
+      return typeof v24 === 'number' && v24 > 0 ? v24 : null;
+    };
 
     const dateSet = new Set<string>();
     for (const m of targetModels) {
       for (const pt of getArr(m)) dateSet.add(pt.x);
     }
+    if (showLocalOverlay && localFocusModel?.local?.daily7d) {
+      for (const pt of localFocusModel.local.daily7d) {
+        const v = getLocalDailyVal(pt);
+        if (v !== null && v > 0) dateSet.add(pt.x);
+      }
+    }
     const sortedDates = [...dateSet].sort();
-    const hasAnyLive = targetModels.some((m) => {
-      const v = getLive30m(m);
-      return v !== null && v > 0;
-    });
+    const hasAnyLive =
+      targetModels.some((m) => {
+        const v = getLive30m(m);
+        return v !== null && v > 0;
+      }) || Boolean(showLocalOverlay && localFocusModel && getLocalLive30m(localFocusModel) !== null);
     const finalX = hasAnyLive ? [...sortedDates, '__live30m__'] : sortedDates;
     const idxMap = new Map(finalX.map((x, i) => [x, i]));
+
+    const buildLocalSeriesLine = (m: GeminiModelGlobalPulse | null): SeriesLine | null => {
+      if (!showLocalOverlay || !m?.local) return null;
+      const pts: SeriesLine['points'] = [];
+      for (const dp of m.local.daily7d || []) {
+        const v = getLocalDailyVal(dp);
+        if (v !== null && v > 0 && idxMap.has(dp.x)) {
+          pts.push({ xIdx: idxMap.get(dp.x)!, xLabel: dp.x, val: v });
+        }
+      }
+      const liveV = getLocalLive30m(m);
+      if (liveV !== null && liveV > 0 && idxMap.has('__live30m__')) {
+        pts.push({ xIdx: idxMap.get('__live30m__')!, xLabel: '__live30m__', val: liveV, isLive30m: true });
+      }
+      // Graceful fallback if local 7d summary exists before daily7d buckets are populated
+      if (pts.length === 0) {
+        const baseV = metric === 'ttft' ? m.local.p50TtftSec : metric === 'tps' ? m.local.p50Tps : m.local.cacheHitPct;
+        if (baseV !== null && baseV > 0 && finalX.length >= 2) {
+          pts.push({ xIdx: 0, xLabel: finalX[0], val: baseV });
+          pts.push({ xIdx: finalX.length - 1, xLabel: finalX[finalX.length - 1], val: baseV });
+        }
+      }
+      if (!pts.length) return null;
+      return {
+        id: `local:${m.family}`,
+        label: isZh ? `本机 · ${shortName(m.label)}` : `Mine · ${shortName(m.label)}`,
+        color: 'var(--hud-fg)',
+        dashed: true,
+        isLocal: true,
+        points: pts,
+        latestVal: pts[pts.length - 1].val,
+      };
+    };
 
     if (effectiveSplit && singleSelectedModel) {
       const arr = getArr(singleSelectedModel);
@@ -259,7 +349,6 @@ export function GlobalTrendView({
             pts.push({ xIdx: idxMap.get(pt.x)!, xLabel: pt.x, val: v });
           }
         }
-        // Append live 30m endpoint stat if matching provider exists
         const epMatch = (singleSelectedModel.endpoints || []).find((ep) => {
           const n = /vertex/i.test(ep.providerName || ep.providerSlug)
             ? 'Google Vertex'
@@ -282,17 +371,19 @@ export function GlobalTrendView({
         lines.push({
           id: prov,
           label: prov,
-          color: SERIES_COLORS[ci % SERIES_COLORS.length],
+          color: stableProviderColor(prov, ci),
           points: pts,
           latestVal: pts[pts.length - 1].val,
         });
         ci += 1;
       }
+      const localLine = buildLocalSeriesLine(singleSelectedModel);
+      if (localLine) lines.push(localLine);
       return { xLabels: finalX, seriesLines: lines };
     }
 
     const lines: SeriesLine[] = [];
-    targetModels.forEach((m, mi) => {
+    for (const m of targetModels) {
       const arr = getArr(m);
       const pts: SeriesLine['points'] = arr
         .filter((pt) => idxMap.has(pt.x))
@@ -301,18 +392,31 @@ export function GlobalTrendView({
       if (liveVal !== null && liveVal > 0 && idxMap.has('__live30m__')) {
         pts.push({ xIdx: idxMap.get('__live30m__')!, xLabel: '__live30m__', val: liveVal, isLive30m: true });
       }
-      if (!pts.length) return;
+      if (!pts.length) continue;
       lines.push({
         id: m.family,
         label: shortName(m.label),
-        color: SERIES_COLORS[mi % SERIES_COLORS.length],
+        color: stableGeminiModelColor(m.family, modelIndexMap.get(m.family) || 0),
         points: pts,
         latestVal: pts[pts.length - 1].val,
       });
-    });
+    }
+
+    const localLine = buildLocalSeriesLine(localFocusModel);
+    if (localLine) lines.push(localLine);
 
     return { xLabels: finalX, seriesLines: lines };
-  }, [models, activeFamilies, metric, effectiveSplit, singleSelectedModel, isZh]);
+  }, [
+    models,
+    activeFamilies,
+    metric,
+    effectiveSplit,
+    singleSelectedModel,
+    showLocalOverlay,
+    geminiPulse?.activeFamily,
+    modelIndexMap,
+    isZh,
+  ]);
 
   const hasTimeSeries = xLabels.length >= 2 && seriesLines.length > 0;
   const isNarrow = svgW < 340;
@@ -356,33 +460,37 @@ export function GlobalTrendView({
   // Summary strip metrics (4 cells)
   const summaryCells = useMemo(() => {
     if (!seriesLines.length) return [];
+    const globalLines = seriesLines.filter((s) => !s.isLocal);
+    const poolForBest = globalLines.length ? globalLines : seriesLines;
     const lowerIsBetter = metric === 'ttft';
-    const sorted = [...seriesLines].sort((a, b) =>
+    const sorted = [...poolForBest].sort((a, b) =>
       lowerIsBetter ? a.latestVal - b.latestVal : b.latestVal - a.latestVal,
     );
     const best = sorted[0];
     const focusLine =
-      seriesLines.find((s) => s.id === geminiPulse?.activeFamily) || seriesLines[0];
+      poolForBest.find((s) => s.id === geminiPulse?.activeFamily) || poolForBest[0];
     const allVals = seriesLines.flatMap((s) => s.points.map((p) => p.val));
     const minV = Math.min(...allVals);
     const maxV = Math.max(...allVals);
 
-    // Local 7d reference for focused/active model
+    const localLine = seriesLines.find((s) => s.isLocal);
     const refModel =
       models.find((m) => m.family === (singleSelectedModel?.family || geminiPulse?.activeFamily || activeFamilies[0])) || null;
-    const localVal = refModel?.local
-      ? metric === 'ttft'
-        ? refModel.local.p50TtftSec
-        : metric === 'tps'
-          ? refModel.local.p50Tps
-          : metric === 'cache'
-            ? refModel.local.cacheHitPct
-            : null
-      : null;
+    const localVal =
+      localLine?.latestVal ??
+      (refModel?.local
+        ? metric === 'ttft'
+          ? refModel.local.p50TtftSec
+          : metric === 'tps'
+            ? refModel.local.p50Tps
+            : metric === 'cache'
+              ? refModel.local.cacheHitPct
+              : null
+        : null);
 
     return [
       {
-        k: isZh ? '🏆 当前最优' : '🏆 LEADER',
+        k: isZh ? '🏆 大盘最优' : '🏆 LEADER',
         v: fmtVal(best.latestVal, metric),
         sub: best.label,
         tone: 'text-hud-ok',
@@ -400,9 +508,9 @@ export function GlobalTrendView({
         tone: 'text-hud-fg',
       },
       {
-        k: isZh ? '我的 7d 基线' : 'MY 7D BASE',
+        k: isZh ? '我的实测' : 'MY LOCAL',
         v: localVal !== null ? fmtVal(localVal, metric) : '--',
-        sub: refModel ? shortName(refModel.label) : '--',
+        sub: localLine ? localLine.label : refModel ? shortName(refModel.label) : '--',
         tone: 'text-hud-accent-ink',
       },
     ];
@@ -414,9 +522,9 @@ export function GlobalTrendView({
     const rows = seriesLines
       .map((s) => {
         const pt = s.points.find((p) => p.xIdx === safeHoverIdx);
-        return pt ? { label: s.label, color: s.color, val: pt.val } : null;
+        return pt ? { label: s.label, color: s.color, isLocal: s.isLocal, val: pt.val } : null;
       })
-      .filter((r): r is { label: string; color: string; val: number } => Boolean(r));
+      .filter((r): r is { label: string; color: string; isLocal: boolean | undefined; val: number } => Boolean(r));
     rows.sort((a, b) => (metric === 'ttft' ? a.val - b.val : b.val - a.val));
     return rows;
   }, [safeHoverIdx, seriesLines, metric]);
@@ -424,7 +532,7 @@ export function GlobalTrendView({
   const hoverX = safeHoverIdx !== null ? slotX(safeHoverIdx) : 0;
   const popoverLeftPx = useMemo(() => {
     if (safeHoverIdx === null) return 8;
-    const popW = isNarrow ? 176 : 196;
+    const popW = isNarrow ? 182 : 204;
     const preferLeft = hoverX > svgW * 0.54;
     const raw = preferLeft ? hoverX - popW - 10 : hoverX + 10;
     return clamp(Math.round(raw), 4, Math.max(4, svgW - popW - 4));
@@ -461,7 +569,7 @@ export function GlobalTrendView({
 
   return (
     <div className="flex flex-col gap-2 min-w-0">
-      {/* Global Metric Tabs + Provider Split toggle */}
+      {/* Global Metric Tabs + Local Overlay + Provider Split toggle */}
       <div className="flex flex-wrap items-center justify-between gap-1.5 min-w-0">
         <div className="metric-tabs" role="tablist" aria-label="Global metric">
           {(['ttft', 'tps', 'cache', 'uptime'] as const).map((gm) => (
@@ -488,6 +596,28 @@ export function GlobalTrendView({
         </div>
 
         <div className="flex items-center gap-1">
+          {hasAnyLocalCurve && (
+            <button
+              type="button"
+              onClick={() => setShowLocalOverlay((v) => !v)}
+              className={`inline-flex items-center gap-1 px-1.5 py-[2px] rounded-full border font-hud text-[9.5px] cursor-pointer transition-colors ${
+                showLocalOverlay
+                  ? 'bg-hud-card border-hud-fg/45 text-hud-fg font-semibold'
+                  : 'bg-hud-fill border-transparent text-hud-muted hover:text-hud-fg'
+              }`}
+              data-tip={
+                isZh
+                  ? '在同图叠加/隐藏你本机的 7 天每日实测 + 近 30m 曲线（虚线空心点）'
+                  : 'Toggle your local 7d daily + live 30m curve (dashed hollow rings)'
+              }
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full border border-hud-fg shrink-0"
+                style={{ background: showLocalOverlay ? 'var(--hud-card)' : 'transparent' }}
+              />
+              <span>{isZh ? '叠加本机' : 'Mine'}</span>
+            </button>
+          )}
           {singleSelectedModel && canSplitProviders && (
             <button
               type="button"
@@ -512,13 +642,12 @@ export function GlobalTrendView({
         </div>
       </div>
 
-      {/* Model Multi-Select Pills (Cyber Cricket multi-line selector) */}
+      {/* Model Multi-Select Pills with PERMANENT stable colors per model */}
       {models.length > 0 && (
         <div className="flex flex-wrap items-center gap-1 min-w-0">
-          {models.map((m) => {
-            const selIdx = activeFamilies.indexOf(m.family);
-            const isSel = selIdx >= 0;
-            const color = isSel ? SERIES_COLORS[selIdx % SERIES_COLORS.length] : undefined;
+          {models.map((m, mi) => {
+            const isSel = activeFamilies.includes(m.family);
+            const color = stableGeminiModelColor(m.family, mi);
             return (
               <button
                 key={m.family}
@@ -530,7 +659,7 @@ export function GlobalTrendView({
                     ? 'bg-hud-card text-hud-fg font-semibold'
                     : 'bg-hud-fill/60 border-transparent text-hud-muted hover:text-hud-fg'
                 }`}
-                style={isSel && color ? { borderColor: `color-mix(in srgb, ${color} 55%, transparent)` } : undefined}
+                style={isSel ? { borderColor: `color-mix(in srgb, ${color} 55%, transparent)` } : undefined}
                 data-tip={
                   isZh
                     ? `单击叠加/取消 ${m.label} 折线；双击独显该模型（可开节点拆解）`
@@ -539,7 +668,7 @@ export function GlobalTrendView({
               >
                 <span
                   className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ background: isSel && color ? color : 'var(--hud-muted)', opacity: isSel ? 1 : 0.4 }}
+                  style={{ background: color, opacity: isSel ? 1 : 0.35 }}
                 />
                 <span>{shortName(m.label)}</span>
               </button>
@@ -629,7 +758,7 @@ export function GlobalTrendView({
               />
             )}
 
-            {/* Multi-model smooth monotone curves */}
+            {/* Multi-model smooth monotone curves + Local dashed overlay */}
             {seriesLines.map((s) => {
               const coords = s.points.map((pt) => ({ x: slotX(pt.xIdx), y: valY(pt.val) }));
               const pathD = coords.length >= 2 ? buildMonotonePath(coords, padTop, yBase) : '';
@@ -640,11 +769,11 @@ export function GlobalTrendView({
                       d={pathD}
                       fill="none"
                       stroke={s.color}
-                      stroke-width="1.8"
-                      stroke-dasharray={s.dashed ? '4 2.5' : undefined}
+                      stroke-width={s.isLocal ? '1.9' : '1.75'}
+                      stroke-dasharray={s.isLocal ? '4.5 3' : s.dashed ? '4 2.5' : undefined}
                       stroke-linecap="round"
                       stroke-linejoin="round"
-                      opacity="0.92"
+                      opacity={s.isLocal ? '0.92' : '0.9'}
                     />
                   )}
                   {s.points.map((pt, pi) => {
@@ -656,10 +785,10 @@ export function GlobalTrendView({
                         key={`gpt-${s.id}-${pt.xIdx}`}
                         cx={slotX(pt.xIdx).toFixed(1)}
                         cy={valY(pt.val).toFixed(1)}
-                        r={isHov ? 4 : isLast ? 3.2 : 2.1}
-                        fill={s.color}
-                        stroke="var(--hud-card)"
-                        stroke-width="1.1"
+                        r={isHov ? 4.2 : isLast ? 3.4 : s.isLocal ? 2.6 : 2.1}
+                        fill={s.isLocal ? 'var(--hud-card)' : s.color}
+                        stroke={s.isLocal ? s.color : 'var(--hud-card)'}
+                        stroke-width={s.isLocal ? '1.6' : '1.1'}
                       />
                     );
                   })}
@@ -697,13 +826,13 @@ export function GlobalTrendView({
         {hasTimeSeries && safeHoverIdx !== null && hoverRows.length > 0 && (
           <div
             className="trend-popover pointer-events-none absolute top-1 z-20 rounded-lg border px-2 py-1.5 flex flex-col gap-1"
-            style={{ left: `${popoverLeftPx}px`, width: `${isNarrow ? 176 : 196}px` }}
+            style={{ left: `${popoverLeftPx}px`, width: `${isNarrow ? 182 : 204}px` }}
           >
             <div className="flex items-center justify-between gap-2 font-hud-mono text-[9.5px] font-semibold text-hud-muted border-b border-hud-hairline pb-0.5">
               <span>{fmtShortX(xLabels[safeHoverIdx], metric, isZh)}</span>
               <span>
                 {xLabels[safeHoverIdx] === '__live30m__'
-                  ? isZh ? 'OpenRouter 实时' : 'Live 30m'
+                  ? isZh ? '实时 30m' : 'Live 30m'
                   : metric === 'uptime'
                     ? '24h'
                     : isZh ? '日均 P50' : 'Daily P50'}
@@ -712,8 +841,15 @@ export function GlobalTrendView({
             {hoverRows.map((row, ri) => (
               <div key={row.label} className="flex items-center justify-between gap-2 font-hud-mono text-[10px] tabular-nums">
                 <span className="inline-flex items-center gap-1.5 min-w-0 font-hud text-hud-fg/90">
-                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: row.color }} />
-                  <span className="truncate">{row.label}</span>
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={
+                      row.isLocal
+                        ? { background: 'var(--hud-card)', border: `1.5px solid ${row.color}` }
+                        : { background: row.color }
+                    }
+                  />
+                  <span className={`truncate ${row.isLocal ? 'font-semibold text-hud-fg' : ''}`}>{row.label}</span>
                 </span>
                 <span className={`font-semibold shrink-0 ${ri === 0 && hoverRows.length > 1 ? 'text-hud-ok' : 'text-hud-fg'}`}>
                   {fmtVal(row.val, metric)}
@@ -729,11 +865,11 @@ export function GlobalTrendView({
         <span className="truncate">
           {effectiveSplit
             ? isZh
-              ? `${singleSelectedModel?.label} 上游节点折线对比`
-              : `${singleSelectedModel?.label} per-provider curves`
+              ? `${singleSelectedModel?.label} 上游节点${showLocalOverlay && hasAnyLocalCurve ? ' + 本机实测' : ''}折线对比`
+              : `${singleSelectedModel?.label} provider${showLocalOverlay && hasAnyLocalCurve ? ' + local' : ''} curves`
             : isZh
-              ? 'OpenRouter 公开时序数据 · 点选上方模型可多线同图斗蛐蛐'
-              : 'OpenRouter public time-series · Toggle models above to compare'}
+              ? '实线：OpenRouter 大盘 · 虚线空心点：本机实测'
+              : 'Solid: OpenRouter global · Dashed ring: your local'}
         </span>
         {geminiPulse?.fetchedAtMs ? (
           <span className="font-hud-mono shrink-0">{fmtClock(geminiPulse.fetchedAtMs)}</span>

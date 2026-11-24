@@ -107,6 +107,14 @@ export interface GeminiModelGlobalPulse {
   local?: GeminiLocalBaseline | null;
 }
 
+export interface GeminiLocalDailyPoint {
+  x: string;
+  calls: number;
+  p50TtftSec: number | null;
+  p50Tps: number | null;
+  cacheHitPct: number | null;
+}
+
 export interface GeminiLocalBaseline {
   calls7d: number;
   p50TtftSec: number | null;
@@ -125,6 +133,8 @@ export interface GeminiLocalBaseline {
   p50Ttft24hSec: number | null;
   p50Tps24h: number | null;
   cacheHit24hPct: number | null;
+  /** Daily UTC buckets over the last 7 days aligned with OpenRouter 7d comparison curves */
+  daily7d?: GeminiLocalDailyPoint[];
 }
 
 export interface GcpActiveIncident {
@@ -630,6 +640,7 @@ export function computeLocalGeminiBaselines(
     cachedSum24h: number;
     promptSum24h: number;
     calls24h: number;
+    byDay: Map<string, { ttfts: number[]; tps: number[]; cachedSum: number; promptSum: number; calls: number }>;
   }>();
 
   for (const s of summaries || []) {
@@ -658,6 +669,7 @@ export function computeLocalGeminiBaselines(
           cachedSum24h: 0,
           promptSum24h: 0,
           calls24h: 0,
+          byDay: new Map(),
         };
         acc.set(fam, b);
       }
@@ -670,6 +682,19 @@ export function computeLocalGeminiBaselines(
       const cachePct = totIn > 0 ? (cachedIn / totIn) * 100 : null;
       const validTtft = typeof c.ttftSec === 'number' && Number.isFinite(c.ttftSec) && c.ttftSec > 0 && c.ttftSec < 300;
       const validTps = typeof c.genTps === 'number' && Number.isFinite(c.genTps) && c.genTps > 0 && c.genTps < 2000;
+
+      // UTC date key ("YYYY-MM-DD") aligned with OpenRouter 7d comparison chart X-axis
+      const dayKey = new Date(c.ts).toISOString().slice(0, 10);
+      let dayBucket = b.byDay.get(dayKey);
+      if (!dayBucket) {
+        dayBucket = { ttfts: [], tps: [], cachedSum: 0, promptSum: 0, calls: 0 };
+        b.byDay.set(dayKey, dayBucket);
+      }
+      dayBucket.calls += 1;
+      dayBucket.cachedSum += cachedIn;
+      dayBucket.promptSum += totIn;
+      if (validTtft) dayBucket.ttfts.push(c.ttftSec);
+      if (validTps) dayBucket.tps.push(c.genTps);
 
       if (validTtft) {
         b.ttfts.push(c.ttftSec);
@@ -710,6 +735,21 @@ export function computeLocalGeminiBaselines(
     b.tps24h.sort((a, x) => a - x);
     b.ttfts30m.sort((a, x) => a - x);
     b.tps30m.sort((a, x) => a - x);
+
+    const daily7d: GeminiLocalDailyPoint[] = [...b.byDay.entries()]
+      .sort(([d1], [d2]) => d1.localeCompare(d2))
+      .map(([x, db]) => {
+        db.ttfts.sort((a, v) => a - v);
+        db.tps.sort((a, v) => a - v);
+        return {
+          x,
+          calls: db.calls,
+          p50TtftSec: roundNum(quantile(db.ttfts, 0.5), 2),
+          p50Tps: roundNum(quantile(db.tps, 0.5), 1),
+          cacheHitPct: db.promptSum > 0 ? roundNum((db.cachedSum / db.promptSum) * 100, 1) : null,
+        };
+      });
+
     out[fam] = {
       calls7d: b.calls,
       p50TtftSec: roundNum(quantile(b.ttfts, 0.5), 2),
@@ -726,6 +766,7 @@ export function computeLocalGeminiBaselines(
       p50Ttft24hSec: roundNum(quantile(b.ttfts24h, 0.5), 2),
       p50Tps24h: roundNum(quantile(b.tps24h, 0.5), 1),
       cacheHit24hPct: b.promptSum24h > 0 ? roundNum((b.cachedSum24h / b.promptSum24h) * 100, 1) : null,
+      daily7d,
     };
   }
   return out;

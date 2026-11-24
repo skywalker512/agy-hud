@@ -15,7 +15,7 @@ import {
   ttftTier,
 } from '../../utils/format';
 import { IconClock, IconFastForward, IconMinus, IconPlus } from '../common/Icons';
-import { GlobalTrendView, type GlobalTrendMetric } from './GlobalTrendView';
+import { GlobalTrendView, stableGeminiModelColor, type GlobalTrendMetric } from './GlobalTrendView';
 import {
   TREND_RANGE_STORAGE_KEY,
   advanceRangeOnDataUpdate,
@@ -44,8 +44,6 @@ import {
   type RangePreset,
   type ViewRange,
 } from './trendMath';
-
-const ARENA_LINE_COLORS = ['var(--seg-input)', 'var(--seg-out)', 'var(--seg-think)'] as const;
 
 function estimateSvgLabelWidth(text: string): number {
   let w = 0;
@@ -1326,7 +1324,8 @@ export function TrendChartCard({
     if (ttftP95Y !== null) leftOccupiedYs.push(ttftP95Y - 6);
 
     activeArenaFamilies.forEach((fam, idx) => {
-      const m = pulseModels.find((x) => x.family === fam);
+      const mIdx = pulseModels.findIndex((x) => x.family === fam);
+      const m = mIdx >= 0 ? pulseModels[mIdx] : null;
       if (!m) return;
       const val = getPulseMetricVal(m, metric);
       if (val === null || val > yMax) return;
@@ -1334,7 +1333,7 @@ export function TrendChartCard({
       const valStr = metric === 'ttft' ? fmtSec(val) : metric === 'tps' ? fmtTps(val) : `${Math.round(val)}%`;
       const label = multi ? `${shortArenaModelName(m.label)} ${valStr}` : t.trendGlobalRef(valStr);
       const pillW = Math.min(plotW - 8, Math.max(50, estimateSvgLabelWidth(label)));
-      const color = ARENA_LINE_COLORS[idx % ARENA_LINE_COLORS.length];
+      const color = stableGeminiModelColor(m.family, mIdx);
 
       // Pick side (prefer right, fall back to left if colliding with SLA / 80% / EMA5 / previous pills)
       let desiredY = clamp(y - 11.5, padTop + 1, yBase - 12);
@@ -1645,12 +1644,11 @@ export function TrendChartCard({
           <span className="font-hud text-[9px] font-semibold uppercase tracking-[0.03em] text-hud-muted mr-0.5 whitespace-nowrap">
             {resolvedLang === 'zh' ? '大盘参考 30m' : 'Global 30m'}
           </span>
-          {pulseModels.map((m) => {
+          {pulseModels.map((m, mi) => {
             const val = getPulseMetricVal(m, metric);
             if (val === null) return null;
-            const activeIdx = activeArenaFamilies.indexOf(m.family);
-            const isSelected = activeIdx >= 0;
-            const lineColor = isSelected ? ARENA_LINE_COLORS[activeIdx % ARENA_LINE_COLORS.length] : undefined;
+            const isSelected = activeArenaFamilies.includes(m.family);
+            const lineColor = stableGeminiModelColor(m.family, mi);
             const valStr = metric === 'ttft' ? fmtSec(val) : metric === 'tps' ? fmtTps(val) : `${Math.round(val)}%`;
             return (
               <button
@@ -1662,7 +1660,7 @@ export function TrendChartCard({
                     ? 'text-hud-fg bg-hud-card font-semibold'
                     : 'text-hud-muted bg-hud-fill/60 border-transparent hover:text-hud-fg hover:bg-hud-fill'
                 }`}
-                style={isSelected && lineColor ? { borderColor: `color-mix(in srgb, ${lineColor} 58%, transparent)` } : undefined}
+                style={isSelected ? { borderColor: `color-mix(in srgb, ${lineColor} 58%, transparent)` } : undefined}
                 data-tip={
                   resolvedLang === 'zh'
                     ? `点击叠加/取消 ${m.label} 的 OpenRouter 近 30 分钟 P50 参考线（最多同图叠加 3 条斗蛐蛐对比）`
@@ -1671,7 +1669,7 @@ export function TrendChartCard({
               >
                 <span
                   className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ background: isSelected && lineColor ? lineColor : 'var(--hud-muted)', opacity: isSelected ? 1 : 0.45 }}
+                  style={{ background: lineColor, opacity: isSelected ? 1 : 0.35 }}
                 />
                 <span>{shortArenaModelName(m.label)}</span>
                 <span className="opacity-75">{valStr}</span>
