@@ -15,6 +15,7 @@ import {
   ttftTier,
 } from '../../utils/format';
 import { IconClock, IconFastForward, IconMinus, IconPlus } from '../common/Icons';
+import { GlobalTrendView, type GlobalTrendMetric } from './GlobalTrendView';
 import {
   TREND_RANGE_STORAGE_KEY,
   advanceRangeOnDataUpdate,
@@ -264,9 +265,22 @@ export function TrendChartCard({
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [dragZoom, setDragZoom] = useState<DragZoomVisual | null>(null);
   const [brushDragging, setBrushDragging] = useState(false);
+  const [chartSource, setChartSource] = useState<'session' | 'global'>('session');
+  const [globalMetric, setGlobalMetric] = useState<GlobalTrendMetric>('ttft');
   // User-pinned OpenRouter Gemini model families for multi-model "Cyber Cricket" overlay comparison.
   // `null` means auto-follow the currently active Gemini model; an explicit array means user customized it.
   const [pinnedArenaFamilies, setPinnedArenaFamilies] = useState<string[] | null>(null);
+
+  const handleSwitchChartSource = (next: 'session' | 'global') => {
+    setChartSource(next);
+    if (next === 'global') {
+      if (metric === 'ttft' || metric === 'tps' || metric === 'cache') {
+        setGlobalMetric(metric);
+      }
+    } else if (globalMetric === 'ttft' || globalMetric === 'tps' || globalMetric === 'cache') {
+      onSelectMetric(globalMetric);
+    }
+  };
 
   const isModelControlled = selectedModelProp !== undefined && typeof onSelectModel === 'function';
   const activeModel = isModelControlled ? selectedModelProp : internalModel;
@@ -1380,37 +1394,66 @@ export function TrendChartCard({
     return 'text-hud-fg';
   };
 
+  const showGlobalToggle = Boolean(geminiPulse?.enabled && (geminiPulse?.available || geminiPulse?.loading));
+  const isGlobalSource = chartSource === 'global' && showGlobalToggle;
+
   return (
     <section className={`hud-card relative flex flex-col gap-2 ${sizeClass}`}>
       {/* Sleek 2-Row Instrument Header */}
       <div className="flex flex-col gap-1.5 min-w-0">
-        {/* Row 1: Title + Total Count + Metric Tabs */}
+        {/* Row 1: Title + Source Switch (Session vs Global Curves) + Metric Tabs */}
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 min-w-0">
           <div className="flex flex-wrap items-center gap-1.5 min-w-0">
             <span className="card-k">{t.chartTitle}</span>
-            <span className="trend-count-badge inline-flex items-center px-1.5 py-px rounded-full font-hud-mono tabular-nums font-medium text-hud-muted bg-hud-fill">
-              {t.chartMeta(invocations.length)}
-            </span>
+            {showGlobalToggle ? (
+              <div className="metric-tabs" role="tablist" aria-label="Trend data source">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!isGlobalSource}
+                  className={`metric-tab${!isGlobalSource ? ' is-active' : ''}`}
+                  onClick={() => handleSwitchChartSource('session')}
+                >
+                  {resolvedLang === 'zh' ? '本会话' : 'Session'}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={isGlobalSource}
+                  className={`metric-tab${isGlobalSource ? ' is-active' : ''}`}
+                  onClick={() => handleSwitchChartSource('global')}
+                >
+                  {resolvedLang === 'zh' ? '🌐 大盘折线' : '🌐 Global'}
+                </button>
+              </div>
+            ) : null}
+            {!isGlobalSource && (
+              <span className="trend-count-badge inline-flex items-center px-1.5 py-px rounded-full font-hud-mono tabular-nums font-medium text-hud-muted bg-hud-fill">
+                {t.chartMeta(invocations.length)}
+              </span>
+            )}
           </div>
 
-          <div className="metric-tabs" role="tablist" aria-label={t.chartTitle}>
-            {METRICS.map((m) => (
-              <button
-                key={m}
-                type="button"
-                role="tab"
-                aria-selected={metric === m}
-                className={`metric-tab${metric === m ? ' is-active' : ''}`}
-                onClick={() => onSelectMetric(m)}
-              >
-                {metricLabel(m)}
-              </button>
-            ))}
-          </div>
+          {!isGlobalSource && (
+            <div className="metric-tabs" role="tablist" aria-label={t.chartTitle}>
+              {METRICS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="tab"
+                  aria-selected={metric === m}
+                  className={`metric-tab${metric === m ? ' is-active' : ''}`}
+                  onClick={() => onSelectMetric(m)}
+                >
+                  {metricLabel(m)}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Row 2: Model Pills + Unified Range / Zoom / Axis Strip */}
-        {(showModelPills || totalCount > 0) && (
+        {/* Row 2: Model Pills + Unified Range / Zoom / Axis Strip (Session mode only) */}
+        {!isGlobalSource && (showModelPills || totalCount > 0) && (
           <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 min-w-0">
             {showModelPills && (
               <div className="flex flex-wrap items-center gap-1 min-w-0">
@@ -1530,8 +1573,17 @@ export function TrendChartCard({
         )}
       </div>
 
-      {/* Conditional Historical / Paused Follow-Live Banner */}
-      {isZoomedOrHistorical && (
+      {isGlobalSource ? (
+        <GlobalTrendView
+          geminiPulse={geminiPulse}
+          metric={globalMetric}
+          onSelectMetric={setGlobalMetric}
+          lang={resolvedLang}
+        />
+      ) : (
+        <>
+          {/* Conditional Historical / Paused Follow-Live Banner */}
+          {isZoomedOrHistorical && (
         <div className="trend-live-banner flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1 rounded-md border font-hud-mono tabular-nums text-hud-fg">
           <span className="inline-flex items-center gap-1.5 min-w-0 text-hud-fg-2">
             <span className="w-1.5 h-1.5 rounded-full bg-hud-warn shrink-0" />
@@ -2564,6 +2616,8 @@ export function TrendChartCard({
             />
           </svg>
         </div>
+      )}
+        </>
       )}
     </section>
   );

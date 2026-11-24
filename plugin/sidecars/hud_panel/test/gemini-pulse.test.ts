@@ -10,8 +10,10 @@ import {
   computeLocalGeminiBaselines,
   evaluateTtftAttribution,
   parseGcpGeminiIncidents,
+  parseOpenRouterComparisonSeries,
   parseOpenRouterEndpointsJson,
   parseOpenRouterModelHtml,
+  parseOpenRouterUptimeBuckets,
   refreshGeminiPulse,
   setGeminiPulseEnabled,
   summarizeModelPulse,
@@ -218,4 +220,67 @@ test('refreshGeminiPulse persists disk cache and setGeminiPulseEnabled toggles o
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('parseOpenRouterComparisonSeries and parseOpenRouterUptimeBuckets extract 7d curves and 24h availability series', () => {
+  const endpoints = [
+    {
+      endpointId: 'ep-vertex',
+      providerName: 'Google Vertex (4)',
+      providerSlug: 'google-vertex',
+      cacheHitPct: 83.2,
+      p50TtftSec: 4.5,
+      p75TtftSec: 7.0,
+      p90TtftSec: 11.0,
+      p50Tps: 80,
+      p90Tps: 25,
+      requestCount: 30000,
+      windowMinutes: 30,
+    },
+    {
+      endpointId: 'ep-studio',
+      providerName: 'Google AI Studio (2)',
+      providerSlug: 'google-ai-studio',
+      cacheHitPct: 85.0,
+      p50TtftSec: 5.2,
+      p75TtftSec: 8.1,
+      p90TtftSec: 12.0,
+      p50Tps: 72,
+      p90Tps: 22,
+      requestCount: 5000,
+      windowMinutes: 30,
+    },
+  ];
+
+  const latSeries = parseOpenRouterComparisonSeries(
+    {
+      data: [
+        { x: '2026-11-22', y: { 'ep-vertex': 2400, 'ep-studio': 3800 } },
+        { x: '2026-11-23', y: { 'ep-vertex': 4100, 'ep-studio': 5200 } },
+      ],
+    },
+    'ttft',
+    endpoints,
+  );
+  assert.equal(latSeries.length, 2);
+  assert.equal(latSeries[0].x, '2026-11-22');
+  assert.equal(latSeries[0].value, 2.4);
+  assert.equal(latSeries[0].byProvider?.['Google Vertex'], 2.4);
+  assert.equal(latSeries[0].byProvider?.['AI Studio'], 3.8);
+
+  const tpsSeries = parseOpenRouterComparisonSeries(
+    { data: [{ x: '2026-11-23', y: { 'ep-vertex': 84.5, 'ep-studio': 92 } }] },
+    'tps',
+    endpoints,
+  );
+  assert.equal(tpsSeries[0].value, 84.5);
+  assert.equal(tpsSeries[0].byProvider?.['AI Studio'], 92);
+
+  const buckets = parseOpenRouterUptimeBuckets(
+    '"buckets":[{"timestamp":"2026-11-23 03:50:00","availability":99.71,"availabilityWithoutRouting":99.11},{"timestamp":"2026-11-23 04:00:00","availability":98.5,"availabilityWithoutRouting":97.2}]',
+  );
+  assert.equal(buckets.length, 2);
+  assert.equal(buckets[0].availability, 99.71);
+  assert.equal(buckets[0].rawAvailability, 99.11);
+  assert.equal(buckets[1].x, '2026-11-23 04:00');
 });

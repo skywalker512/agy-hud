@@ -617,9 +617,31 @@ export interface GeminiLocalBaseline {
   cacheHit24hPct?: number | null;
 }
 
+export interface GeminiTimeSeriesPoint {
+  x: string;
+  tsMs: number;
+  value: number;
+  byProvider?: Record<string, number>;
+}
+
+export interface GeminiUptimeBucket {
+  x: string;
+  tsMs: number;
+  availability: number;
+  rawAvailability: number | null;
+}
+
+export interface GeminiModelTimeSeries {
+  ttft7d: GeminiTimeSeriesPoint[];
+  tps7d: GeminiTimeSeriesPoint[];
+  cache7d: GeminiTimeSeriesPoint[];
+  uptime24h: GeminiUptimeBucket[];
+}
+
 export interface GeminiModelGlobalPulse {
   family: string;
   slug: string;
+  permaslug?: string;
   label: string;
   status: PulseHealthStatus;
   p50TtftSec: number | null;
@@ -634,6 +656,7 @@ export interface GeminiModelGlobalPulse {
   primaryProvider: string;
   degradedProviders: string[];
   endpoints?: GeminiEndpointPulse[];
+  series?: GeminiModelTimeSeries;
   local?: GeminiLocalBaseline | null;
 }
 
