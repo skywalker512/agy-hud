@@ -10,6 +10,7 @@ interface HeroSpeedCardsProps {
   activeStep: ActiveStep | null | undefined;
   invocations?: Invocation[];
   avgGenTps?: number;
+  avgTtftSec?: number;
   t: Translations;
 }
 
@@ -53,6 +54,19 @@ function buildSmoothBezier(pts: Array<{ x: number; y: number }>, minY: number, m
   return d;
 }
 
+function fmtTtftNum(sec: number): { num: string; unit: string } {
+  if (!Number.isFinite(sec) || sec < 0) return { num: '--', unit: '' };
+  if (sec < 1) return { num: Math.round(sec * 1000).toString(), unit: 'ms' };
+  if (sec < 10) return { num: sec.toFixed(2), unit: 's' };
+  return { num: sec.toFixed(1), unit: 's' };
+}
+
+function ttftBarColor(sec: number): string {
+  if (sec <= 2.0) return 'var(--seg-cache)';
+  if (sec <= 6.0) return 'var(--hud-warn)';
+  return 'var(--hud-bad)';
+}
+
 export function HeroSpeedCards({
   found,
   latest,
@@ -60,15 +74,16 @@ export function HeroSpeedCards({
   activeStep,
   invocations = [],
   avgGenTps = 0,
+  avgTtftSec = 0,
   t,
 }: HeroSpeedCardsProps) {
   const gradId = useId();
 
   let genValue = '--';
   let genSub = 'OUT -- · GEN --';
-  let e2eValue = '--';
-  let e2eSub = 'TTFT -- · TOT --';
   let currentGenNum = 0;
+  let ttftDisp = { num: '--', unit: '' };
+  let ttftSub = 'Avg -- · E2E --';
 
   if (found && latest) {
     if (latest.isBuffered) {
@@ -83,8 +98,10 @@ export function HeroSpeedCards({
       genValue = fmtTps(latest.genTps);
       genSub = t.genSubOk(latest.outputTokens.toLocaleString(), fmtSec(latest.genSec));
     }
-    e2eValue = fmtTps(latest.e2eTps);
-    e2eSub = t.e2eSub(fmtSec(latest.ttftSec), fmtSec(latest.totalSec));
+
+    ttftDisp = fmtTtftNum(latest.ttftSec);
+    const avgRef = avgTtftSec > 0 ? fmtSec(avgTtftSec) : fmtSec(latest.ttftSec);
+    ttftSub = t.ttftHeroSub(avgRef, fmtTps(latest.e2eTps));
   }
 
   const isStreaming = Boolean(found && activeStep?.stepType === 15);
@@ -152,29 +169,51 @@ export function HeroSpeedCards({
     };
   }, [found, invocations]);
 
-  // Crystal-clear TTFT vs Gen Split Bar for E2E card (identical 24px bottom slot height)
-  const e2eSplit = useMemo(() => {
-    if (!found || !latest) return null;
-    const ttftSec = Math.max(0, latest.ttftSec || 0);
-    const genSec = Math.max(0, latest.genSec || 0);
-    const denom = Math.max(latest.totalSec || 0, ttftSec + genSec);
-    if (!(denom > 0)) return null;
-    const ttftPct = Math.max(0, Math.min(100, Math.round((ttftSec / denom) * 100)));
-    const genPct = 100 - ttftPct;
-    const isHeavyTtft = ttftPct >= 45;
-    const tip = t.e2eSplitTip(
-      fmtSec(ttftSec),
-      ttftPct,
-      fmtSec(genSec),
-      genPct,
-      fmtTps(currentGenNum || latest.genTps),
-      fmtTps(latest.e2eTps),
-    );
-    return { ttftPct, genPct, isHeavyTtft, tip };
-  }, [found, latest, currentGenNum, t]);
+  // Last 10 calls TTFT mini-bars (orthogonal physical latency chart matching 24px slot height)
+  const ttftBars = useMemo(() => {
+    if (!found || invocations.length < 2) return null;
+    const slice = invocations.filter((r) => r.ttftSec >= 0).slice(-10);
+    if (slice.length < 2) return null;
+
+    const vals = slice.map((r) => Math.max(0.05, r.ttftSec));
+    const maxVal = Math.max(...vals, avgTtftSec || 0, 1.5);
+    const w = 160;
+    const h = 24;
+    const padTop = 2;
+    const padBottom = 1;
+    const plotH = h - padTop - padBottom;
+    const gap = 3;
+    const slotW = (w - gap * (vals.length - 1)) / vals.length;
+
+    const bars = vals.map((v, i) => {
+      const barH = Math.max(2.5, (v / maxVal) * plotH);
+      const x = i * (slotW + gap);
+      const y = h - padBottom - barH;
+      const isLast = i === vals.length - 1;
+      return {
+        x,
+        y,
+        w: Math.max(3, slotW),
+        h: barH,
+        color: ttftBarColor(v),
+        isLast,
+      };
+    });
+
+    const avgY =
+      avgTtftSec > 0 ? Math.max(padTop + 1, Math.min(h - padBottom - 1, h - padBottom - (avgTtftSec / maxVal) * plotH)) : null;
+
+    const latestSec = latest?.ttftSec || vals[vals.length - 1];
+    const totalSec = Math.max(latest?.totalSec || 0, latestSec + (latest?.genSec || 0));
+    const sharePct = totalSec > 0 ? Math.round((latestSec / totalSec) * 100) : 0;
+    const tip = t.ttftBarsTip(vals.length, fmtSec(latestSec), sharePct, fmtSec(avgTtftSec || latestSec));
+
+    return { w, h, bars, avgY, tip };
+  }, [found, invocations, avgTtftSec, latest, t]);
 
   return (
     <div className="hero-speed-grid grid grid-cols-2 gap-2">
+      {/* Left Hero: Sustained Generation Speed (Gen TPS) */}
       <div
         className={`hud-card min-w-0 max-w-full flex flex-col justify-between overflow-hidden${
           isStreaming ? ' is-streaming' : ''
@@ -243,10 +282,11 @@ export function HeroSpeedCards({
         )}
       </div>
 
+      {/* Right Hero: First Token Wait (TTFT) + Cache Hit + 10-Call Latency Bar Chart */}
       <div className="hud-card min-w-0 max-w-full flex flex-col justify-between overflow-hidden">
         <div>
           <div className="flex items-center justify-between gap-1.5 min-w-0">
-            <span className="card-k truncate">{t.e2eLabel}</span>
+            <span className="card-k truncate">{t.ttftHeroLabel}</span>
             {found && latest && latest.cacheHitPct !== null && (
               <span
                 className={`cache-pill cursor-help shrink-0 ${cacheTier(latest.cacheHitPct)}`}
@@ -260,50 +300,47 @@ export function HeroSpeedCards({
               </span>
             )}
           </div>
-          <div className="hero-v mt-1.5 flex items-baseline gap-1 font-hud-mono text-[24px] font-bold leading-[1.08] tabular-nums">
-            <span className="truncate">{e2eValue}</span>
-            <span className="hud-unit text-[11px] shrink-0">tok/s</span>
+          <div className="hero-v mt-1.5 flex items-baseline gap-1 font-hud-mono text-[24px] font-bold leading-[1.08] tabular-nums min-w-0">
+            <span className="truncate">{ttftDisp.num}</span>
+            {ttftDisp.unit && <span className="hud-unit text-[11px] shrink-0">{ttftDisp.unit}</span>}
           </div>
-          <div className="card-sub truncate whitespace-nowrap" data-tip={e2eSub}>{e2eSub}</div>
+          <div className="card-sub truncate whitespace-nowrap" data-tip={ttftSub}>{ttftSub}</div>
         </div>
 
-        {e2eSplit && (
-          <div
-            className="mt-1.5 -mb-1 h-[24px] flex flex-col justify-end gap-[5px] cursor-help"
-            data-tip={e2eSplit.tip}
-          >
-            <div className="h-[5px] w-full rounded-full bg-hud-fill overflow-hidden flex gap-[1.5px]">
-              {e2eSplit.ttftPct > 0 && (
-                <div
-                  className={`h-full transition-[width] duration-200 first:rounded-l-full last:rounded-r-full ${
-                    e2eSplit.isHeavyTtft ? 'bg-hud-warn' : 'bg-seg-input'
-                  }`}
-                  style={{ width: `${e2eSplit.ttftPct}%` }}
+        {ttftBars && (
+          <div className="mt-1.5 -mb-1 cursor-help" data-tip={ttftBars.tip}>
+            <svg
+              viewBox={`0 0 ${ttftBars.w} ${ttftBars.h}`}
+              preserveAspectRatio="none"
+              className="block w-full h-[24px]"
+              aria-hidden="true"
+            >
+              {ttftBars.avgY !== null && (
+                <line
+                  x1="0"
+                  y1={ttftBars.avgY.toFixed(1)}
+                  x2={ttftBars.w}
+                  y2={ttftBars.avgY.toFixed(1)}
+                  stroke="var(--hud-muted)"
+                  stroke-opacity="0.35"
+                  stroke-width="0.8"
+                  stroke-dasharray="2.5 2.5"
+                  vector-effect="non-scaling-stroke"
                 />
               )}
-              {e2eSplit.genPct > 0 && (
-                <div
-                  className="h-full bg-seg-cache transition-[width] duration-200 first:rounded-l-full last:rounded-r-full"
-                  style={{ width: `${e2eSplit.genPct}%` }}
+              {ttftBars.bars.map((b, i) => (
+                <rect
+                  key={i}
+                  x={b.x.toFixed(1)}
+                  y={b.y.toFixed(1)}
+                  width={b.w.toFixed(1)}
+                  height={b.h.toFixed(1)}
+                  rx="2"
+                  fill={b.color}
+                  fill-opacity={b.isLast ? '0.95' : '0.48'}
                 />
-              )}
-            </div>
-            <div className="flex items-center justify-between gap-1 text-[9.5px] leading-none tabular-nums whitespace-nowrap">
-              <span className="inline-flex items-baseline gap-1 min-w-0 truncate">
-                <span className="font-hud text-hud-muted">{t.e2eSplitTtftLabel}</span>
-                <span
-                  className={`font-hud-mono font-semibold ${
-                    e2eSplit.isHeavyTtft ? 'text-hud-warn' : 'text-hud-fg-2'
-                  }`}
-                >
-                  {e2eSplit.ttftPct}%
-                </span>
-              </span>
-              <span className="inline-flex items-baseline gap-1 shrink-0">
-                <span className="font-hud text-hud-muted">{t.e2eSplitGenLabel}</span>
-                <span className="font-hud-mono font-semibold text-hud-fg-2">{e2eSplit.genPct}%</span>
-              </span>
-            </div>
+              ))}
+            </svg>
           </div>
         )}
       </div>

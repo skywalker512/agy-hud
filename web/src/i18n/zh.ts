@@ -474,4 +474,23 @@ export const zh: Translations = {
   icebergHint: '上方新增 · 下方缓存',
   icebergBarTip: (dateStr, newStr, cachedStr, hitPct, calls, costStr) =>
     `${dateStr}\n新输入+输出：${newStr} tok\n缓存读取：${cachedStr} tok（命中率 ${hitPct}）\n${calls} 次调用 · API 等价 ${costStr}`,
+
+  ttftHeroLabel: '首字等待',
+  ttftHeroSub: (avgTtft, e2eTps) => `均 ${avgTtft} · E2E ${e2eTps}`,
+  ttftBarsTip: (n, latestTtft, ttftSharePct, avgTtft) =>
+    `近 ${n} 次调用首字等待 (TTFT) 趋势\n本轮：${latestTtft}（占本轮耗时 ${ttftSharePct}%）· 会话均值：${avgTtft}\n绿 <2s · 黄 2–6s · 红 >6s（虚线为均值）`,
+  liveQuotaTitle: '当前额度',
+  liveQuotaAll: '全部',
+  ctxCacheSafeRem: (dur) => `安全余 ${dur}`,
+  ctxCacheHalfRem: (dur) => `约余 ${dur}`,
+  ctxCachePastHalf: '易重算',
+  ctxMicroSession: '本会话',
+  ctxMicroSaved: (usd) => `省 ${usd}`,
+  kpiAvgSpeedLabel: '会话均速',
+  kpiOutputLabel: '累计输出',
+  kpiTimeLabel: '累计用时',
+  kpiAvgSpeedTip: (avgGen, avgE2e, peakGen) =>
+    `按输出 Token 加权的持续生成均速：${avgGen} tok/s（峰值 ${peakGen} tok/s）\n加权端到端均速（含 TTFT）：${avgE2e} tok/s\n按 Σ输出Token / Σ生成耗时 计算（排除单包缓冲），避免极短回复拉偏真实速度。`,
+  kpiOutputCacheTip: (totalOut, avgCache) =>
+    `本会话累计生成输出（含思考 + 可见回复）：${totalOut} tok\n本会话平均提示词缓存命中率：${avgCache}`,
 };

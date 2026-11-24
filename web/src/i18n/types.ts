@@ -455,4 +455,21 @@ export interface Translations {
     calls: number,
     costStr: string,
   ) => string;
+
+  // Panoramic Live Tab: TTFT Hero, Live Quota Tank, 3-col Context & Session Strip
+  ttftHeroLabel: string;
+  ttftHeroSub: (avgTtft: string, e2eTps: string) => string;
+  ttftBarsTip: (n: number, latestTtft: string, ttftSharePct: number, avgTtft: string) => string;
+  liveQuotaTitle: string;
+  liveQuotaAll: string;
+  ctxCacheSafeRem: (dur: string) => string;
+  ctxCacheHalfRem: (dur: string) => string;
+  ctxCachePastHalf: string;
+  ctxMicroSession: string;
+  ctxMicroSaved: (usd: string) => string;
+  kpiAvgSpeedLabel: string;
+  kpiOutputLabel: string;
+  kpiTimeLabel: string;
+  kpiAvgSpeedTip: (avgGen: string, avgE2e: string, peakGen: string) => string;
+  kpiOutputCacheTip: (totalOut: string, avgCache: string) => string;
 }

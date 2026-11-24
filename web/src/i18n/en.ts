@@ -474,4 +474,23 @@ export const en: Translations = {
   icebergHint: 'New above · Cached below',
   icebergBarTip: (dateStr, newStr, cachedStr, hitPct, calls, costStr) =>
     `${dateStr}\nNew tokens (in+out): ${newStr}\nCached read: ${cachedStr} (Cache ${hitPct})\n${calls} calls · API-eq ${costStr}`,
+
+  ttftHeroLabel: 'FIRST TOKEN',
+  ttftHeroSub: (avgTtft, e2eTps) => `Avg ${avgTtft} · E2E ${e2eTps}`,
+  ttftBarsTip: (n, latestTtft, ttftSharePct, avgTtft) =>
+    `Last ${n} calls Time-To-First-Token (TTFT)\nLatest: ${latestTtft} (${ttftSharePct}% of turn wall time) · Session avg: ${avgTtft}\nGreen <2s · Amber 2–6s · Red >6s (dashed line = avg)`,
+  liveQuotaTitle: 'QUOTA TANK',
+  liveQuotaAll: 'All',
+  ctxCacheSafeRem: (dur) => `${dur} safe`,
+  ctxCacheHalfRem: (dur) => `~${dur} left`,
+  ctxCachePastHalf: 'past P50',
+  ctxMicroSession: 'Session',
+  ctxMicroSaved: (usd) => `saved ${usd}`,
+  kpiAvgSpeedLabel: 'AVG SPEED',
+  kpiOutputLabel: 'OUTPUT',
+  kpiTimeLabel: 'TIME',
+  kpiAvgSpeedTip: (avgGen, avgE2e, peakGen) =>
+    `Output-token-weighted generation speed: ${avgGen} tok/s (Peak: ${peakGen} tok/s)\nWeighted E2E (incl. TTFT): ${avgE2e} tok/s\nComputed as Σ outputTokens / Σ genSec across sustained calls so tiny replies don't distort throughput.`,
+  kpiOutputCacheTip: (totalOut, avgCache) =>
+    `Total generated output (thinking + visible): ${totalOut} tok\nSession average prompt cache hit rate: ${avgCache}`,
 };

@@ -8,6 +8,7 @@ import { IconChevronDown, IconChevronRight } from '../common/Icons';
 import { ContextWindowCard } from './ContextWindowCard';
 import { HeroSpeedCards } from './HeroSpeedCards';
 import { KpiGrid } from './KpiGrid';
+import { LiveQuotaCard } from './LiveQuotaCard';
 import { RecentCallsCard } from './RecentCallsCard';
 import { SubagentsCard } from './SubagentsCard';
 
@@ -26,6 +27,7 @@ interface LiveTabProps {
   heroSentinelRef?: RefObject<HTMLDivElement>;
   onToggleRecentOpen: () => void;
   onViewAll: () => void;
+  onOpenAccount: () => void;
   onJumpConversation: (convId: string) => void;
   onToggleCompactOnly: () => void;
   onToggleFoldAllTurns: () => void;
@@ -127,6 +129,7 @@ export function LiveTab({
   heroSentinelRef,
   onToggleRecentOpen,
   onViewAll,
+  onOpenAccount,
   onJumpConversation,
   onToggleCompactOnly,
   onToggleFoldAllTurns,
@@ -154,6 +157,7 @@ export function LiveTab({
         activeStep={found ? snap?.activeStep : null}
         invocations={invocations}
         avgGenTps={found ? snap?.summary?.avgGenTps : undefined}
+        avgTtftSec={found ? snap?.summary?.avgTtftSec : undefined}
         t={t}
       />
 
@@ -161,6 +165,14 @@ export function LiveTab({
       <div ref={heroSentinelRef} className="h-0 -my-[5px] pointer-events-none" aria-hidden="true" />
 
       <ContextWindowCard snap={snap} nowMs={nowMs} t={t} />
+
+      <LiveQuotaCard
+        quota={snap?.accountQuota}
+        summary={found ? snap?.summary : undefined}
+        nowMs={nowMs}
+        t={t}
+        onOpenAccount={onOpenAccount}
+      />
 
       <KpiGrid
         found={found}

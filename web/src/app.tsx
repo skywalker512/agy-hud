@@ -224,6 +224,7 @@ export function App() {
           heroSentinelRef={heroSentinelRef}
           onToggleRecentOpen={store.toggleRecentOpen}
           onViewAll={() => handleSwitchTab('calls')}
+          onOpenAccount={() => handleSwitchTab('account')}
           onJumpConversation={store.jumpToConversation}
           onToggleCompactOnly={store.toggleCompactOnly}
           onToggleFoldAllTurns={store.toggleFoldAllTurns}

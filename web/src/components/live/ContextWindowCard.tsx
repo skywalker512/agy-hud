@@ -2,10 +2,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import type { StatsSnapshot, TokenBreakdownItem } from '../../types/telemetry';
 import {
-  cacheTier,
   computeHeadroomTurns,
   evalCacheSurvival,
-  fmtCachePct,
   fmtClock,
   fmtDurationShort,
   fmtNum,
@@ -98,9 +96,17 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
         cachePred.missPenaltyQuota5hPct && cachePred.missPenaltyQuota5hPct >= 0.01
           ? fmtQuotaPct(cachePred.missPenaltyQuota5hPct)
           : '';
+      const remSub =
+        ageSec >= cachePred.p50Sec
+          ? t.ctxCachePastHalf
+          : remSafeSec >= 15
+            ? t.ctxCacheSafeRem(fmtTtlDuration(remSafeSec))
+            : remHalfSec >= 15
+              ? t.ctxCacheHalfRem(fmtTtlDuration(remHalfSec))
+              : ageStr;
       ageBadge = {
         text: `~${probPct}%`,
-        sub: ageStr,
+        sub: remSub,
         tier,
         tip: t.cacheSurvTip({
           ageStr,
@@ -265,15 +271,6 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
   const restTip = restTools.map((x) => `${x.name}: ${x.tokens.toLocaleString()} tok`).join('\n');
 
   const freeStr = hasContext ? `${approxPrefix}${fmtNum(Math.max(0, limit - totalUsed))}` : '--';
-  const cTier = latest ? cacheTier(latest.cacheHitPct) : 'muted';
-  const cacheValColor =
-    cTier === 'good'
-      ? 'text-hud-ok'
-      : cTier === 'mid'
-        ? 'text-hud-warn'
-        : cTier === 'low'
-          ? 'text-hud-bad'
-          : 'text-hud-fg';
 
   const headroomColor =
     headroom && headroom.turns <= 3
@@ -401,53 +398,44 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
         </div>
       </div>
 
-      {/* Clean Borderless 4-Column Micro-Metric Strip */}
-      <div className="ctx-micro-strip grid grid-cols-4 gap-1.5 min-w-0">
+      {/* Clean Borderless 3-Column Health Strip: Headroom · Cache TTL Countdown · Session Spend */}
+      <div className="ctx-micro-strip grid grid-cols-3 gap-1.5 min-w-0">
         <div
-          className={`l2-well px-2 py-1.5 flex flex-col gap-[1px] min-w-0${headroom ? ' cursor-help' : ''}`}
+          className={`l2-well px-2.5 py-1.5 flex flex-col gap-[1px] min-w-0${headroom ? ' cursor-help' : ''}`}
           data-tip={headroom ? t.headroomTip(headroom.turns, headroom.medianDelta) : undefined}
         >
           <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">{t.ctxMicroHeadroom}</span>
-          <span className={`font-hud-mono text-[11.5px] font-bold tabular-nums truncate ${headroomColor}`}>
-            {headroom ? `~${headroom.turns}t` : '--'}
-          </span>
-        </div>
-
-        <div className="l2-well px-2 py-1.5 flex flex-col gap-[1px] min-w-0">
-          <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">{t.ctxMicroCacheHit}</span>
-          <span className={`font-hud-mono text-[11.5px] font-bold tabular-nums truncate ${cacheValColor}`}>
-            {latest ? fmtCachePct(latest.cacheHitPct) : '--'}
+          <span className={`font-hud-mono text-[12px] font-bold tabular-nums truncate ${headroomColor}`}>
+            {headroom ? t.headroomLabel(headroom.turns) : '--'}
           </span>
         </div>
 
         <div
-          className={`l2-well px-2 py-1.5 flex flex-col gap-[1px] min-w-0${ageBadge ? ' cursor-help' : ''}`}
+          className={`l2-well px-2.5 py-1.5 flex flex-col gap-[1px] min-w-0${ageBadge ? ' cursor-help' : ''}`}
           data-tip={ageBadge?.tip}
         >
           <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">{t.ctxMicroCacheTtl}</span>
-          <span className={`font-hud-mono text-[11.5px] font-bold tabular-nums truncate ${survColor}`}>
-            {ageBadge ? (
-              <>
-                <span>{ageBadge.text}</span>
-                {ageBadge.sub && <span className="font-normal text-[9.5px] text-hud-muted ml-1">{ageBadge.sub}</span>}
-              </>
-            ) : (
-              '--'
-            )}
+          <span className={`font-hud-mono text-[12px] font-bold tabular-nums truncate ${survColor}`}>
+            {ageBadge ? ageBadge.text : '--'}
           </span>
+          {ageBadge?.sub && (
+            <span className="font-hud text-[9.5px] text-hud-muted tabular-nums truncate leading-tight">
+              {ageBadge.sub}
+            </span>
+          )}
         </div>
 
         <div
-          className={`l2-well px-2 py-1.5 flex flex-col gap-[1px] min-w-0${spendQuotaTip ? ' cursor-help' : ''}`}
+          className={`l2-well px-2.5 py-1.5 flex flex-col gap-[1px] min-w-0${spendQuotaTip ? ' cursor-help' : ''}`}
           data-tip={spendQuotaTip}
         >
-          <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">{t.ctxMicroSpendQuota}</span>
-          <span className="font-hud-mono text-[11.5px] font-bold text-hud-fg tabular-nums truncate">
+          <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">{t.ctxMicroSession}</span>
+          <span className="font-hud-mono text-[12px] font-bold text-hud-fg tabular-nums truncate">
             {costStr || '--'}
           </span>
-          {sessionQuotaStr && (
-            <span className="font-hud-mono text-[9.5px] font-semibold text-hud-accent-ink tabular-nums leading-tight break-words">
-              {sessionQuotaStr}
+          {savedStr && (
+            <span className="font-hud-mono text-[9.5px] text-hud-ok tabular-nums truncate leading-tight">
+              {t.ctxMicroSaved(savedStr)}
             </span>
           )}
         </div>
