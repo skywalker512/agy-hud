@@ -151,25 +151,33 @@ function extractModelSsrLite(html: string) {
   }
   endpoints.sort((a, b) => Number(b.requestCount || 0) - Number(a.requestCount || 0));
 
-  // Extract latest daily tool-call error rate & reasoning share
+  // Extract latest daily tool-call error rate, reasoning share & average prompt/output tokens
   let toolCallErrorPct: number | null = null;
   let toolCalls24h = 0;
   let reasoningSharePct: number | null = null;
+  let avgPromptTokens: number | null = null;
+  let avgOutputTokens: number | null = null;
   const toolIdx = html.lastIndexOf('requests_with_tool_call_errors');
   if (toolIdx >= 0) {
-    const chunk = html.slice(Math.max(0, toolIdx - 500), toolIdx + 120).replace(/\\"/g, '"');
-    const tm = /"total_completion_tokens":(\d+)[^}]*?"total_native_tokens_reasoning":(\d+)[^}]*?"total_tool_calls":(\d+),"requests_with_tool_call_errors":(\d+)/.exec(chunk);
+    const chunk = html.slice(Math.max(0, toolIdx - 560), toolIdx + 120).replace(/\\"/g, '"');
+    const tm = /"total_completion_tokens":(\d+)(?:,"total_prompt_tokens":(\d+))?[^}]*?"total_native_tokens_reasoning":(\d+)(?:,"count":(\d+))?[^}]*?"total_tool_calls":(\d+),"requests_with_tool_call_errors":(\d+)/.exec(chunk);
     if (tm) {
       const comp = Number(tm[1]);
-      const reason = Number(tm[2]);
-      const calls = Number(tm[3]);
-      const errs = Number(tm[4]);
+      const prompt = tm[2] ? Number(tm[2]) : 0;
+      const reason = Number(tm[3]);
+      const cnt = tm[4] ? Number(tm[4]) : 0;
+      const calls = Number(tm[5]);
+      const errs = Number(tm[6]);
       if (calls > 0) {
         toolCalls24h = calls;
         toolCallErrorPct = roundNum((errs / calls) * 100, 2);
       }
       if (comp > 0 && reason >= 0) {
         reasoningSharePct = Math.max(0, Math.min(100, roundNum((reason / comp) * 100, 1) ?? 0));
+      }
+      if (cnt > 0) {
+        if (prompt > 0) avgPromptTokens = Math.round(prompt / cnt);
+        if (comp > 0) avgOutputTokens = Math.round(comp / cnt);
       }
     }
   }
@@ -206,7 +214,7 @@ function extractModelSsrLite(html: string) {
     }
   }
 
-  return { permaslug, weightedCacheHitPct, endpoints, uptime24h, toolCallErrorPct, toolCalls24h, reasoningSharePct };
+  return { permaslug, weightedCacheHitPct, endpoints, uptime24h, toolCallErrorPct, toolCalls24h, reasoningSharePct, avgPromptTokens, avgOutputTokens };
 }
 
 function parseComparison(
@@ -331,6 +339,8 @@ async function collectAndStore(env: Env): Promise<Record<string, unknown>> {
       toolCallErrorPct: null,
       toolCalls24h: 0,
       reasoningSharePct: null,
+      avgPromptTokens: null,
+      avgOutputTokens: null,
     };
 
     const rawEps = Array.isArray(epJson?.data?.endpoints) ? epJson.data.endpoints : [];
@@ -452,6 +462,8 @@ async function collectAndStore(env: Env): Promise<Record<string, unknown>> {
       toolCallErrorPct: ssr.toolCallErrorPct,
       toolCalls24h: ssr.toolCalls24h,
       reasoningSharePct: ssr.reasoningSharePct,
+      avgPromptTokens: ssr.avgPromptTokens,
+      avgOutputTokens: ssr.avgOutputTokens,
       effectiveInputPrice: (primary?.effectiveInputPrice as number | null) ?? null,
       effectiveOutputPrice: (primary?.effectiveOutputPrice as number | null) ?? null,
       requestCount30m,

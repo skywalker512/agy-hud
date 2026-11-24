@@ -522,21 +522,23 @@ export const en: Translations = {
     `${i.degraded ? `\nDegraded endpoints: ${i.degraded}` : ''}\n${i.localLine}`,
   ttftVerdictUpstream: (globalP50) => `Upstream slow${globalP50 ? ` · ${globalP50}` : ''}`,
   ttftVerdictCacheMiss: (newTok) => `Cold prefill ${newTok}`,
+  ttftVerdictLargeCtx: (ctxTok) => `Large ctx ${ctxTok}`,
   ttftVerdictConcurrency: (n) => `${n}× parallel`,
   ttftVerdictLocalSlow: (globalP50) => `Local slow${globalP50 ? ` · glb ${globalP50}` : ''}`,
   ttftGlobalInline: (globalP50) => `Glb ${globalP50}`,
   ttftVerdictHeadline: (v) => {
     if (v === 'upstream_degraded') return 'Upstream Gemini pool is slow or degraded';
     if (v === 'cache_miss') return 'Slow due to cold prompt prefill (cache miss)';
+    if (v === 'large_context') return 'Slow due to large prompt context (above global avg — try /compact)';
     if (v === 'local_concurrency') return 'Slow due to local parallel sessions / workers queuing';
     if (v === 'account_or_network') return 'Local / account / proxy slow (global Gemini pool is fast)';
     return 'TTFT within expected range';
   },
-  ttftBucketLabel: (b) => (b === 'hit' ? 'cached' : b === 'miss' ? 'cold' : 'all'),
+  ttftBucketLabel: (b) => (b === 'hit' ? 'cached' : b === 'miss' ? 'cold' : b === 'all' ? 'all' : `${b} ctx`),
   ttftAttributionTip: (i) =>
     `${i.headline} (${i.model})\n` +
-    `Current: TTFT ${i.curTtft} · GEN ${i.curTps} · Cache ${i.curCache} (new ${i.curNewIn})${i.inFlight >= 2 ? ` · ${i.inFlight} active` : ''}\n` +
+    `Current: TTFT ${i.curTtft} · GEN ${i.curTps} · Cache ${i.curCache} (${i.curCtx ? `ctx ${i.curCtx}, ` : ''}new ${i.curNewIn})${i.inFlight >= 2 ? ` · ${i.inFlight} active` : ''}\n` +
     `Your 7d (${i.localBucketLabel}): P50 ${i.localP50} · P90 ${i.localP90}\n` +
-    `Global 30m (${i.globalReq30m} reqs): P50 ${i.globalP50} · P90 ${i.globalP90} · TPS ${i.globalTps} · Cache ${i.globalCache} · Up ${i.globalUptime}`,
+    `Global 30m (${i.globalReq30m} reqs${i.globalAvgCtx ? `, avg ${i.globalAvgCtx}` : ''}): P50 ${i.globalP50} · P90 ${i.globalP90} · TPS ${i.globalTps} · Cache ${i.globalCache} · Up ${i.globalUptime}`,
   trendGlobalRef: (val) => `Global P50 ${val}`,
 };

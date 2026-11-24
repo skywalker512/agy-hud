@@ -97,6 +97,7 @@ export function GlobalTrendView({
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [splitProviders, setSplitProviders] = useState<boolean>(false);
   const [showLocalOverlay, setShowLocalOverlay] = useState<boolean>(true);
+  const [matchLocalCtx, setMatchLocalCtx] = useState<boolean>(false);
   const [granularity, setGranularity] = useState<'7d' | '5m'>('7d');
   const [selectedFamilies, setSelectedFamilies] = useState<string[] | null>(null);
 
@@ -196,6 +197,11 @@ export function GlobalTrendView({
   const hasAnyLocalCurve = useMemo(
     () => metric !== 'uptime' && metric !== 'e2e' && !effectiveIntraday && models.some((m) => (m.local?.calls7d || 0) > 0),
     [metric, effectiveIntraday, models],
+  );
+
+  const hasMatchedLocalCtx = useMemo(
+    () => hasAnyLocalCurve && models.some((m) => (m.local?.matched100k?.calls || 0) >= 3),
+    [hasAnyLocalCurve, models],
   );
 
   // Build unified X-axis labels & plotted SeriesLine[]
@@ -371,12 +377,15 @@ export function GlobalTrendView({
       return typeof v24 === 'number' && v24 > 0 ? v24 : null;
     };
 
+    const localDailySrc = (m: GeminiModelGlobalPulse | null) =>
+      matchLocalCtx && m?.local?.daily7dMatched?.length ? m.local.daily7dMatched : m?.local?.daily7d || [];
+
     const dateSet = new Set<string>();
     for (const m of targetModels) {
       for (const pt of getArr(m)) dateSet.add(pt.x);
     }
-    if (showLocalOverlay && localFocusModel?.local?.daily7d) {
-      for (const pt of localFocusModel.local.daily7d) {
+    if (showLocalOverlay && localFocusModel) {
+      for (const pt of localDailySrc(localFocusModel)) {
         const v = getLocalDailyVal(pt);
         if (v !== null && v > 0) dateSet.add(pt.x);
       }
@@ -386,35 +395,39 @@ export function GlobalTrendView({
       targetModels.some((m) => {
         const v = getLive30m(m);
         return v !== null && v > 0;
-      }) || Boolean(showLocalOverlay && localFocusModel && getLocalLive30m(localFocusModel) !== null);
+      }) || Boolean(showLocalOverlay && !matchLocalCtx && localFocusModel && getLocalLive30m(localFocusModel) !== null);
     const finalX = hasAnyLive ? [...sortedDates, '__live30m__'] : sortedDates;
     const idxMap = new Map(finalX.map((x, i) => [x, i]));
 
     const buildLocalSeriesLine = (m: GeminiModelGlobalPulse | null): SeriesLine | null => {
       if (!showLocalOverlay || metric === 'e2e' || !m?.local) return null;
       const pts: SeriesLine['points'] = [];
-      for (const dp of m.local.daily7d || []) {
+      for (const dp of localDailySrc(m)) {
         const v = getLocalDailyVal(dp);
         if (v !== null && v > 0 && idxMap.has(dp.x)) {
           pts.push({ xIdx: idxMap.get(dp.x)!, xLabel: dp.x, val: v });
         }
       }
-      const liveV = getLocalLive30m(m);
+      const liveV = matchLocalCtx ? null : getLocalLive30m(m);
       if (liveV !== null && liveV > 0 && idxMap.has('__live30m__')) {
         pts.push({ xIdx: idxMap.get('__live30m__')!, xLabel: '__live30m__', val: liveV, isLive30m: true });
       }
       // Graceful fallback if local 7d summary exists before daily7d buckets are populated
       if (pts.length === 0) {
-        const baseV = metric === 'ttft' ? m.local.p50TtftSec : metric === 'tps' ? m.local.p50Tps : m.local.cacheHitPct;
+        const matched = matchLocalCtx ? m.local.matched100k : null;
+        const baseV = matched
+          ? (metric === 'ttft' ? matched.p50TtftSec : metric === 'tps' ? matched.p50Tps : matched.cacheHitPct)
+          : (metric === 'ttft' ? m.local.p50TtftSec : metric === 'tps' ? m.local.p50Tps : m.local.cacheHitPct);
         if (baseV !== null && baseV > 0 && finalX.length >= 2) {
           pts.push({ xIdx: 0, xLabel: finalX[0], val: baseV });
           pts.push({ xIdx: finalX.length - 1, xLabel: finalX[finalX.length - 1], val: baseV });
         }
       }
       if (!pts.length) return null;
+      const ctxTag = matchLocalCtx ? ' <100k' : '';
       return {
         id: `local:${m.family}`,
-        label: isZh ? `本机 · ${shortName(m.label)}` : `Mine · ${shortName(m.label)}`,
+        label: isZh ? `本机${ctxTag} · ${shortName(m.label)}` : `Mine${ctxTag} · ${shortName(m.label)}`,
         color: 'var(--hud-fg)',
         dashed: true,
         isLocal: true,
@@ -506,6 +519,7 @@ export function GlobalTrendView({
     effectiveIntraday,
     singleSelectedModel,
     showLocalOverlay,
+    matchLocalCtx,
     geminiPulse?.activeFamily,
     modelIndexMap,
     isZh,
@@ -756,6 +770,24 @@ export function GlobalTrendView({
               <span>{isZh ? '叠加本机' : 'Mine'}</span>
             </button>
           )}
+          {showLocalOverlay && hasMatchedLocalCtx && (
+            <button
+              type="button"
+              onClick={() => setMatchLocalCtx((v) => !v)}
+              className={`px-1.5 py-[2px] rounded-full border font-hud-mono text-[9px] cursor-pointer transition-colors ${
+                matchLocalCtx
+                  ? 'bg-tint-think border-seg-think/50 text-seg-think font-semibold'
+                  : 'bg-hud-fill border-transparent text-hud-muted hover:text-hud-fg'
+              }`}
+              data-tip={
+                isZh
+                  ? '仅筛选本机 <100k 上下文样本与 OpenRouter 大盘（均值 46k–80k）做同量级公平对比'
+                  : 'Filter local curve to <100k prompt context for apples-to-apples comparison vs OpenRouter (avg 46k–80k)'
+              }
+            >
+              {isZh ? '同量级' : '<100k'}
+            </button>
+          )}
           {singleSelectedModel && canSplitProviders && (
             <button
               type="button"
@@ -1000,16 +1032,35 @@ export function GlobalTrendView({
         )}
       </div>
 
-      {/* Compact Source Footnote */}
+      {/* Compact Source Footnote with Global vs Local Average Context Size */}
       <div className="flex items-center justify-between gap-2 font-hud text-[9px] text-hud-muted">
         <span className="truncate">
-          {effectiveSplit
-            ? isZh
-              ? `${singleSelectedModel?.label} 上游节点${showLocalOverlay && hasAnyLocalCurve ? ' + 本机实测' : ''}折线对比`
-              : `${singleSelectedModel?.label} provider${showLocalOverlay && hasAnyLocalCurve ? ' + local' : ''} curves`
-            : isZh
-              ? '实线：OpenRouter 大盘 · 虚线空心点：本机实测'
-              : 'Solid: OpenRouter global · Dashed ring: your local'}
+          {(() => {
+            const ctxModel =
+              singleSelectedModel ||
+              models.find((m) => m.family === geminiPulse?.activeFamily) ||
+              models[0];
+            const gCtx = ctxModel?.avgPromptTokens ? `${Math.round(ctxModel.avgPromptTokens / 1000)}k` : '';
+            const lCtx = ctxModel?.local?.avgCtxTokens ? `${Math.round(ctxModel.local.avgCtxTokens / 1000)}k` : '';
+            const ctxNote =
+              gCtx && lCtx
+                ? isZh
+                  ? ` · 均ctx: 大盘 ${gCtx} vs 本机 ${lCtx}`
+                  : ` · avg ctx: glb ${gCtx} vs mine ${lCtx}`
+                : gCtx
+                  ? isZh
+                    ? ` · 大盘均ctx ${gCtx}`
+                    : ` · glb avg ${gCtx}`
+                  : '';
+            const base = effectiveSplit
+              ? isZh
+                ? `${singleSelectedModel?.label} 上游节点${showLocalOverlay && hasAnyLocalCurve ? ' + 本机实测' : ''}折线对比`
+                : `${singleSelectedModel?.label} provider${showLocalOverlay && hasAnyLocalCurve ? ' + local' : ''} curves`
+              : isZh
+                ? '实线：OpenRouter 大盘 · 虚线空心点：本机实测'
+                : 'Solid: OpenRouter global · Dashed ring: your local';
+            return `${base}${ctxNote}`;
+          })()}
         </span>
         {geminiPulse?.fetchedAtMs ? (
           <span className="font-hud-mono shrink-0">{fmtClock(geminiPulse.fetchedAtMs)}</span>

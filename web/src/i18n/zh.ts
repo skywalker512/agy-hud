@@ -522,21 +522,23 @@ export const zh: Translations = {
     `${i.degraded ? `\n异常节点：${i.degraded}` : ''}\n${i.localLine}`,
   ttftVerdictUpstream: (globalP50) => `大盘偏慢${globalP50 ? ` · ${globalP50}` : ''}`,
   ttftVerdictCacheMiss: (newTok) => `冷预填充 ${newTok}`,
+  ttftVerdictLargeCtx: (ctxTok) => `大上下文 ${ctxTok}`,
   ttftVerdictConcurrency: (n) => `${n} 路并发`,
   ttftVerdictLocalSlow: (globalP50) => `仅本地慢${globalP50 ? ` · 大盘 ${globalP50}` : ''}`,
   ttftGlobalInline: (globalP50) => `大盘 ${globalP50}`,
   ttftVerdictHeadline: (v) => {
     if (v === 'upstream_degraded') return '结论：上游 Gemini 大盘当前整体偏慢或存在波动';
     if (v === 'cache_miss') return '结论：本次为大上下文冷预填充（缓存未命中），非账号/大盘问题';
+    if (v === 'large_context') return '结论：当前上下文偏大（远超全球均值），属正常长上下文负载，建议 /compact 提速';
     if (v === 'local_concurrency') return '结论：当前本机多会话/Worker 并发排队导致首字变慢';
     if (v === 'account_or_network') return '结论：全局大盘正常，疑似当前账号限速或本地网络/代理偏慢';
     return '结论：首字延迟处于正常区间';
   },
-  ttftBucketLabel: (b) => (b === 'hit' ? '高命中' : b === 'miss' ? '冷启动' : '全部'),
+  ttftBucketLabel: (b) => (b === 'hit' ? '高命中' : b === 'miss' ? '冷启动' : b === 'all' ? '全部' : `${b} 上下文`),
   ttftAttributionTip: (i) =>
     `${i.headline}（${i.model}）\n` +
-    `本次请求：首字 ${i.curTtft} · 生成 ${i.curTps} · 缓存 ${i.curCache}（新入 ${i.curNewIn}）${i.inFlight >= 2 ? ` · ${i.inFlight} 路并发` : ''}\n` +
+    `本次请求：首字 ${i.curTtft} · 生成 ${i.curTps} · 缓存 ${i.curCache}（${i.curCtx ? `总上下文 ${i.curCtx}，` : ''}新入 ${i.curNewIn}）${i.inFlight >= 2 ? ` · ${i.inFlight} 路并发` : ''}\n` +
     `你的 7d（${i.localBucketLabel}）：P50 ${i.localP50} · P90 ${i.localP90}\n` +
-    `全球 30m（${i.globalReq30m} 次）：P50 ${i.globalP50} · P90 ${i.globalP90} · 速度 ${i.globalTps} · 缓存 ${i.globalCache} · 可用 ${i.globalUptime}`,
+    `全球 30m（${i.globalReq30m} 次${i.globalAvgCtx ? `，均 ${i.globalAvgCtx}` : ''}）：P50 ${i.globalP50} · P90 ${i.globalP90} · 速度 ${i.globalTps} · 缓存 ${i.globalCache} · 可用 ${i.globalUptime}`,
   trendGlobalRef: (val) => `大盘 P50 ${val}`,
 };

@@ -44,6 +44,7 @@ export type TtftVerdictKind =
   | 'normal'
   | 'upstream_degraded'
   | 'cache_miss'
+  | 'large_context'
   | 'local_concurrency'
   | 'account_or_network';
 
@@ -129,6 +130,8 @@ export interface GeminiModelGlobalPulse {
   toolCallErrorPct?: number | null;
   toolCalls24h?: number;
   reasoningSharePct?: number | null;
+  avgPromptTokens?: number | null;
+  avgOutputTokens?: number | null;
   effectiveInputPrice?: number | null;
   effectiveOutputPrice?: number | null;
   requestCount30m: number;
@@ -151,6 +154,13 @@ export interface GeminiLocalDailyPoint {
   cacheHitPct: number | null;
 }
 
+export interface GeminiLocalCtxBucket {
+  key: '<50k' | '50k-100k' | '100k-200k' | '>=200k';
+  calls: number;
+  p50TtftSec: number | null;
+  p50Tps: number | null;
+}
+
 export interface GeminiLocalBaseline {
   calls7d: number;
   p50TtftSec: number | null;
@@ -159,6 +169,17 @@ export interface GeminiLocalBaseline {
   missP50TtftSec: number | null;
   p50Tps: number | null;
   cacheHitPct: number | null;
+  avgCtxTokens?: number | null;
+  medianCtxTokens?: number | null;
+  /** Context-matched (<100k) 7d local stats aligned with OpenRouter's 46k-80k global traffic */
+  matched100k?: {
+    calls: number;
+    p50TtftSec: number | null;
+    p50Tps: number | null;
+    cacheHitPct: number | null;
+  } | null;
+  /** 7d local calls stratified across 4 prompt context size bands */
+  ctxBuckets?: GeminiLocalCtxBucket[];
   /** Strict 30m window aligned with OpenRouter 30m stats */
   calls30m: number;
   p50Ttft30mSec: number | null;
@@ -171,6 +192,8 @@ export interface GeminiLocalBaseline {
   cacheHit24hPct: number | null;
   /** Daily UTC buckets over the last 7 days aligned with OpenRouter 7d comparison curves */
   daily7d?: GeminiLocalDailyPoint[];
+  /** Context-matched (<100k) daily UTC buckets for apples-to-apples comparison vs OpenRouter */
+  daily7dMatched?: GeminiLocalDailyPoint[];
 }
 
 export interface GcpActiveIncident {
@@ -191,10 +214,12 @@ export interface TtftAttribution {
   currentTps: number;
   currentCachePct: number | null;
   currentNewInput: number;
+  currentCtxTokens?: number;
+  globalAvgCtxTokens?: number | null;
   inFlightCount: number;
   localP50TtftSec: number | null;
   localP90TtftSec: number | null;
-  localBucket: 'hit' | 'miss' | 'all';
+  localBucket: 'hit' | 'miss' | 'all' | '<50k' | '50k-100k' | '100k-200k' | '>=200k';
   globalP50TtftSec: number | null;
   globalP90TtftSec: number | null;
   globalP50Tps: number | null;
@@ -412,6 +437,8 @@ export function parseOpenRouterModelHtml(html: string): {
   toolCallErrorPct?: number | null;
   toolCalls24h?: number;
   reasoningSharePct?: number | null;
+  avgPromptTokens?: number | null;
+  avgOutputTokens?: number | null;
 } {
   if (!html || typeof html !== 'string') {
     return { permaslug: null, weightedCacheHitPct: null, endpoints: [], uptime24h: [] };
@@ -455,24 +482,32 @@ export function parseOpenRouterModelHtml(html: string): {
     }
   }
 
-  // Extract latest daily aggregate stats embedded in SSR (tool-call error rate & reasoning share)
+  // Extract latest daily aggregate stats embedded in SSR (tool-call error rate, reasoning share & avg ctx/out)
   let toolCallErrorPct: number | null = null;
   let toolCalls24h = 0;
   let reasoningSharePct: number | null = null;
+  let avgPromptTokens: number | null = null;
+  let avgOutputTokens: number | null = null;
   const dailyRe =
-    /"total_completion_tokens":(\d+)[^}]*?"total_native_tokens_reasoning":(\d+)[^}]*?"total_tool_calls":(\d+),"requests_with_tool_call_errors":(\d+)/g;
+    /"total_completion_tokens":(\d+)(?:,"total_prompt_tokens":(\d+))?[^}]*?"total_native_tokens_reasoning":(\d+)(?:,"count":(\d+))?[^}]*?"total_tool_calls":(\d+),"requests_with_tool_call_errors":(\d+)/g;
   let dm: RegExpExecArray | null;
   while ((dm = dailyRe.exec(unesc)) !== null) {
     const compTok = Number(dm[1]);
-    const reasonTok = Number(dm[2]);
-    const toolCalls = Number(dm[3]);
-    const toolErrs = Number(dm[4]);
+    const promptTok = dm[2] ? Number(dm[2]) : 0;
+    const reasonTok = Number(dm[3]);
+    const reqCnt = dm[4] ? Number(dm[4]) : 0;
+    const toolCalls = Number(dm[5]);
+    const toolErrs = Number(dm[6]);
     if (Number.isFinite(toolCalls) && toolCalls > 0) {
       toolCalls24h = toolCalls;
       toolCallErrorPct = roundNum((toolErrs / toolCalls) * 100, 2);
     }
     if (Number.isFinite(compTok) && compTok > 0 && Number.isFinite(reasonTok) && reasonTok >= 0) {
       reasoningSharePct = Math.max(0, Math.min(100, roundNum((reasonTok / compTok) * 100, 1) ?? 0));
+    }
+    if (Number.isFinite(reqCnt) && reqCnt > 0) {
+      if (Number.isFinite(promptTok) && promptTok > 0) avgPromptTokens = Math.round(promptTok / reqCnt);
+      if (Number.isFinite(compTok) && compTok > 0) avgOutputTokens = Math.round(compTok / reqCnt);
     }
   }
 
@@ -541,6 +576,8 @@ export function parseOpenRouterModelHtml(html: string): {
     ...(toolCallErrorPct !== null ? { toolCallErrorPct } : {}),
     ...(toolCalls24h > 0 ? { toolCalls24h } : {}),
     ...(reasoningSharePct !== null ? { reasoningSharePct } : {}),
+    ...(avgPromptTokens !== null ? { avgPromptTokens } : {}),
+    ...(avgOutputTokens !== null ? { avgOutputTokens } : {}),
   };
 }
 
@@ -726,6 +763,8 @@ export function summarizeModelPulse(
     toolCallErrorPct?: number | null;
     toolCalls24h?: number;
     reasoningSharePct?: number | null;
+    avgPromptTokens?: number | null;
+    avgOutputTokens?: number | null;
   },
   epParsed: {
     uptime5mPct?: number | null;
@@ -806,6 +845,8 @@ export function summarizeModelPulse(
     ...(htmlParsed.toolCallErrorPct !== null && htmlParsed.toolCallErrorPct !== undefined ? { toolCallErrorPct: htmlParsed.toolCallErrorPct } : {}),
     ...(htmlParsed.toolCalls24h ? { toolCalls24h: htmlParsed.toolCalls24h } : {}),
     ...(htmlParsed.reasoningSharePct !== null && htmlParsed.reasoningSharePct !== undefined ? { reasoningSharePct: htmlParsed.reasoningSharePct } : {}),
+    ...(htmlParsed.avgPromptTokens !== null && htmlParsed.avgPromptTokens !== undefined ? { avgPromptTokens: htmlParsed.avgPromptTokens } : {}),
+    ...(htmlParsed.avgOutputTokens !== null && htmlParsed.avgOutputTokens !== undefined ? { avgOutputTokens: htmlParsed.avgOutputTokens } : {}),
     ...(primary?.effectiveInputPrice !== null && primary?.effectiveInputPrice !== undefined ? { effectiveInputPrice: primary.effectiveInputPrice } : {}),
     ...(primary?.effectiveOutputPrice !== null && primary?.effectiveOutputPrice !== undefined ? { effectiveOutputPrice: primary.effectiveOutputPrice } : {}),
     requestCount30m: totalReq,
@@ -817,9 +858,18 @@ export function summarizeModelPulse(
   };
 }
 
+function ctxBandKey(totalPrompt: number): GeminiLocalCtxBucket['key'] {
+  if (totalPrompt < 50_000) return '<50k';
+  if (totalPrompt < 100_000) return '50k-100k';
+  if (totalPrompt < 200_000) return '100k-200k';
+  return '>=200k';
+}
+
+const CTX_BAND_ORDER: readonly GeminiLocalCtxBucket['key'][] = ['<50k', '50k-100k', '100k-200k', '>=200k'];
+
 /**
  * Compute the user's own 7-day local baseline per Gemini family from graph summaries,
- * stratified into high-cache-hit vs cold-prefill buckets.
+ * stratified into high-cache-hit vs cold-prefill AND 4 prompt context size bands (<50k..>=200k).
  */
 export function computeLocalGeminiBaselines(
   summaries: any[],
@@ -833,6 +883,7 @@ export function computeLocalGeminiBaselines(
     hitTtfts: number[];
     missTtfts: number[];
     tps: number[];
+    ctxs: number[];
     cachedSum: number;
     promptSum: number;
     calls: number;
@@ -846,7 +897,14 @@ export function computeLocalGeminiBaselines(
     cachedSum24h: number;
     promptSum24h: number;
     calls24h: number;
+    m100Calls: number;
+    m100Ttfts: number[];
+    m100Tps: number[];
+    m100Cached: number;
+    m100Prompt: number;
+    byCtx: Map<GeminiLocalCtxBucket['key'], { calls: number; ttfts: number[]; tps: number[] }>;
     byDay: Map<string, { ttfts: number[]; tps: number[]; cachedSum: number; promptSum: number; calls: number }>;
+    byDayMatched: Map<string, { ttfts: number[]; tps: number[]; cachedSum: number; promptSum: number; calls: number }>;
   }>();
 
   for (const s of summaries || []) {
@@ -862,6 +920,7 @@ export function computeLocalGeminiBaselines(
           hitTtfts: [],
           missTtfts: [],
           tps: [],
+          ctxs: [],
           cachedSum: 0,
           promptSum: 0,
           calls: 0,
@@ -875,7 +934,14 @@ export function computeLocalGeminiBaselines(
           cachedSum24h: 0,
           promptSum24h: 0,
           calls24h: 0,
+          m100Calls: 0,
+          m100Ttfts: [],
+          m100Tps: [],
+          m100Cached: 0,
+          m100Prompt: 0,
+          byCtx: new Map(),
           byDay: new Map(),
+          byDayMatched: new Map(),
         };
         acc.set(fam, b);
       }
@@ -885,9 +951,21 @@ export function computeLocalGeminiBaselines(
       const totIn = newIn + cachedIn;
       b.cachedSum += cachedIn;
       b.promptSum += totIn;
+      if (totIn > 0) b.ctxs.push(totIn);
       const cachePct = totIn > 0 ? (cachedIn / totIn) * 100 : null;
       const validTtft = typeof c.ttftSec === 'number' && Number.isFinite(c.ttftSec) && c.ttftSec > 0 && c.ttftSec < 300;
-      const validTps = typeof c.genTps === 'number' && Number.isFinite(c.genTps) && c.genTps > 0 && c.genTps < 2000;
+      const validTps = !c.isBuffered && typeof c.genTps === 'number' && Number.isFinite(c.genTps) && c.genTps > 0 && c.genTps < 2000;
+
+      // Context size band bucket
+      const band = ctxBandKey(totIn);
+      let cb = b.byCtx.get(band);
+      if (!cb) {
+        cb = { calls: 0, ttfts: [], tps: [] };
+        b.byCtx.set(band, cb);
+      }
+      cb.calls += 1;
+      if (validTtft) cb.ttfts.push(c.ttftSec);
+      if (validTps) cb.tps.push(c.genTps);
 
       // UTC date key ("YYYY-MM-DD") aligned with OpenRouter 7d comparison chart X-axis
       const dayKey = new Date(c.ts).toISOString().slice(0, 10);
@@ -901,6 +979,25 @@ export function computeLocalGeminiBaselines(
       dayBucket.promptSum += totIn;
       if (validTtft) dayBucket.ttfts.push(c.ttftSec);
       if (validTps) dayBucket.tps.push(c.genTps);
+
+      // Context-matched (<100k) bucket for apples-to-apples comparison against OpenRouter global (avg 46k-80k)
+      if (totIn < 100_000) {
+        b.m100Calls += 1;
+        b.m100Cached += cachedIn;
+        b.m100Prompt += totIn;
+        if (validTtft) b.m100Ttfts.push(c.ttftSec);
+        if (validTps) b.m100Tps.push(c.genTps);
+        let dmBucket = b.byDayMatched.get(dayKey);
+        if (!dmBucket) {
+          dmBucket = { ttfts: [], tps: [], cachedSum: 0, promptSum: 0, calls: 0 };
+          b.byDayMatched.set(dayKey, dmBucket);
+        }
+        dmBucket.calls += 1;
+        dmBucket.cachedSum += cachedIn;
+        dmBucket.promptSum += totIn;
+        if (validTtft) dmBucket.ttfts.push(c.ttftSec);
+        if (validTps) dmBucket.tps.push(c.genTps);
+      }
 
       if (validTtft) {
         b.ttfts.push(c.ttftSec);
@@ -931,18 +1028,8 @@ export function computeLocalGeminiBaselines(
     }
   }
 
-  const out: Record<string, GeminiLocalBaseline> = Object.create(null);
-  for (const [fam, b] of acc.entries()) {
-    b.ttfts.sort((a, x) => a - x);
-    b.hitTtfts.sort((a, x) => a - x);
-    b.missTtfts.sort((a, x) => a - x);
-    b.tps.sort((a, x) => a - x);
-    b.ttfts24h.sort((a, x) => a - x);
-    b.tps24h.sort((a, x) => a - x);
-    b.ttfts30m.sort((a, x) => a - x);
-    b.tps30m.sort((a, x) => a - x);
-
-    const daily7d: GeminiLocalDailyPoint[] = [...b.byDay.entries()]
+  const mapDaily = (dayMap: Map<string, { ttfts: number[]; tps: number[]; cachedSum: number; promptSum: number; calls: number }>): GeminiLocalDailyPoint[] =>
+    [...dayMap.entries()]
       .sort(([d1], [d2]) => d1.localeCompare(d2))
       .map(([x, db]) => {
         db.ttfts.sort((a, v) => a - v);
@@ -956,6 +1043,46 @@ export function computeLocalGeminiBaselines(
         };
       });
 
+  const out: Record<string, GeminiLocalBaseline> = Object.create(null);
+  for (const [fam, b] of acc.entries()) {
+    b.ttfts.sort((a, x) => a - x);
+    b.hitTtfts.sort((a, x) => a - x);
+    b.missTtfts.sort((a, x) => a - x);
+    b.tps.sort((a, x) => a - x);
+    b.ctxs.sort((a, x) => a - x);
+    b.ttfts24h.sort((a, x) => a - x);
+    b.tps24h.sort((a, x) => a - x);
+    b.ttfts30m.sort((a, x) => a - x);
+    b.tps30m.sort((a, x) => a - x);
+    b.m100Ttfts.sort((a, x) => a - x);
+    b.m100Tps.sort((a, x) => a - x);
+
+    const ctxBuckets: GeminiLocalCtxBucket[] = CTX_BAND_ORDER
+      .map((key) => {
+        const cb = b.byCtx.get(key);
+        if (!cb || cb.calls === 0) return null;
+        cb.ttfts.sort((a, v) => a - v);
+        cb.tps.sort((a, v) => a - v);
+        return {
+          key,
+          calls: cb.calls,
+          p50TtftSec: roundNum(quantile(cb.ttfts, 0.5), 2),
+          p50Tps: roundNum(quantile(cb.tps, 0.5), 1),
+        };
+      })
+      .filter((x): x is GeminiLocalCtxBucket => Boolean(x));
+
+    const avgCtxTokens = b.ctxs.length > 0 ? Math.round(b.ctxs.reduce((s, v) => s + v, 0) / b.ctxs.length) : null;
+    const medianCtxTokens = b.ctxs.length > 0 ? Math.round(quantile(b.ctxs, 0.5) || 0) : null;
+    const matched100k = b.m100Calls > 0
+      ? {
+          calls: b.m100Calls,
+          p50TtftSec: roundNum(quantile(b.m100Ttfts, 0.5), 2),
+          p50Tps: roundNum(quantile(b.m100Tps, 0.5), 1),
+          cacheHitPct: b.m100Prompt > 0 ? roundNum((b.m100Cached / b.m100Prompt) * 100, 1) : null,
+        }
+      : null;
+
     out[fam] = {
       calls7d: b.calls,
       p50TtftSec: roundNum(quantile(b.ttfts, 0.5), 2),
@@ -964,6 +1091,10 @@ export function computeLocalGeminiBaselines(
       missP50TtftSec: b.missTtfts.length >= 3 ? roundNum(quantile(b.missTtfts, 0.5), 2) : null,
       p50Tps: roundNum(quantile(b.tps, 0.5), 1),
       cacheHitPct: b.promptSum > 0 ? roundNum((b.cachedSum / b.promptSum) * 100, 1) : null,
+      avgCtxTokens,
+      medianCtxTokens,
+      matched100k,
+      ctxBuckets,
       calls30m: b.calls30m,
       p50Ttft30mSec: roundNum(quantile(b.ttfts30m, 0.5), 2),
       p50Tps30m: roundNum(quantile(b.tps30m, 0.5), 1),
@@ -972,15 +1103,16 @@ export function computeLocalGeminiBaselines(
       p50Ttft24hSec: roundNum(quantile(b.ttfts24h, 0.5), 2),
       p50Tps24h: roundNum(quantile(b.tps24h, 0.5), 1),
       cacheHit24hPct: b.promptSum24h > 0 ? roundNum((b.cachedSum24h / b.promptSum24h) * 100, 1) : null,
-      daily7d,
+      daily7d: mapDaily(b.byDay),
+      daily7dMatched: mapDaily(b.byDayMatched),
     };
   }
   return out;
 }
 
 /**
- * Attribute the latest Gemini invocation's TTFT latency into 4 actionable root causes
- * (plus `normal`), comparing current request vs local 7d bucketed baseline vs OpenRouter 30m global stats.
+ * Attribute the latest Gemini invocation's TTFT latency into 5 actionable root causes
+ * (plus `normal`), comparing current request vs context-stratified local 7d baseline vs OpenRouter 30m stats.
  */
 export function evaluateTtftAttribution({
   latest,
@@ -1009,10 +1141,16 @@ export function evaluateTtftAttribution({
   const totIn = newIn + cachedIn;
   const currentCachePct = totIn > 0 ? roundNum((cachedIn / totIn) * 100, 1) : null;
   const isColdPrefill = newIn >= 25_000 && (currentCachePct === null || currentCachePct < 60);
+  const globalAvgCtx = globalModel?.avgPromptTokens ?? null;
+  const band = ctxBandKey(totIn);
+  const matchedCtxBucket = (localBaseline?.ctxBuckets || []).find((b) => b.key === band && b.calls >= 5 && b.p50TtftSec !== null);
 
-  let localBucket: 'hit' | 'miss' | 'all' = 'all';
+  let localBucket: TtftAttribution['localBucket'] = 'all';
   let localRefP50 = localBaseline?.p50TtftSec ?? null;
-  if (isColdPrefill && localBaseline?.missP50TtftSec !== null && localBaseline?.missP50TtftSec !== undefined) {
+  if (matchedCtxBucket && !isColdPrefill) {
+    localBucket = matchedCtxBucket.key;
+    localRefP50 = matchedCtxBucket.p50TtftSec;
+  } else if (isColdPrefill && localBaseline?.missP50TtftSec !== null && localBaseline?.missP50TtftSec !== undefined) {
     localBucket = 'miss';
     localRefP50 = localBaseline.missP50TtftSec;
   } else if (!isColdPrefill && localBaseline?.hitP50TtftSec !== null && localBaseline?.hitP50TtftSec !== undefined) {
@@ -1024,11 +1162,13 @@ export function evaluateTtftAttribution({
   const gP90 = globalModel?.p90TtftSec ?? null;
   const gStatus: PulseHealthStatus | 'unknown' = globalModel?.status ?? (activeIncidents.length > 0 ? 'degraded' : 'unknown');
 
+  const baseP50ForThreshold = localBaseline?.matched100k?.p50TtftSec ?? localBaseline?.hitP50TtftSec ?? localRefP50;
   const slowThreshold = Math.max(
     4.0,
-    localRefP50 !== null ? localRefP50 * 1.85 : 4.5,
+    baseP50ForThreshold !== null ? baseP50ForThreshold * 1.85 : 4.5,
   );
-  const isSlow = ttft >= slowThreshold;
+  const isLargeContext = totIn >= 150_000 && (globalAvgCtx === null || totIn >= globalAvgCtx * 1.6);
+  const isSlow = ttft >= slowThreshold || (isLargeContext && gP50 !== null && ttft >= Math.max(6.0, gP50 * 1.75));
 
   let verdict: TtftVerdictKind = 'normal';
   if (isSlow) {
@@ -1039,12 +1179,20 @@ export function evaluateTtftAttribution({
       && gP50 >= 4.0
       && ttft <= Math.max(gP90 ?? gP50 * 2.2, gP50 * 2.0) * 1.15;
 
-    if (upstreamUnhealthy || withinElevatedGlobalBand) {
+    if (upstreamUnhealthy || (withinElevatedGlobalBand && !isLargeContext)) {
       verdict = 'upstream_degraded';
     } else if (isColdPrefill) {
       verdict = 'cache_miss';
     } else if (inFlightCount >= 2) {
       verdict = 'local_concurrency';
+    } else if (
+      isLargeContext
+      && (
+        (matchedCtxBucket?.p50TtftSec != null && ttft <= matchedCtxBucket.p50TtftSec * 1.65)
+        || (gP50 !== null && ttft <= Math.max(15.0, gP50 * 3.2))
+      )
+    ) {
+      verdict = 'large_context';
     } else if (
       gP50 !== null
       && gStatus === 'ok'
@@ -1064,6 +1212,8 @@ export function evaluateTtftAttribution({
     currentTps: roundNum(latest.isBuffered ? latest.e2eTps : latest.genTps, 1) ?? 0,
     currentCachePct,
     currentNewInput: newIn,
+    currentCtxTokens: totIn,
+    globalAvgCtxTokens: globalAvgCtx,
     inFlightCount,
     localP50TtftSec: localRefP50,
     localP90TtftSec: localBaseline?.p90TtftSec ?? null,

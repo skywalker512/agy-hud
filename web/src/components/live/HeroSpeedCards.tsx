@@ -228,6 +228,8 @@ export function HeroSpeedCards({
       localP50: attr.localP50TtftSec !== null ? fmtSec(attr.localP50TtftSec) : '--',
       localP90: attr.localP90TtftSec !== null ? fmtSec(attr.localP90TtftSec) : '--',
       localBucketLabel: t.ttftBucketLabel(attr.localBucket),
+      curCtx: attr.currentCtxTokens ? fmtNum(attr.currentCtxTokens) : undefined,
+      globalAvgCtx: attr.globalAvgCtxTokens ? fmtNum(attr.globalAvgCtxTokens) : undefined,
       globalP50: gP50 || '--',
       globalP90: gP90,
       globalTps: attr.globalP50Tps !== null ? fmtTps(attr.globalP50Tps) : '--',
@@ -242,6 +244,9 @@ export function HeroSpeedCards({
     }
     if (attr.verdict === 'cache_miss') {
       return { isAlert: true, dotCls: 'bg-seg-out', pillCls: 'text-seg-out bg-tint-out', text: t.ttftVerdictCacheMiss(fmtNum(attr.currentNewInput)), tip };
+    }
+    if (attr.verdict === 'large_context') {
+      return { isAlert: true, dotCls: 'bg-seg-think', pillCls: 'text-seg-think bg-tint-think', text: t.ttftVerdictLargeCtx(fmtNum(attr.currentCtxTokens || attr.currentNewInput)), tip };
     }
     if (attr.verdict === 'local_concurrency') {
       return { isAlert: true, dotCls: 'bg-hud-warn', pillCls: 'text-hud-warn bg-tint-warn', text: t.ttftVerdictConcurrency(attr.inFlightCount), tip };

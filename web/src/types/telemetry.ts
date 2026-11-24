@@ -582,6 +582,7 @@ export type TtftVerdictKind =
   | 'normal'
   | 'upstream_degraded'
   | 'cache_miss'
+  | 'large_context'
   | 'local_concurrency'
   | 'account_or_network';
 
@@ -616,6 +617,13 @@ export interface GeminiLocalDailyPoint {
   cacheHitPct: number | null;
 }
 
+export interface GeminiLocalCtxBucket {
+  key: '<50k' | '50k-100k' | '100k-200k' | '>=200k';
+  calls: number;
+  p50TtftSec: number | null;
+  p50Tps: number | null;
+}
+
 export interface GeminiLocalBaseline {
   calls7d: number;
   p50TtftSec: number | null;
@@ -624,6 +632,15 @@ export interface GeminiLocalBaseline {
   missP50TtftSec: number | null;
   p50Tps: number | null;
   cacheHitPct: number | null;
+  avgCtxTokens?: number | null;
+  medianCtxTokens?: number | null;
+  matched100k?: {
+    calls: number;
+    p50TtftSec: number | null;
+    p50Tps: number | null;
+    cacheHitPct: number | null;
+  } | null;
+  ctxBuckets?: GeminiLocalCtxBucket[];
   calls30m?: number;
   p50Ttft30mSec?: number | null;
   p50Tps30m?: number | null;
@@ -633,6 +650,7 @@ export interface GeminiLocalBaseline {
   p50Tps24h?: number | null;
   cacheHit24hPct?: number | null;
   daily7d?: GeminiLocalDailyPoint[];
+  daily7dMatched?: GeminiLocalDailyPoint[];
 }
 
 export interface GeminiTimeSeriesPoint {
@@ -694,6 +712,8 @@ export interface GeminiModelGlobalPulse {
   toolCallErrorPct?: number | null;
   toolCalls24h?: number;
   reasoningSharePct?: number | null;
+  avgPromptTokens?: number | null;
+  avgOutputTokens?: number | null;
   effectiveInputPrice?: number | null;
   effectiveOutputPrice?: number | null;
   requestCount30m: number;
@@ -723,10 +743,12 @@ export interface TtftAttribution {
   currentTps: number;
   currentCachePct: number | null;
   currentNewInput: number;
+  currentCtxTokens?: number;
+  globalAvgCtxTokens?: number | null;
   inFlightCount: number;
   localP50TtftSec: number | null;
   localP90TtftSec: number | null;
-  localBucket: 'hit' | 'miss' | 'all';
+  localBucket: 'hit' | 'miss' | 'all' | '<50k' | '50k-100k' | '100k-200k' | '>=200k';
   globalP50TtftSec: number | null;
   globalP90TtftSec: number | null;
   globalP50Tps: number | null;

@@ -508,6 +508,7 @@ export interface Translations {
   }) => string;
   ttftVerdictUpstream: (globalP50: string) => string;
   ttftVerdictCacheMiss: (newTok: string) => string;
+  ttftVerdictLargeCtx: (ctxTok: string) => string;
   ttftVerdictConcurrency: (n: number) => string;
   ttftVerdictLocalSlow: (globalP50: string) => string;
   ttftGlobalInline: (globalP50: string) => string;
@@ -518,6 +519,8 @@ export interface Translations {
     curTps: string;
     curCache: string;
     curNewIn: string;
+    curCtx?: string;
+    globalAvgCtx?: string;
     localP50: string;
     localP90: string;
     localBucketLabel: string;
@@ -530,6 +533,6 @@ export interface Translations {
     inFlight: number;
   }) => string;
   ttftVerdictHeadline: (verdict: string) => string;
-  ttftBucketLabel: (bucket: 'hit' | 'miss' | 'all') => string;
+  ttftBucketLabel: (bucket: 'hit' | 'miss' | 'all' | '<50k' | '50k-100k' | '100k-200k' | '>=200k') => string;
   trendGlobalRef: (val: string) => string;
 }

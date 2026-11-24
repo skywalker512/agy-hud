@@ -422,6 +422,8 @@ export function PulseApp() {
             toolCallErrorPct: null,
             toolCalls24h: 0,
             reasoningSharePct: null,
+            avgPromptTokens: null,
+            avgOutputTokens: null,
             effectiveInputPrice: null,
             effectiveOutputPrice: null,
             requestCount30m: 0,
@@ -492,16 +494,21 @@ export function PulseApp() {
                   </div>
                 </div>
 
-                {/* Extra Worker-mode badges (P99 + Tool Call Error %) or 5m/1d Uptime */}
+                {/* Extra Worker-mode badges (P99 + avgCtx + Tool Call Error %) or 5m/1d Uptime */}
                 <div class="mt-3 flex flex-wrap items-center justify-between gap-1 border-t border-[var(--border)] pt-2 font-mono text-[10px] text-[var(--muted)]">
                   {m.p99TtftSec !== null ? (
                     <span>P99 {m.p99TtftSec.toFixed(1)}s</span>
                   ) : (
                     <span>5m {m.uptime5mPct !== null ? `${m.uptime5mPct.toFixed(0)}%` : '--'}</span>
                   )}
+                  {m.avgPromptTokens !== null ? (
+                    <span title={isZh ? 'OpenRouter 全球日均输入上下文大小' : 'OpenRouter global average prompt context size'}>
+                      {isZh ? '均' : 'ctx'} {Math.round(m.avgPromptTokens / 1000)}k
+                    </span>
+                  ) : null}
                   {m.toolCallErrorPct !== null ? (
                     <span class={m.toolCallErrorPct >= 3 ? 'text-amber-400' : ''}>
-                      ToolErr {m.toolCallErrorPct}%
+                      Err {m.toolCallErrorPct}%
                     </span>
                   ) : (
                     <span>1d {m.uptime1dPct !== null ? `${m.uptime1dPct.toFixed(1)}%` : '--'}</span>

@@ -336,3 +336,62 @@ test('parseOpenRouterModelHtml extracts P95/P99, tool call error rate, reasoning
   assert.equal(merged[1].p99TtftSec, 40.29);
   assert.equal(merged[1].uptime5mPct, 100);
 });
+
+test('avgPromptTokens extraction, context-bucketed local baselines, isBuffered filtering, and large_context TTFT verdict', () => {
+  const html = `<script>self.__next_f.push([1,"{\\"total_completion_tokens\\":200000000,\\"total_prompt_tokens\\":8000000000,\\"total_native_tokens_reasoning\\":100000000,\\"count\\":100000,\\"total_tool_calls\\":50000,\\"requests_with_tool_call_errors\\":200}"])</script>`;
+  const parsed = parseOpenRouterModelHtml(html);
+  assert.equal(parsed.avgPromptTokens, 80000);
+  assert.equal(parsed.avgOutputTokens, 2000);
+
+  const now = 1_800_000_000_000;
+  const recentCalls = [
+    // Small context (<100k) fast calls
+    { ts: now - 10 * 60_000, poolKey: 'gemini', family: 'gemini-4-neon', newInput: 4000, cachedInput: 50000, ttftSec: 4.0, genTps: 160 },
+    { ts: now - 20 * 60_000, poolKey: 'gemini', family: 'gemini-4-neon', newInput: 4000, cachedInput: 60000, ttftSec: 4.2, genTps: 155 },
+    { ts: now - 30 * 60_000, poolKey: 'gemini', family: 'gemini-4-neon', newInput: 4000, cachedInput: 65000, ttftSec: 4.4, genTps: 150 },
+    // Buffered turn should be excluded from TPS
+    { ts: now - 35 * 60_000, poolKey: 'gemini', family: 'gemini-4-neon', newInput: 4000, cachedInput: 50000, ttftSec: 4.1, genTps: 999, isBuffered: true },
+    // Large context (>=200k) slower calls
+    { ts: now - 40 * 60_000, poolKey: 'gemini', family: 'gemini-4-neon', newInput: 5000, cachedInput: 220000, ttftSec: 7.4, genTps: 135 },
+    { ts: now - 50 * 60_000, poolKey: 'gemini', family: 'gemini-4-neon', newInput: 5000, cachedInput: 230000, ttftSec: 7.6, genTps: 130 },
+    { ts: now - 60 * 60_000, poolKey: 'gemini', family: 'gemini-4-neon', newInput: 5000, cachedInput: 240000, ttftSec: 7.8, genTps: 128 },
+    { ts: now - 70 * 60_000, poolKey: 'gemini', family: 'gemini-4-neon', newInput: 5000, cachedInput: 250000, ttftSec: 7.5, genTps: 132 },
+    { ts: now - 80 * 60_000, poolKey: 'gemini', family: 'gemini-4-neon', newInput: 5000, cachedInput: 260000, ttftSec: 7.9, genTps: 129 },
+  ];
+  const baselines = computeLocalGeminiBaselines([{ latestTsMs: now - 10 * 60_000, recentCalls }], now);
+  const nb = baselines['gemini-4-neon'];
+  assert.ok(nb);
+  assert.equal(nb.matched100k?.calls, 4);
+  assert.equal(nb.matched100k?.p50TtftSec, 4.1);
+  assert.equal(nb.matched100k?.p50Tps, 155); // excludes isBuffered 999!
+  assert.ok((nb.ctxBuckets || []).some((b) => b.key === '>=200k' && b.calls === 5 && b.p50TtftSec === 7.6));
+
+  const vLarge = evaluateTtftAttribution({
+    latest: { modelId: 'gemini-4-neon', ttftSec: 8.2, newInput: 6000, cachedInput: 230000, genTps: 130 },
+    globalModel: {
+      family: 'gemini-4-neon',
+      slug: 'google/gemini-4-neon',
+      label: 'Gemini 4 Neon',
+      status: 'ok',
+      p50TtftSec: 3.9,
+      p75TtftSec: 6.0,
+      p90TtftSec: 11.0,
+      p50Tps: 70,
+      p90Tps: 20,
+      cacheHitPct: 83,
+      uptime30mPct: 100,
+      avgPromptTokens: 80000,
+      requestCount30m: 20000,
+      windowMinutes: 30,
+      primaryProvider: 'Google Vertex',
+      degradedProviders: [],
+    },
+    localBaseline: nb,
+    activeIncidents: [],
+    inFlightCount: 0,
+  });
+  assert.equal(vLarge?.verdict, 'large_context');
+  assert.equal(vLarge?.currentCtxTokens, 236000);
+  assert.equal(vLarge?.globalAvgCtxTokens, 80000);
+  assert.equal(vLarge?.localBucket, '>=200k');
+});

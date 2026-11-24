@@ -71,6 +71,8 @@ export interface PulseModelData {
   toolCallErrorPct: number | null;
   toolCalls24h: number;
   reasoningSharePct: number | null;
+  avgPromptTokens: number | null;
+  avgOutputTokens: number | null;
   effectiveInputPrice: number | null;
   effectiveOutputPrice: number | null;
   requestCount30m: number;
@@ -306,6 +308,8 @@ async function tryFetchWorkerFeed(feedUrl: string): Promise<PulseDashboardData |
       toolCallErrorPct: typeof m.toolCallErrorPct === 'number' ? m.toolCallErrorPct : null,
       toolCalls24h: typeof m.toolCalls24h === 'number' ? m.toolCalls24h : 0,
       reasoningSharePct: typeof m.reasoningSharePct === 'number' ? m.reasoningSharePct : null,
+      avgPromptTokens: typeof m.avgPromptTokens === 'number' ? m.avgPromptTokens : null,
+      avgOutputTokens: typeof m.avgOutputTokens === 'number' ? m.avgOutputTokens : null,
       effectiveInputPrice: typeof m.effectiveInputPrice === 'number' ? m.effectiveInputPrice : null,
       effectiveOutputPrice: typeof m.effectiveOutputPrice === 'number' ? m.effectiveOutputPrice : null,
       requestCount30m: typeof m.requestCount30m === 'number' ? m.requestCount30m : 0,
@@ -449,6 +453,8 @@ export async function fetchLiveGeminiPulse(feedUrl?: string): Promise<PulseDashb
       toolCallErrorPct: null,
       toolCalls24h: 0,
       reasoningSharePct: null,
+      avgPromptTokens: null,
+      avgOutputTokens: null,
       effectiveInputPrice: null,
       effectiveOutputPrice: null,
       requestCount30m: 0,
