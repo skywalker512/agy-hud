@@ -649,6 +649,23 @@
     @apply text-hud-muted bg-hud-fill;
   }
 
+  .ttft-pill {
+    @apply inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full font-hud-mono font-semibold tabular-nums whitespace-nowrap;
+    font-size: calc(10.5px * var(--hud-font-scale, 1));
+  }
+  .ttft-pill.fast {
+    @apply text-hud-ok;
+    background: var(--tint-ok);
+  }
+  .ttft-pill.mid {
+    @apply text-hud-warn;
+    background: var(--tint-warn);
+  }
+  .ttft-pill.slow {
+    @apply text-hud-bad;
+    background: var(--tint-bad);
+  }
+
   /* Restrained cache survival pill: fresh is calm neutral, warm/stale get amber/red */
   .cache-age-pill {
     @apply inline-flex items-center px-1.5 py-[1px] rounded font-hud-mono font-medium tabular-nums whitespace-nowrap;

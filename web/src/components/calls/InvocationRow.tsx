@@ -261,6 +261,12 @@ function InvocationRowImpl({
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          <span
+            className={`ttft-pill ${tTier} cursor-help`}
+            data-tip={`${t.inspPhaseTtft}: ${fmtSec(r.ttftSec)} (${ttftTierLabel})`}
+          >
+            TTFT {fmtSec(r.ttftSec)}
+          </span>
           <span className="font-hud-mono text-[12px] font-semibold tabular-nums whitespace-nowrap">
             {primary}
           </span>
@@ -390,8 +396,16 @@ function InvocationRowImpl({
           {/* TAB 1: OVERVIEW (Instant, Zero Wait) */}
           {activeTab === 'overview' && (
             <div className="flex flex-col gap-2 min-w-0">
-              {/* 1. 4-Cell Inset Summary Strip */}
+              {/* 1. 4-Cell Inset Summary Strip (TTFT first for instant latency triage) */}
               <div className="insp-grid-4 grid grid-cols-4 gap-1.5 min-w-0">
+                <div className="insp-cell">
+                  <span className="insp-cell-k">{t.inspTtftTotal}</span>
+                  <span className="insp-cell-v">
+                    <span className={ttftTierColor}>{fmtSec(r.ttftSec)}</span> / {fmtSec(displayTotalSec)}
+                  </span>
+                  <span className={`insp-cell-sub font-semibold ${ttftTierColor}`}>{ttftTierLabel}</span>
+                </div>
+
                 <div className="insp-cell">
                   <span className="insp-cell-k">{t.inspGenE2e}</span>
                   <span className="insp-cell-v">
@@ -400,14 +414,6 @@ function InvocationRowImpl({
                   <span className="insp-cell-sub">
                     {r.isBuffered ? `${(r.genSec * 1000).toFixed(0)}ms` : 'tok/s'}
                   </span>
-                </div>
-
-                <div className="insp-cell">
-                  <span className="insp-cell-k">{t.inspTtftTotal}</span>
-                  <span className="insp-cell-v">
-                    {fmtSec(r.ttftSec)} / {fmtSec(displayTotalSec)}
-                  </span>
-                  <span className={`insp-cell-sub font-semibold ${ttftTierColor}`}>{ttftTierLabel}</span>
                 </div>
 
                 <div className="insp-cell">

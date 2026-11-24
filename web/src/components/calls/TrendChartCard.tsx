@@ -101,7 +101,7 @@ interface DragZoomVisual {
   count: number;
 }
 
-const METRICS: ChartMetric[] = ['tps', 'ttft', 'out', 'cache', 'ctx', 'quota'];
+const METRICS: ChartMetric[] = ['ttft', 'tps', 'out', 'cache', 'ctx', 'quota'];
 const RANGE_PRESETS: Array<Exclude<RangePreset, 'custom'>> = ['20', '50', '100', 'all'];
 const MODEL_PALETTE = ['var(--seg-think)', 'var(--seg-cache)', 'var(--seg-input)', 'var(--seg-out)'];
 

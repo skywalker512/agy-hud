@@ -104,8 +104,8 @@ export const en: Translations = {
   chartAllModels: (n) => `All ${n}`,
   chartModelFilterTip: (name, count, avgStr, active) =>
     `${name} · ${count} calls${avgStr ? ` · avg ${avgStr}` : ''}\n${active ? 'Click to show all models' : 'Click to isolate this model'}`,
-  histDetail: (tm, cached, newIn, out, thk, ttft, gen, stallNote = '') =>
-    `${tm ? tm + ' · ' : ''}TTFT ${ttft} · GEN ${gen}${stallNote} · IN ${cached}+${newIn} · OUT ${out} (THK ${thk})`,
+  histDetail: (tm, cached, newIn, out, thk, _ttft, gen, stallNote = '') =>
+    `${tm ? tm + ' · ' : ''}GEN ${gen}${stallNote} · IN ${cached}+${newIn} · OUT ${out} (THK ${thk})`,
   histStallNote: (sec) => ` · TC-WAIT ${sec}`,
   histPhaseLine: (thkSec, tcSec, n) => `\nPHASE: THK ${thkSec} · TOOL GEN ${tcSec}${n ? ` (${n} tool${n > 1 ? 's' : ''})` : ''}`,
   histFull: (idx, model, tm, cPct, cached, newIn, out, thk, vis, ttft, gen, e2e, ctxUsed, ctxLim, ctxPct) =>

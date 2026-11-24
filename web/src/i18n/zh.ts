@@ -104,8 +104,8 @@ export const zh: Translations = {
   chartAllModels: (n) => `全部 ${n}`,
   chartModelFilterTip: (name, count, avgStr, active) =>
     `${name} · ${count} 次调用${avgStr ? ` · 均值 ${avgStr}` : ''}\n${active ? '点击恢复全部模型' : '点击仅看该模型趋势'}`,
-  histDetail: (tm, cached, newIn, out, thk, ttft, gen, stallNote = '') =>
-    `${tm ? tm + ' · ' : ''}TTFT ${ttft} · 生成 ${gen}${stallNote} · 输入 ${cached}+${newIn} · 输出 ${out} (思 ${thk})`,
+  histDetail: (tm, cached, newIn, out, thk, _ttft, gen, stallNote = '') =>
+    `${tm ? tm + ' · ' : ''}生成 ${gen}${stallNote} · 输入 ${cached}+${newIn} · 输出 ${out} (思 ${thk})`,
   histStallNote: (sec) => ` · 工具等待 ${sec}`,
   histPhaseLine: (thkSec, tcSec, n) => `\n阶段: 思考 ${thkSec} · 工具生成 ${tcSec}${n ? `（${n} 个工具）` : ''}`,
   histFull: (idx, model, tm, cPct, cached, newIn, out, thk, vis, ttft, gen, e2e, ctxUsed, ctxLim, ctxPct) =>

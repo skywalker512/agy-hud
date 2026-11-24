@@ -611,12 +611,12 @@ export function CallLogCard({
   const sortOptions = useMemo<SelectPopoverOption[]>(
     () => [
       { value: 'timeline', label: t.sortTimeline },
-      { value: 'slowest', label: t.sortSlowest },
       { value: 'ttft', label: t.sortTtft },
+      { value: 'slowest', label: t.sortSlowest },
       { value: 'low_tps', label: t.sortLowTps },
       { value: 'cost', label: t.sortCost },
     ],
-    [t.sortTimeline, t.sortSlowest, t.sortTtft, t.sortLowTps, t.sortCost],
+    [t.sortTimeline, t.sortTtft, t.sortSlowest, t.sortLowTps, t.sortCost],
   );
 
   const shouldScrollInline = isRecent && (showAllHistory || (compactOnly && compactions.length > limit));
