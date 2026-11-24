@@ -49,8 +49,15 @@ export function LiveCallRow({
         (activeStep.toolCalls && activeStep.toolCalls.length > 0),
     );
 
+  const liveWaitCls =
+    !isCompact && !st.isStreaming && liveTtftSec !== null
+      ? liveTtftTier === 'slow'
+        ? ' is-waiting-stalled'
+        : ' is-waiting-ttft'
+      : '';
+
   return (
-    <div className={`history-row is-live-call${isCompact ? ' is-compact' : ''}`}>
+    <div className={`history-row is-live-call relative${isCompact ? ' is-compact' : ''}${liveWaitCls}`}>
       <div className="flex items-center justify-between gap-1.5 min-w-0">
         <div className="flex items-center gap-[5px] min-w-0 flex-1">
           {isCompact ? (

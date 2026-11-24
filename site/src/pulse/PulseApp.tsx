@@ -1158,8 +1158,8 @@ export function PulseApp() {
             </h2>
             <p class="mt-1 text-[13px] text-[var(--muted)]">
               {isZh
-                ? '安装 AGY-HUD 官方侧边栏插件，在 Antigravity 内一键对比本机 7d+30m 真实延迟 vs 全球大盘，自动归因是官方抽风、缓存冷启动还是本地网络问题。'
-                : 'Install the native AGY-HUD side-pane plugin for Google Antigravity to compare your local 7d+30m latency against the global Gemini pool with automatic TTFT root-cause attribution.'}
+                ? '安装 AGY-HUD 官方侧边栏插件，在 Antigravity 内把本机 7d/30m 真实首字、吐字速度与缓存命中直接和全球大盘同图对比。'
+                : 'Install the native AGY-HUD side-pane plugin for Google Antigravity to compare your local 7d/30m TTFT, TPS, and cache hit rate directly against the global Gemini pool.'}
             </p>
           </div>
           <a

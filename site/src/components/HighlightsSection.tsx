@@ -114,8 +114,27 @@ function LiveTtftShowcase({ isZh }: { isZh: boolean }) {
         </button>
       </div>
 
-      {/* Live Hero TTFT Stopwatch Surface */}
-      <div class="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5">
+      {/* Live Hero TTFT Stopwatch Surface (1:1 mirror of real HeroSpeedCards) */}
+      <div
+        class={`relative overflow-hidden rounded-lg border bg-[var(--surface)] p-2.5 transition-colors ${
+          isStalled
+            ? 'border-[var(--tint-bad-border)]'
+            : isWaiting
+              ? 'border-[var(--tint-out-border)]'
+              : 'border-[var(--tint-cache-border)]'
+        }`}
+      >
+        <div
+          class="pointer-events-none absolute inset-x-2 top-0 h-[2px] rounded-full transition-colors"
+          style={{
+            background: isStalled
+              ? 'var(--seg-bad)'
+              : isWaiting
+                ? 'var(--seg-out)'
+                : 'var(--seg-cache)',
+            opacity: isWaiting && !paused ? 0.9 : 0.65,
+          }}
+        />
         <div class="flex items-center justify-between gap-2">
           <span class="font-mono text-[10px] font-semibold text-[var(--muted)]">
             {isZh ? '首字等待 · Orchestrator (Neon)' : 'FIRST TOKEN · Orchestrator (Neon)'}
@@ -131,22 +150,32 @@ function LiveTtftShowcase({ isZh }: { isZh: boolean }) {
             {elapsedSec.toFixed(1)}
             <span class="ml-0.5 text-[11px] font-medium text-[var(--muted)]">s</span>
           </div>
-          {scenario === 'slow' && elapsedSec >= 2.6 ? (
-            <span class="inline-flex items-center gap-1 rounded-full border border-[var(--tint-out-border)] bg-[var(--tint-out)] px-2 py-0.5 font-mono text-[9.5px] font-semibold text-[var(--seg-out)]">
-              <span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-out)]" />
-              <span>{isZh ? '大盘偏慢 · 6.4s' : 'Global slow · 6.4s'}</span>
-            </span>
-          ) : (
-            <span class="inline-flex items-center gap-1 font-mono text-[9.5px] text-[var(--muted)]">
-              <span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-cache)]" />
-              <span>{isZh ? '全网 P50 · 1.5s' : 'Global P50 · 1.5s'}</span>
-            </span>
-          )}
+          <span class="inline-flex items-center gap-1 font-mono text-[9.5px] text-[var(--muted)] tabular-nums">
+            <span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-cache)]" />
+            <span>{isZh ? '全球 P50 · 1.5s' : 'Global P50 · 1.5s'}</span>
+          </span>
         </div>
 
         <div class="mt-1 truncate font-mono text-[10px] text-[var(--muted)] tabular-nums">
           {liveSubLine}
         </div>
+
+        {/* Live Waiting Progress Track Crossing Session Avg Tick (matches real HeroSpeedCards) */}
+        {isWaiting && (
+          <div class="relative mt-1.5 h-[3px] w-full overflow-hidden rounded-full bg-[var(--surface-3)]">
+            <div
+              class="h-full rounded-full transition-all duration-100"
+              style={{
+                width: `${Math.min(100, Math.max(6, (elapsedSec / 6.5) * 100)).toFixed(1)}%`,
+                backgroundColor: isStalled ? 'var(--seg-bad)' : isSlow ? 'var(--seg-out)' : 'var(--seg-cache)',
+              }}
+            />
+            <span
+              class="pointer-events-none absolute top-0 bottom-0 w-[1.5px] bg-[var(--fg)] opacity-55"
+              style={{ left: `${((avgSec / 6.5) * 100).toFixed(1)}%` }}
+            />
+          </div>
+        )}
 
         {/* 10-Bar Live Growing TTFT Bar Chart vs Session Avg Dashed Line */}
         <div class="relative mt-2.5 h-[36px] w-full">
@@ -181,19 +210,15 @@ function LiveTtftShowcase({ isZh }: { isZh: boolean }) {
         </div>
       </div>
 
-      {/* 4-Way Root-Cause Attribution Badges */}
-      <div class="grid grid-cols-2 gap-1.5 font-mono text-[9.5px]">
-        {[
-          { dot: 'bg-[var(--seg-out)]', label: isZh ? '大盘偏慢 · 全网排队' : 'Upstream slow' },
-          { dot: 'bg-[var(--seg-input)]', label: isZh ? '冷预填充 / 大上下文' : 'Cold / Large ctx' },
-          { dot: 'bg-[var(--seg-think)]', label: isZh ? '多路并发排队' : 'Parallel queue' },
-          { dot: 'bg-[var(--seg-bad)]', label: isZh ? '仅本地慢 · 账号/代理' : 'Local slow / proxy' },
-        ].map((v) => (
-          <div key={v.label} class="flex items-center gap-1.5 rounded-md bg-[var(--surface)] px-2 py-1 text-[var(--fg-2)]">
-            <span class={`h-1.5 w-1.5 shrink-0 rounded-full ${v.dot}`} />
-            <span class="truncate">{v.label}</span>
-          </div>
-        ))}
+      {/* Matching Real LiveCallRow Preview Strip */}
+      <div class="flex items-center justify-between gap-2 rounded-md bg-[var(--surface)] px-2.5 py-1.5 font-mono text-[10px] tabular-nums">
+        <span class="inline-flex min-w-0 items-center gap-1.5 truncate text-[var(--fg)]">
+          <span class="text-[var(--muted)]">#65</span>
+          <span class="truncate font-medium">gemini-pro-orchestrator-neon</span>
+        </span>
+        <span class={`shrink-0 rounded-full border px-1.5 py-[0.5px] text-[9.5px] font-semibold ${statusPill.cls}`}>
+          TTFT {isWaiting ? `${elapsedSec.toFixed(1)}s…` : `${elapsedSec.toFixed(1)}s`}
+        </span>
       </div>
     </div>
   );
@@ -697,12 +722,12 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
             </div>
           </article>
 
-          {/* Card 6 (5 cols): Live First-Token Stopwatch & TTFT Attribution */}
+          {/* Card 6 (5 cols): Live First-Token Stopwatch */}
           <article class="bento-card flex flex-col justify-between gap-4 p-5 sm:p-6 md:col-span-5">
             <div>
               <div class="flex items-start justify-between gap-2">
                 <span class="font-mono text-[10.5px] font-semibold text-[var(--seg-out)]">
-                  {isZh ? '⏱ 实时首字读秒 · 慢首字归因' : '⏱ LIVE TTFT STOPWATCH · ATTRIBUTION'}
+                  {isZh ? '⏱ 实时首字监控 · 动态读秒' : '⏱ LIVE FIRST-TOKEN MONITOR'}
                 </span>
                 <TryButton
                   req={{ id: 'simulate-ttft', tab: 'live', action: 'simulate-ttft' }}
@@ -710,12 +735,12 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
                 />
               </div>
               <h3 class="display-heading mt-1 text-[19px] font-semibold text-[var(--fg)]">
-                {isZh ? '模型卡住了吗？实时看首字读秒与慢首字归因' : 'Is the model stuck? Watch live first-token wait & instant cause'}
+                {isZh ? '模型卡在等首字吗？实时读秒一眼看清' : 'Waiting for first token? Watch live TTFT tick in real time'}
               </h3>
               <p class="mt-1.5 text-[13.5px] leading-[1.65] text-[var(--muted)]">
                 {isZh
-                  ? '请求发出后实时跳秒追踪是否还在等首字，柱状条越过会话均值立即变黄/变红预警，并联合全网 5m/30m 大盘、上下文大小与并发数给出精准归因。'
-                  : 'Ticks live the instant a request starts — turning amber/red as wait exceeds your session baseline, while attributing slowness to upstream queues, cold prefill, concurrency, or local proxy.'}
+                  ? '请求发出瞬间就开始跳秒计时并动态生长延迟柱；越过本机均值自动由绿转琥珀、再转红提醒，同时对照全球大盘 P50 参考，首字到达立刻锁值并切入流式吐字。'
+                  : 'Ticks live the moment a request starts with a growing latency bar and baseline marker — shifting green → amber → red past your session average alongside global P50 reference, then locking TTFT the instant streaming begins.'}
               </p>
             </div>
 

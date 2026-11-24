@@ -385,10 +385,16 @@ export function HeroSpeedCards({
         )}
       </div>
 
-      {/* Right Hero: First Token Wait (TTFT) + Live Stopwatch + Cache Hit + 10-Call Latency Bar Chart */}
+      {/* Right Hero: First Token Wait (TTFT) + Live Stopwatch + Animated Scan & Bar Chart */}
       <div
         className={`hud-card min-w-0 max-w-full flex flex-col justify-between overflow-hidden${
-          isWaitingTtft ? ' is-streaming' : ''
+          isTtftStalled
+            ? ' is-waiting-stalled'
+            : isWaitingTtft
+              ? ' is-waiting-ttft'
+              : isActivelyGenerating && liveLockedTtftSec !== null
+                ? ' is-streaming is-ttft-locked'
+                : ''
         }`}
       >
         <div>
@@ -413,8 +419,8 @@ export function HeroSpeedCards({
             ) : null}
           </div>
           <div
-            className={`hero-v mt-1.5 flex items-baseline justify-between gap-1 font-hud-mono text-[24px] font-bold leading-[1.08] tabular-nums min-w-0${
-              isTtftStalled ? ' text-hud-bad' : isTtftSlow ? ' text-hud-warn' : ''
+            className={`hero-v mt-1.5 flex items-baseline justify-between gap-1 font-hud-mono text-[24px] font-bold leading-[1.08] tabular-nums min-w-0 transition-colors duration-200${
+              isTtftStalled ? ' text-hud-bad' : isTtftSlow ? ' text-hud-warn' : isActivelyGenerating && liveLockedTtftSec !== null ? ' text-hud-ok' : ''
             }`}
           >
             <div className="flex items-baseline gap-1 min-w-0">
@@ -436,6 +442,22 @@ export function HeroSpeedCards({
             )}
           </div>
           <div className="card-sub truncate whitespace-nowrap" data-tip={ttftSub}>{ttftSub}</div>
+
+          {isWaitingTtft && (() => {
+            const scaleMax = Math.max(8, baselineTtft * 3);
+            const fillPct = Math.min(100, Math.max(6, (liveWaitSec / scaleMax) * 100));
+            const avgTickPct = Math.min(88, Math.max(10, (baselineTtft / scaleMax) * 100));
+            const fillColor = isTtftStalled ? 'var(--hud-bad)' : isTtftSlow ? 'var(--hud-warn)' : 'var(--seg-cache)';
+            return (
+              <div className="ttft-wait-track" aria-hidden="true">
+                <div
+                  className="ttft-wait-fill"
+                  style={{ width: `${fillPct.toFixed(1)}%`, backgroundColor: fillColor }}
+                />
+                <span className="ttft-wait-avg-tick" style={{ left: `${avgTickPct.toFixed(1)}%` }} />
+              </div>
+            );
+          })()}
         </div>
 
         {ttftBars && (
@@ -469,6 +491,7 @@ export function HeroSpeedCards({
                   rx="2"
                   fill={b.color}
                   fill-opacity={b.isLast ? '0.95' : '0.48'}
+                  className={b.isLive && isWaitingTtft ? 'ttft-bar-live' : undefined}
                 />
               ))}
             </svg>

@@ -300,6 +300,34 @@
   }
 }
 
+@keyframes hud-ttft-scan {
+  0% {
+    background-position: 180% 0;
+  }
+  100% {
+    background-position: -180% 0;
+  }
+}
+
+@keyframes hud-bar-pulse {
+  0%,
+  100% {
+    opacity: 0.98;
+  }
+  50% {
+    opacity: 0.56;
+  }
+}
+
+@keyframes hud-ttft-arrive {
+  0% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--hud-ok) 60%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
 @layer components {
   .tabular-nums {
     font-variant-numeric: tabular-nums lining-nums;
@@ -338,6 +366,85 @@
     );
     animation: hud-stream-breathe 2s ease-in-out infinite;
     pointer-events: none;
+  }
+
+  /* Live First-Token waiting radar scan (amber -> red when stalled, green arrival flash when locked) */
+  .hud-card.is-waiting-ttft::before,
+  .history-row.is-waiting-ttft::before {
+    content: "";
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--hud-warn) 25%, transparent) 30%,
+      var(--hud-warn) 50%,
+      color-mix(in srgb, var(--hud-warn) 25%, transparent) 70%,
+      transparent 100%
+    );
+    background-size: 220% 100%;
+    animation: hud-ttft-scan 1.75s linear infinite;
+    pointer-events: none;
+  }
+  .hud-card.is-waiting-ttft {
+    border-color: color-mix(in srgb, var(--hud-warn) 38%, transparent);
+  }
+  .hud-card.is-waiting-stalled::before,
+  .history-row.is-waiting-stalled::before {
+    content: "";
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--hud-bad) 30%, transparent) 28%,
+      var(--hud-bad) 50%,
+      color-mix(in srgb, var(--hud-bad) 30%, transparent) 72%,
+      transparent 100%
+    );
+    background-size: 220% 100%;
+    animation: hud-ttft-scan 1.15s linear infinite;
+    pointer-events: none;
+  }
+  .hud-card.is-waiting-stalled {
+    border-color: color-mix(in srgb, var(--hud-bad) 46%, transparent);
+  }
+  .hud-card.is-ttft-locked {
+    animation: hud-ttft-arrive 0.9s ease-out 1;
+  }
+
+  .ttft-bar-live {
+    transition: height 180ms linear, y 180ms linear, fill 220ms ease;
+    animation: hud-bar-pulse 1.1s ease-in-out infinite;
+  }
+
+  .ttft-wait-track {
+    @apply relative w-full h-[3px] rounded-full overflow-hidden mt-1.5;
+    background: color-mix(in srgb, var(--hud-fg) 9%, transparent);
+  }
+  .ttft-wait-fill {
+    @apply h-full rounded-full;
+    transition: width 180ms linear, background-color 220ms ease;
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.35) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: hud-shimmer 1.4s linear infinite;
+  }
+  .ttft-wait-avg-tick {
+    @apply pointer-events-none absolute top-0 bottom-0 w-[1.5px];
+    background: color-mix(in srgb, var(--hud-fg) 55%, transparent);
   }
 
   /* ── L2 Surface: Borderless Recessed Luminance Well ── */
@@ -1276,6 +1383,13 @@
 
 @media (prefers-reduced-motion: reduce) {
   .hud-card.is-streaming::before,
+  .hud-card.is-waiting-ttft::before,
+  .hud-card.is-waiting-stalled::before,
+  .history-row.is-waiting-ttft::before,
+  .history-row.is-waiting-stalled::before,
+  .hud-card.is-ttft-locked,
+  .ttft-bar-live,
+  .ttft-wait-fill,
   .hud-expand-anim,
   .more-popover,
   .pulse-bar-wrap {
