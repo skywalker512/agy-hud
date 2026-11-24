@@ -1742,3 +1742,145 @@ test('selectConsensusGamma, 5h/7d desync boundaryClean guard, and unified hasTru
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('claude_gpt contiguous dirty concurrent burst conserves total burn and merges trailing delayed settlement', () => {
+  const sig = getCurrentPricingSig();
+  const baseTs = 1_960_000_000_000;
+
+  // 1) Contiguous 7-sample concurrent Opus burst (all boundaryClean=false due to parallel subagents)
+  const rawTuples: Array<[number, number, number, number]> = [
+    // [dtSec, du5, usd, calls]
+    [5.4, 1.0080, 0.1575, 1],
+    [15.4, 0.7758, 0.0394, 1],
+    [45.0, 1.4755, 0.4010, 6],
+    [64.1, 5.2920, 1.0534, 21],
+    [52.8, 2.7464, 0.7129, 12],
+    [66.6, 3.1813, 0.5352, 8],
+    [53.6, 1.0000, 0.1815, 2], // includes +0.5895% trailing delayed settlement
+  ];
+  let cursor = baseTs;
+  const samples = rawTuples.map(([dtSec, du5, usd, calls], idx) => {
+    const t0 = cursor;
+    const t1 = cursor + Math.round(dtSec * 1000);
+    cursor = t1;
+    return {
+      t0,
+      t1,
+      dtSec,
+      du5,
+      du7: du5 / 2,
+      source: (idx === 0 ? '5h_anchor' : '5h_delta') as '5h_anchor' | '5h_delta',
+      boundaryClean: false,
+      isShort: true,
+      tsMode: 'completed_v2' as const,
+      pricingSig: sig,
+      byModel: { 'claude-opus-5-5': usd },
+      byModelTokens: { 'claude-opus-5-5': [usd * 0.12, usd * 1.1, usd * 0.015] as [number, number, number] },
+      callCount: calls,
+      totalBaseUSD: usd,
+      nominalFamilies: [],
+    };
+  });
+
+  const fit = solvePoolFitModel({ gamma: 2.0, samples }, 'claude_gpt')!;
+  assert.ok(fit);
+  assert.equal(fit.schemaVersion, 6);
+  assert.equal(fit.models['claude-opus-5-5'].mode, 'scalar', 'must not overfit 3-param per_token with 0 clean windows');
+  assert.ok(Math.abs((fit.full5hUSD ?? 0) - 19.90) < 0.25, `expected conserved full5hUSD ~$19.90, got ${fit.full5hUSD}`);
+  const predTree5h = fit.refBeta * 3.0809;
+  assert.ok(Math.abs(predTree5h - 15.48) < 0.15, `expected tree prediction ~15.48%, got ${predTree5h.toFixed(2)}%`);
+  assert.ok(Math.abs(fit.models['claude-opus-5-5'].priorRelDiffPct ?? 99) < 2.0, 'Ultra $20 tier should match known claude_gpt cap');
+  assert.ok((fit.models['claude-opus-5-5'].betaPlusMinus ?? 99) < 1.5, 'scaled se should shrink betaPlusMinus proportionally');
+
+  // Verify loadQuotaFitStore automatically re-solves stale schemaVersion=5 persisted claude_gpt fits
+  const migDir = mkdtempSync(join(tmpdir(), 'agy-hud-schema-v6-'));
+  try {
+    const migPath = join(migDir, 'quota-model-fit.json');
+    const pk = 'acct:test:pro:google ai ultra:teams_tier_pro|claude_gpt';
+    writeFileSync(
+      migPath,
+      JSON.stringify({
+        version: 1,
+        pools: {
+          [pk]: {
+            gamma: 2.0,
+            gammaHistory: [2.0],
+            pricingSig: sig,
+            samples,
+            fit: { schemaVersion: 5, pricingSig: sig, quality: 'provisional', refBeta: 5.9, full5hUSD: 16.95, models: {} },
+          },
+        },
+      }),
+      'utf8',
+    );
+    const loaded = loadQuotaFitStore(migPath);
+    assert.equal(loaded.pools[pk].fit?.schemaVersion, 6);
+    assert.ok(Math.abs((loaded.pools[pk].fit?.full5hUSD ?? 0) - 19.90) < 0.25);
+  } finally {
+    rmSync(migDir, { recursive: true, force: true });
+  }
+
+  // 2) Trailing delayed settlement (callCount=0, dtSec<=120) merges into contiguous under-settled dirty sample
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-delayed-settle-'));
+  try {
+    const fitPath = join(dir, 'fit.json');
+    const t0 = 1_960_100_000_000;
+    const reset5h = t0 + 4 * 3_600_000;
+    const reset7d = t0 + 6 * 86_400_000;
+    const makeClaudeQ = (tsMs: number, u5: number, u7: number) => ({
+      available: true,
+      planName: 'Pro',
+      tierName: 'Google AI Ultra',
+      teamsTier: 'TEAMS_TIER_PRO',
+      reqStartedAtMs: tsMs - 50,
+      fetchedAtMs: tsMs,
+      pools: [{
+        label: 'Claude / GPT',
+        remainingPct: 100 - u5,
+        resetAtMs: reset5h,
+        windows: [
+          { spanKey: '5h', label: '5h', remainingPct: 100 - u5, resetAtMs: reset5h },
+          { spanKey: '7d', label: '7d', remainingPct: 100 - u7, resetAtMs: reset7d },
+        ],
+      }],
+    });
+
+    const c1 = computeCallCost('claude-opus-5-5', 'Claude Opus 5.5 (High)', 'claude-opus-5-5', 20_000, 140_000, 3_675, 0);
+    // Straddling call (genUncertainStartTs < reqStartedAtMs < ts) makes the sample dirty & under-settled (0.41% for $0.1815)
+    const callObj = {
+      ts: t0 + 25_000,
+      genUncertainStartTs: t0 + 20_000,
+      poolKey: 'claude_gpt',
+      modelId: 'claude-opus-5-5',
+      modelDisplay: 'Claude Opus 5.5 (High)',
+      model: 'claude-opus-5-5',
+      newInput: 20_000,
+      cachedInput: 140_000,
+      outputTokens: 3_675,
+      costUSD: c1.costUSD,
+      priced: true,
+      source: 'app',
+    };
+    ingestQuotaObservation(makeClaudeQ(t0, 14.48, 8.16), { summaries: [] }, { fitPath, nowMs: t0 });
+    const afterCall = ingestQuotaObservation(
+      makeClaudeQ(t0 + 50_000, 14.89, 8.36),
+      { summaries: [{ latestTsMs: t0 + 25_000, recentCalls: [callObj] }] },
+      { fitPath, nowMs: t0 + 50_000 },
+    );
+    const poolKey = `${buildAccountTierKey(makeClaudeQ(t0, 14.48, 8.16))}|claude_gpt`;
+    const beforeMerge = afterCall.pools[poolKey].samples[0];
+    assert.ok(Math.abs(beforeMerge.du5 - 0.41) < 0.01);
+
+    // 45s later with 0 new calls, server settles trailing +0.59% -> merges into previous contiguous sample
+    const afterSettle = ingestQuotaObservation(
+      makeClaudeQ(t0 + 95_000, 15.48, 8.65),
+      { summaries: [{ latestTsMs: t0 + 25_000, recentCalls: [callObj] }] },
+      { fitPath, nowMs: t0 + 95_000 },
+    );
+    assert.equal(afterSettle.pools[poolKey].samples.length, 1);
+    const merged = afterSettle.pools[poolKey].samples[0];
+    assert.ok(Math.abs(merged.du5 - 1.00) < 0.01, `expected merged du5 ~1.00%, got ${merged.du5}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

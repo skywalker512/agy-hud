@@ -14,7 +14,6 @@ import { SubagentsCard } from './SubagentsCard';
 
 interface LiveTabProps {
   snap: StatsSnapshot | null;
-  nowMs: number;
   lang?: Lang;
   recentOpen: boolean;
   expandedRows: Set<number>;
@@ -116,7 +115,6 @@ function buildModelMix(invocations: Invocation[]): ModelMixRow[] {
 
 export function LiveTab({
   snap,
-  nowMs,
   lang,
   recentOpen,
   expandedRows,
@@ -165,12 +163,11 @@ export function LiveTab({
       {/* Sentinel right below HeroSpeedCards for smart scroll-aware PulseBar */}
       <div ref={heroSentinelRef} className="h-0 -my-[5px] pointer-events-none" aria-hidden="true" />
 
-      <ContextWindowCard snap={snap} nowMs={nowMs} t={t} />
+      <ContextWindowCard snap={snap} t={t} />
 
       <LiveQuotaCard
         quota={snap?.accountQuota}
         summary={found ? snap?.summary : undefined}
-        nowMs={nowMs}
         t={t}
         onOpenAccount={onOpenAccount}
       />
@@ -261,7 +258,6 @@ export function LiveTab({
         turns={turns}
         activeStep={found ? snap?.activeStep : null}
         serverTimeMs={snap?.serverTimeMs}
-        nowMs={nowMs}
         latestContext={latest?.totalContext || 0}
         convId={snap?.conversationId || ''}
         recentOpen={recentOpen}

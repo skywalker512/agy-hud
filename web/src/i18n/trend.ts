@@ -60,6 +60,13 @@ export interface TrendTranslations {
   emptyFiltered: string;
   singleCallNote: string;
   zoomSelecting: (count: number) => string;
+  sourceAria: string;
+  sourceSession: string;
+  sourceGlobal: string;
+  globalRefLabel: string;
+  globalRefTip: (label: string) => string;
+  globalRefHide: string;
+  plotAria: string;
 }
 
 const TREND_EN: TrendTranslations = {
@@ -123,6 +130,13 @@ const TREND_EN: TrendTranslations = {
   emptyFiltered: 'No calls match this model filter',
   singleCallNote: '1 call recorded',
   zoomSelecting: (count) => `${count} calls`,
+  sourceAria: 'Trend data source',
+  sourceSession: 'Session',
+  sourceGlobal: '🌐 Global',
+  globalRefLabel: 'Global 30m',
+  globalRefTip: (label) => `Toggle ${label} OpenRouter 30m P50 reference line (up to 3 models on chart)`,
+  globalRefHide: 'Hide global reference lines',
+  plotAria: 'Session trend chart (Left/Right to inspect calls, Enter to open call details, Esc to clear)',
 };
 
 const TREND_ZH: TrendTranslations = {
@@ -186,15 +200,18 @@ const TREND_ZH: TrendTranslations = {
   emptyFiltered: '当前模型筛选下暂无调用记录',
   singleCallNote: '已记录 1 次调用',
   zoomSelecting: (count) => `选区 ${count} 次`,
+  sourceAria: '趋势图数据源',
+  sourceSession: '本会话',
+  sourceGlobal: '🌐 大盘折线',
+  globalRefLabel: '大盘参考 30m',
+  globalRefTip: (label) => `点击叠加/取消 ${label} 的 OpenRouter 近 30 分钟 P50 参考线（最多同图叠加 3 条斗蛐蛐对比）`,
+  globalRefHide: '隐藏大盘参考线',
+  plotAria: '会话趋势图（左右方向键切换调用点，回车查看详情，Esc 清除）',
 };
 
 export function resolveTrendLang(lang: Lang | undefined, t: Translations): Lang {
   if (lang === 'en' || lang === 'zh') return lang;
-  if (t.tabTps !== 'TPS') return 'zh';
-  if (typeof document !== 'undefined' && document.documentElement.lang?.toLowerCase().startsWith('zh')) {
-    return 'zh';
-  }
-  return 'en';
+  return t.lang;
 }
 
 export function getTrendTranslations(lang: Lang): TrendTranslations {

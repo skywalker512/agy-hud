@@ -1,39 +1,29 @@
-export interface GeminiSpec {
-  family: string;
-  slug: string;
-  label: string;
-  shortLabel: string;
-  color: string;
-}
+import {
+  GEMINI_PULSE_MODELS,
+  classifyModelPulseStatus,
+  finiteNum,
+  normalizeProviderLabel,
+  parseGcpGeminiIncidents,
+  parseOpenRouterComparisonSeries,
+  roundNum,
+  sanitizeGcpIncidentUrl,
+  sanitizeIncident,
+  sanitizeIntradayPoints,
+  sanitizeSeriesPoints,
+  type GcpActiveIncident,
+  type GeminiIntradayPoint,
+  type GeminiPulseModelSpec,
+  type GeminiTimeSeriesPoint,
+  type PulseHealthStatus,
+} from '../../../plugin/sidecars/hud_panel/lib/pulse-core.ts';
 
-export const GEMINI_SPECS: readonly GeminiSpec[] = [
-  { family: 'gemini-4-neon', slug: 'google/gemini-4-neon', label: 'Gemini 4 Neon', shortLabel: 'Neon', color: '#4f86f7' },
-  { family: 'gemini-4-hydrogen', slug: 'google/gemini-4-hydrogen', label: 'Gemini 4 Hydrogen', shortLabel: 'Hydrogen', color: '#34d399' },
-  { family: 'gemini-4-carbon', slug: 'google/gemini-4-carbon', label: 'Gemini 4 Carbon', shortLabel: 'Carbon', color: '#a78bfa' },
-  { family: 'gemini-4-argon', slug: 'google/gemini-4-argon', label: 'Gemini 4 Argon', shortLabel: 'Argon', color: '#fbbf24' },
-  { family: 'gemini-3.8-flash', slug: 'google/gemini-3.8-flash', label: 'Gemini 3.8 Flash', shortLabel: '3.8 Flash', color: '#f87171' },
-];
+export type GeminiSpec = GeminiPulseModelSpec;
+export const GEMINI_SPECS: readonly GeminiSpec[] = GEMINI_PULSE_MODELS;
+export type PulseTimeSeriesPoint = GeminiTimeSeriesPoint;
+export type PulseIntradayPoint = GeminiIntradayPoint;
+export type GcpIncident = GcpActiveIncident;
 
-export interface PulseTimeSeriesPoint {
-  x: string;
-  tsMs: number;
-  value: number;
-  byProvider?: Record<string, number>;
-}
-
-export interface PulseIntradayPoint {
-  bucketMs: number;
-  x: string;
-  p50TtftSec: number | null;
-  p90TtftSec?: number | null;
-  p99TtftSec?: number | null;
-  p50Tps: number | null;
-  cacheHitPct: number | null;
-  uptime5mPct?: number | null;
-  uptime30mPct: number | null;
-  requestCount30m?: number;
-  byProvider?: Record<string, { ttft?: number | null; tps?: number | null; cache?: number | null }>;
-}
+export { sanitizeGcpIncidentUrl };
 
 export interface PulseEndpointRoute {
   providerName: string;
@@ -57,7 +47,7 @@ export interface PulseModelData {
   label: string;
   shortLabel: string;
   color: string;
-  status: 'ok' | 'degraded' | 'outage';
+  status: PulseHealthStatus;
   p50TtftSec: number | null;
   p90TtftSec: number | null;
   p99TtftSec: number | null;
@@ -88,16 +78,6 @@ export interface PulseModelData {
   };
 }
 
-export interface GcpIncident {
-  id: string;
-  service: string;
-  severity: string;
-  impact: string;
-  summary: string;
-  begin: string;
-  url: string;
-}
-
 export interface PulseDashboardData {
   mode: 'worker' | 'direct';
   feedUrl?: string;
@@ -109,28 +89,7 @@ export interface PulseDashboardData {
 const CACHE_KEY = 'agy-hud-gemini-pulse-web-v1';
 const FEED_URL_KEY = 'agy-hud-gemini-pulse-feed-url';
 export const DEFAULT_WORKER_FEED_URL = 'https://agy-hud.512.pub';
-const GCP_GEMINI_RE = /vertex|gemini|generative|ai platform|cloud ai|model garden/i;
-
-function roundNum(v: number | null | undefined, digits = 2): number | null {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
-  const f = 10 ** digits;
-  return Math.round(v * f) / f;
-}
-
-function parseUtcMs(raw: string): number {
-  const s = String(raw || '').trim();
-  if (!s) return 0;
-  const iso = s.includes('T') ? s : s.includes(' ') ? `${s.replace(' ', 'T')}Z` : `${s}T12:00:00Z`;
-  const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? ms : 0;
-}
-
-function median(vals: number[]): number | null {
-  if (!vals.length) return null;
-  const s = [...vals].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 === 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
-}
+const MAX_FEED_BODY_BYTES = 5 * 1024 * 1024;
 
 function parsePricePerM(raw: unknown): number | null {
   const n = Number(raw);
@@ -138,25 +97,37 @@ function parsePricePerM(raw: unknown): number | null {
   return roundNum(n * 1_000_000, 3);
 }
 
+function isValidHttpsFeedUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve active feed URL.
+ * Security: `?feed=...` query overrides are strictly session-only and NEVER persisted to
+ * `localStorage`, preventing shared links from permanently poisoning the browser's feed.
+ */
 export function getSavedFeedUrl(): string {
   try {
     const qs = new URLSearchParams(window.location.search).get('feed');
     if (qs !== null) {
       const trimmed = qs.trim();
       if (trimmed === 'direct' || trimmed === 'none') {
-        localStorage.setItem(FEED_URL_KEY, 'direct');
         return '';
       }
-      if (/^https:\/\//i.test(trimmed)) {
-        const clean = trimmed.replace(/\/+$/, '');
-        localStorage.setItem(FEED_URL_KEY, clean);
-        return clean;
+      if (isValidHttpsFeedUrl(trimmed)) {
+        return trimmed.replace(/\/+$/, '');
       }
     }
     const saved = localStorage.getItem(FEED_URL_KEY);
     if (saved === null) return DEFAULT_WORKER_FEED_URL;
     if (saved === 'direct') return '';
-    return saved.trim() || DEFAULT_WORKER_FEED_URL;
+    const clean = saved.trim().replace(/\/+$/, '');
+    return isValidHttpsFeedUrl(clean) ? clean : DEFAULT_WORKER_FEED_URL;
   } catch {
     return DEFAULT_WORKER_FEED_URL;
   }
@@ -165,8 +136,11 @@ export function getSavedFeedUrl(): string {
 export function saveFeedUrl(url: string): void {
   try {
     const clean = url.trim().replace(/\/+$/, '');
-    if (clean) localStorage.setItem(FEED_URL_KEY, clean);
-    else localStorage.setItem(FEED_URL_KEY, 'direct');
+    if (!clean) {
+      localStorage.setItem(FEED_URL_KEY, 'direct');
+    } else if (isValidHttpsFeedUrl(clean)) {
+      localStorage.setItem(FEED_URL_KEY, clean);
+    }
   } catch {
     /* ignore */
   }
@@ -177,7 +151,15 @@ export function loadCachedPulse(): PulseDashboardData | null {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PulseDashboardData;
-    if (parsed && Array.isArray(parsed.models) && parsed.models.length > 0) return parsed;
+    if (parsed && Array.isArray(parsed.models) && parsed.models.length > 0) {
+      const safeIncidents = Array.isArray(parsed.incidents)
+        ? parsed.incidents.map(sanitizeIncident).filter((x): x is GcpIncident => x !== null)
+        : [];
+      return {
+        ...parsed,
+        incidents: safeIncidents,
+      };
+    }
   } catch {
     /* ignore */
   }
@@ -192,49 +174,13 @@ function saveCachedPulse(data: PulseDashboardData): void {
   }
 }
 
-function parseDirectComparison(
-  raw: { data?: Array<{ x?: string; y?: Record<string, unknown> }> } | null,
-  kind: 'ttft' | 'e2e' | 'tps' | 'cache' | 'uptime',
-): PulseTimeSeriesPoint[] {
-  const rows = Array.isArray(raw?.data) ? raw.data : [];
-  const out: PulseTimeSeriesPoint[] = [];
-  for (const row of rows) {
-    if (!row?.x || !row.y || typeof row.y !== 'object') continue;
-    const vals = Object.values(row.y)
-      .filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0)
-      .map((num) =>
-        kind === 'ttft' || kind === 'e2e'
-          ? roundNum(num / 1000, 2) ?? 0
-          : kind === 'cache'
-            ? Math.max(0, Math.min(100, roundNum(num, 1) ?? 0))
-            : kind === 'uptime'
-              ? Math.max(0, Math.min(100, roundNum(num, 2) ?? 0))
-              : roundNum(num, 1) ?? 0,
-      )
-      .filter((v) => v > 0);
-    const med = median(vals);
-    if (med === null) continue;
-    out.push({
-      x: row.x.slice(0, 10),
-      tsMs: parseUtcMs(row.x),
-      value: roundNum(med, kind === 'tps' || kind === 'cache' ? 1 : 2) ?? med,
-    });
-  }
-  return out;
-}
-
-function normalizeProvider(tag: string, name: string): string {
-  const probe = `${tag} ${name}`.toLowerCase();
-  if (probe.includes('vertex')) return 'Google Vertex';
-  if (probe.includes('ai-studio') || probe.includes('ai studio')) return 'AI Studio';
-  return name || tag || 'Provider';
-}
-
-async function fetchJson<T>(url: string, timeoutMs = 8000): Promise<T | null> {
+async function fetchJson<T>(url: string, timeoutMs = 8000, maxBytes = MAX_FEED_BODY_BYTES): Promise<T | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return null;
-    return (await res.json()) as T;
+    const text = await res.text();
+    if (text.length > maxBytes) return null;
+    return JSON.parse(text) as T;
   } catch {
     return null;
   }
@@ -253,15 +199,15 @@ async function fetchModelRoutes(slug: string): Promise<{ permaslug: string | nul
       if (m) permaslug = m[1];
     }
     routes.push({
-      providerName: normalizeProvider(String(e?.tag || ''), String(e?.provider_name || '')),
+      providerName: normalizeProviderLabel(String(e?.tag || e?.provider_name || '')),
       tag: String(e?.tag || ''),
       serviceTier: String(e?.service_tier || 'standard'),
-      status: typeof e?.status === 'number' ? e.status : 0,
-      uptime5m: typeof e?.uptime_last_5m === 'number' ? roundNum(e.uptime_last_5m, 1) : null,
-      uptime30m: typeof e?.uptime_last_30m === 'number' ? roundNum(e.uptime_last_30m, 1) : null,
-      uptime1d: typeof e?.uptime_last_1d === 'number' ? roundNum(e.uptime_last_1d, 1) : null,
-      contextLength: typeof e?.context_length === 'number' ? e.context_length : null,
-      maxCompletionTokens: typeof e?.max_completion_tokens === 'number' ? e.max_completion_tokens : null,
+      status: finiteNum(e?.status) ?? 0,
+      uptime5m: finiteNum(e?.uptime_last_5m) !== null ? roundNum(e.uptime_last_5m, 1) : null,
+      uptime30m: finiteNum(e?.uptime_last_30m) !== null ? roundNum(e.uptime_last_30m, 1) : null,
+      uptime1d: finiteNum(e?.uptime_last_1d) !== null ? roundNum(e.uptime_last_1d, 1) : null,
+      contextLength: finiteNum(e?.context_length),
+      maxCompletionTokens: finiteNum(e?.max_completion_tokens),
       promptPerM: parsePricePerM(e?.pricing?.prompt),
       cachedPerM: parsePricePerM(e?.pricing?.input_cache_read),
       completionPerM: parsePricePerM(e?.pricing?.completion),
@@ -285,84 +231,86 @@ async function tryFetchWorkerFeed(feedUrl: string): Promise<PulseDashboardData |
   );
 
   const models: PulseModelData[] = GEMINI_SPECS.map((spec) => {
-    const m = json.models.find((row: any) => row.family === spec.family) || {};
-    const e2e7d: PulseTimeSeriesPoint[] = Array.isArray(m.series?.e2e7d) ? m.series.e2e7d : [];
+    const m = json.models.find((row: any) => row && row.family === spec.family) || {};
+    const ttft7d = sanitizeSeriesPoints(m.series?.ttft7d);
+    const e2e7d = sanitizeSeriesPoints(m.series?.e2e7d);
+    const tps7d = sanitizeSeriesPoints(m.series?.tps7d);
+    const cache7d = sanitizeSeriesPoints(m.series?.cache7d);
+    const uptime7d = sanitizeSeriesPoints(m.series?.uptime7d);
+    const intraday30m = sanitizeIntradayPoints(m.series?.intraday30m);
+    const degradedProviders = Array.isArray(m.degradedProviders)
+      ? m.degradedProviders.filter((p: unknown): p is string => typeof p === 'string').map((p: string) => p.slice(0, 64))
+      : [];
+    const reqCount = finiteNum(m.requestCount30m);
+    const toolCalls = finiteNum(m.toolCalls24h);
     return {
       family: spec.family,
       slug: spec.slug,
-      permaslug: m.permaslug,
+      permaslug: typeof m.permaslug === 'string' && /^google\/[a-zA-Z0-9._-]+$/.test(m.permaslug) ? m.permaslug : undefined,
       label: spec.label,
       shortLabel: spec.shortLabel,
       color: spec.color,
       status: m.status === 'outage' || m.status === 'degraded' ? m.status : 'ok',
-      p50TtftSec: typeof m.p50TtftSec === 'number' ? m.p50TtftSec : null,
-      p90TtftSec: typeof m.p90TtftSec === 'number' ? m.p90TtftSec : null,
-      p99TtftSec: typeof m.p99TtftSec === 'number' ? m.p99TtftSec : null,
-      p50Tps: typeof m.p50Tps === 'number' ? m.p50Tps : null,
-      p90Tps: typeof m.p90Tps === 'number' ? m.p90Tps : null,
+      p50TtftSec: finiteNum(m.p50TtftSec),
+      p90TtftSec: finiteNum(m.p90TtftSec),
+      p99TtftSec: finiteNum(m.p99TtftSec),
+      p50Tps: finiteNum(m.p50Tps),
+      p90Tps: finiteNum(m.p90Tps),
       e2eLatestSec: e2e7d.length ? e2e7d[e2e7d.length - 1].value : null,
-      cacheHitPct: typeof m.cacheHitPct === 'number' ? m.cacheHitPct : null,
-      uptime5mPct: typeof m.uptime5mPct === 'number' ? m.uptime5mPct : null,
-      uptime30mPct: typeof m.uptime30mPct === 'number' ? m.uptime30mPct : null,
-      uptime1dPct: typeof m.uptime1dPct === 'number' ? m.uptime1dPct : null,
-      toolCallErrorPct: typeof m.toolCallErrorPct === 'number' ? m.toolCallErrorPct : null,
-      toolCalls24h: typeof m.toolCalls24h === 'number' ? m.toolCalls24h : 0,
-      reasoningSharePct: typeof m.reasoningSharePct === 'number' ? m.reasoningSharePct : null,
-      avgPromptTokens: typeof m.avgPromptTokens === 'number' ? m.avgPromptTokens : null,
-      avgOutputTokens: typeof m.avgOutputTokens === 'number' ? m.avgOutputTokens : null,
-      effectiveInputPrice: typeof m.effectiveInputPrice === 'number' ? m.effectiveInputPrice : null,
-      effectiveOutputPrice: typeof m.effectiveOutputPrice === 'number' ? m.effectiveOutputPrice : null,
-      requestCount30m: typeof m.requestCount30m === 'number' ? m.requestCount30m : 0,
-      degradedProviders: Array.isArray(m.degradedProviders) ? m.degradedProviders : [],
+      cacheHitPct: finiteNum(m.cacheHitPct),
+      uptime5mPct: finiteNum(m.uptime5mPct),
+      uptime30mPct: finiteNum(m.uptime30mPct),
+      uptime1dPct: finiteNum(m.uptime1dPct),
+      toolCallErrorPct: finiteNum(m.toolCallErrorPct),
+      toolCalls24h: toolCalls !== null && toolCalls > 0 ? Math.round(toolCalls) : 0,
+      reasoningSharePct: finiteNum(m.reasoningSharePct),
+      avgPromptTokens: finiteNum(m.avgPromptTokens),
+      avgOutputTokens: finiteNum(m.avgOutputTokens),
+      effectiveInputPrice: finiteNum(m.effectiveInputPrice),
+      effectiveOutputPrice: finiteNum(m.effectiveOutputPrice),
+      requestCount30m: reqCount !== null && reqCount > 0 ? Math.round(reqCount) : 0,
+      degradedProviders,
       routes: routeMap.get(spec.family) || [],
       series: {
-        ttft7d: Array.isArray(m.series?.ttft7d) ? m.series.ttft7d : [],
+        ttft7d,
         e2e7d,
-        tps7d: Array.isArray(m.series?.tps7d) ? m.series.tps7d : [],
-        cache7d: Array.isArray(m.series?.cache7d) ? m.series.cache7d : [],
-        uptime7d: Array.isArray(m.series?.uptime7d) ? m.series.uptime7d : [],
-        intraday30m: Array.isArray(m.series?.intraday30m) ? m.series.intraday30m : [],
+        tps7d,
+        cache7d,
+        uptime7d,
+        intraday30m,
       },
     };
   });
 
+  const safeIncidents = Array.isArray(json.incidents)
+    ? json.incidents.map(sanitizeIncident).filter((x: GcpIncident | null): x is GcpIncident => x !== null)
+    : [];
+
+  const fetchedAtMs = finiteNum(json.fetchedAtMs);
   const data: PulseDashboardData = {
     mode: 'worker',
     feedUrl,
-    fetchedAtMs: typeof json.fetchedAtMs === 'number' && json.fetchedAtMs > 0 ? json.fetchedAtMs : Date.now(),
+    fetchedAtMs: fetchedAtMs !== null && fetchedAtMs > 0 ? fetchedAtMs : Date.now(),
     models,
-    incidents: Array.isArray(json.incidents) ? json.incidents : [],
+    incidents: safeIncidents,
   };
-  saveCachedPulse(data);
+  // Only overwrite browser cache when using the default/saved feed (avoid caching untrusted ?feed= overrides)
+  if (feedUrl === DEFAULT_WORKER_FEED_URL || !new URLSearchParams(window.location.search).has('feed')) {
+    saveCachedPulse(data);
+  }
   return data;
 }
 
 export async function fetchLiveGeminiPulse(feedUrl?: string): Promise<PulseDashboardData> {
   const cleanFeed = (feedUrl || '').trim();
-  if (cleanFeed && /^https:\/\//i.test(cleanFeed)) {
+  if (cleanFeed && isValidHttpsFeedUrl(cleanFeed)) {
     const workerData = await tryFetchWorkerFeed(cleanFeed);
     if (workerData) return workerData;
   }
 
   // Direct zero-server browser live fetch (OpenRouter CORS APIs + Google Cloud Service Health JSON)
-  const gcpPromise = fetchJson<Array<Record<string, any>>>('https://status.cloud.google.com/incidents.json').then((raw) =>
-    (raw || [])
-      .filter((inc) => inc && !inc.end)
-      .filter((inc) => {
-        const text = `${inc.service_name || ''} ${inc.external_desc || ''} ${(inc.affected_products || []).map((p: any) => p?.title || '').join(' ')}`;
-        return GCP_GEMINI_RE.test(text) || (/multiple products/i.test(String(inc.service_name || '')) && String(inc.severity || '').toLowerCase() === 'high');
-      })
-      .map((inc) => ({
-        id: String(inc.id || inc.number || ''),
-        service: String(inc.service_name || 'Google Cloud AI'),
-        severity: String(inc.severity || 'medium').toLowerCase(),
-        impact: String(inc.status_impact || 'SERVICE_DISRUPTION'),
-        summary: String(inc.external_desc || inc.most_recent_update?.text || '').slice(0, 200),
-        begin: String(inc.begin || inc.created || ''),
-        url: typeof inc.uri === 'string' && inc.uri
-          ? (inc.uri.startsWith('http') ? inc.uri : `https://status.cloud.google.com/${inc.uri.replace(/^\/+/, '')}`)
-          : 'https://status.cloud.google.com/',
-      })),
+  const gcpPromise = fetchJson<Array<Record<string, any>>>('https://status.cloud.google.com/incidents.json').then(
+    (raw) => parseGcpGeminiIncidents(raw),
   );
 
   const modelPromises = GEMINI_SPECS.map(async (spec) => {
@@ -375,9 +323,11 @@ export async function fetchLiveGeminiPulse(feedUrl?: string): Promise<PulseDashb
     const uptime5mPct = up5s.length ? roundNum(Math.min(...up5s), 1) : null;
     const uptime30mPct = up30s.length ? roundNum(Math.min(...up30s), 1) : null;
     const uptime1dPct = up1ds.length ? roundNum(Math.min(...up1ds), 1) : null;
-    const degradedProviders = [...new Set(
-      pool.filter((r) => r.status < 0 || (r.uptime30m !== null && r.uptime30m < 95)).map((r) => r.providerName),
-    )];
+    const degradedProviders = [
+      ...new Set(
+        pool.filter((r) => r.status < 0 || (r.uptime30m !== null && r.uptime30m < 95)).map((r) => r.providerName),
+      ),
+    ];
 
     let ttft7d: PulseTimeSeriesPoint[] = [];
     let e2e7d: PulseTimeSeriesPoint[] = [];
@@ -394,11 +344,11 @@ export async function fetchLiveGeminiPulse(feedUrl?: string): Promise<PulseDashb
         fetchJson<any>(`https://openrouter.ai/api/frontend/v1/stats/cache-hit-rate-comparison?${qs}`),
         fetchJson<any>(`https://openrouter.ai/api/frontend/v1/stats/uptime-comparison?${qs}`),
       ]);
-      ttft7d = parseDirectComparison(latR, 'ttft');
-      e2e7d = parseDirectComparison(e2eR, 'e2e');
-      tps7d = parseDirectComparison(tpsR, 'tps');
-      cache7d = parseDirectComparison(cacheR, 'cache');
-      uptime7d = parseDirectComparison(upR, 'uptime');
+      ttft7d = parseOpenRouterComparisonSeries(latR, 'ttft');
+      e2e7d = parseOpenRouterComparisonSeries(e2eR, 'e2e');
+      tps7d = parseOpenRouterComparisonSeries(tpsR, 'tps');
+      cache7d = parseOpenRouterComparisonSeries(cacheR, 'cache');
+      uptime7d = parseOpenRouterComparisonSeries(upR, 'uptime');
     }
 
     const latestTtft = ttft7d.length ? ttft7d[ttft7d.length - 1].value : null;
@@ -423,15 +373,17 @@ export async function fetchLiveGeminiPulse(feedUrl?: string): Promise<PulseDashb
   });
 
   const [incidents, rows] = await Promise.all([gcpPromise, Promise.all(modelPromises)]);
-  const hasHighIncident = incidents.some((i) => i.severity === 'high' || /OUTAGE/i.test(i.impact));
 
   const models: PulseModelData[] = rows.map((r) => {
-    const status: 'ok' | 'degraded' | 'outage' =
-      hasHighIncident || (r.uptime30mPct !== null && r.uptime30mPct < 85)
-        ? 'outage'
-        : incidents.length > 0 || (r.uptime30mPct !== null && r.uptime30mPct < 98) || r.degradedProviders.length > 0 || (r.latestTtft !== null && r.latestTtft >= 9)
-          ? 'degraded'
-          : 'ok';
+    const status = classifyModelPulseStatus(
+      {
+        uptime30mPct: r.uptime30mPct,
+        degradedProviders: r.degradedProviders,
+        p50TtftSec: r.latestTtft,
+        p90TtftSec: null,
+      },
+      incidents,
+    );
     return {
       family: r.spec.family,
       slug: r.spec.slug,

@@ -107,7 +107,7 @@ export function CacheTtlCard({ cacheTtl, t }: CacheTtlCardProps) {
                 </div>
 
                 {/* Key Survival Metrics Strip: Borderless L2 Recessed Wells + Plain-Language Tooltips */}
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="narrow-grid-2 grid grid-cols-3 gap-1.5">
                   <div
                     className="l2-well px-2.5 py-1.5 flex flex-col gap-[1px] min-w-0 cursor-help"
                     data-tip={t.cacheTtlP80Tip(fmtTtlDuration(m.p80Sec))}

@@ -3,7 +3,7 @@
 <img src="docs/assets/banner.svg" alt="AGY-HUD Banner" width="100%" />
 
 <p>
-  <strong>Live telemetry for Google Antigravity — real-time speed, TTFT waterfalls, prompt cache survival, calibrated quota runway, and native Swarm visibility right in your side pane.</strong>
+  <strong>Live telemetry for Google Antigravity — real-time speed, TTFT root-cause attribution, Gemini Global Pulse 7d/5m radar &amp; Arena PK, prompt cache survival, calibrated quota runway, recursive Swarm rollup, and 2x Wrapped posters right in your side pane.</strong>
 </p>
 
 <p>
@@ -17,10 +17,10 @@
 <p>
   <strong>English</strong> ·
   <a href="README.zh-CN.md">简体中文</a> ·
-  <a href="https://skywalker512.github.io/agy-hud/">Website</a> ·
+  <a href="https://agy-hud.512.pub/">Website</a> ·
+  <a href="https://agy-hud.512.pub/pulse/">Gemini Pulse Radar</a> ·
   <a href="#quick-install">Quick Install</a> ·
   <a href="#interface-tour">Tour</a> ·
-  <a href="#craftsmanship">Craftsmanship</a> ·
   <a href="docs/GUIDE.md">Technical Guide</a> ·
   <a href="AGENTS.md">AGENTS.md</a>
 </p>
@@ -112,17 +112,17 @@ AGY-HUD organizes everything into three calm, glanceable views designed for a na
 - **Hero Speed & Area Sparkline**: Separates post-TTFT streaming speed (`GEN TPS`) from end-to-end speed (`E2E TPS`), showing a session-average delta badge and a smooth bottom-anchored sparkline without single-packet spikes skewing your numbers.
 - **Context Window X-Ray**: Clean segmented bar with interactive hover highlighting and an aligned 2-column token table (`Sys Prompt`, `Tool Defs`, `Tool Results` with per-tool leaderboard, `Model Replies`, `User / Ckpt`, plus finer MCP/skills/rules breakdown when present).
 - **Stay Ahead of Compaction & Cache Expiry**: A compact 4-column micro-metric strip shows estimated **headroom turns (`~Nt`)**, **cache hit %**, live **Prompt Cache TTL survival probability**, and **session cost / `5h` quota burn**.
-- **Native AGY Swarm Cockpit**: Automatically appears on Swarm sessions to track `@rosterName` worker states, active tasks, `Board #seq`, rolled-up swarm burn, and one-click coordinator↔worker breadcrumbs.
+- **Native AGY Swarm Cockpit & Recursive Tree Rollup**: Automatically appears on Swarm sessions to track `@rosterName` worker states, active tasks, `Board #seq`, recursively rolled-up tree cost/output/quota across nested subagents & Side-Q, and one-click coordinator↔worker breadcrumbs.
 
 ### 2. Calls — *Why was that turn slow or expensive?*
-- **Full-Session Trend Explorer**: Never locked to the last 32 calls. Switch across 6 metrics (`TPS`, `TTFT`, `OUT`, `CACHE`, `CTX`, `QUOTA%`), scrub history with the **Minimap Brush**, drag-to-zoom on the canvas, lock/unlock **`Follow Live`**, and click any point to jump straight to that call.
+- **Session & Global Trend Explorer**: Switch between full-session history (6 metrics: `TPS`, `TTFT`, `OUT`, `CACHE`, `CTX`, `QUOTA%`, with Minimap Brush, drag-to-zoom, and `Follow Live`) and **Global Trend** mode—plotting OpenRouter 7d/5m Gemini curves (Vertex vs AI Studio split) with your local telemetry overlaid.
 - **5-Tab Call Detail Inspector**: Click any call row to inspect `Overview` (4-cell strip, proportional **Timing Waterfall** for `TTFT / Think / Tool Gen & TC-WAIT / Reply`, and **Token Composition Bar**), `Thinking`, `Tools`, `Reply`, and `Raw`.
 - **Search, Filter & Export**: Hit `/` to search across models, prompts, and tool names; filter anomalies (`Slow TTFT >3s`, `Low Cache <60%`, `Stall / Buf`, `Compacts`); sort by slowest or costliest; or copy a clean **Markdown / JSON** report in one click.
 
 ### 3. Account — *How long will my quota last?*
-- **Dual 5h / 7d Quota Runway**: Hatched diagonal runway bars show projected burn before reset right inside the progress bar—so you can tell at a glance whether your current pace finishes safely or runs dry early.
-- **Calibrated `k`-Multiplier Rules & Prompt Cache TTL**: See empirically fitted quota multipliers per model family alongside 7-bucket Prompt Cache survival curves (`P80` / `P50` safe windows and cumulative expired-cache cost).
-- **Unified Ledger, 16w/52w Heatmap & Iceberg View**: Automatically merges App, CLI (`agy`), ACP, and IDE stores into one spend grid, a **16-week / 52-week Activity Heatmap**, and a **Monochrome Token Iceberg** view (New Tokens above baseline vs Cached Read below baseline), plus 1-click in-app updates.
+- **Gemini Global Pulse, TTFT Attribution & Cyber Arena PK**: Compare your local 30m/24h/7d Gemini latency, TPS, and cache hit rate against the live global pool ([`agy-hud.512.pub/pulse/`](https://agy-hud.512.pub/pulse/)), see automatic TTFT root-cause verdicts (`upstream_degraded`, `cache_miss`, `large_context`, `local_concurrency`, `account_or_network`), and duel models head-to-head in **Cyber Arena PK**.
+- **Dual 5h / 7d Quota Runway & Calibrated `k`-Rules**: Hatched diagonal runway bars show projected burn before reset right inside the progress bar alongside empirically fitted per-model `k`-multipliers and 7-bucket Prompt Cache TTL survival curves (`P80` / `P50` horizons and expired-cache cost).
+- **Unified Ledger, 16w/52w Iceberg Heatmap & 2x Wrapped Poster**: Automatically merges App, CLI (`agy`), ACP, and IDE stores into one spend grid, a **16w / 52w Activity Heatmap**, a **Monochrome Token Iceberg** view, one-click **2x PNG Wrapped share posters** (Cyber / Gold / Light), and safe in-app updates.
 
 ---
 
@@ -153,7 +153,7 @@ AGY-HUD organizes everything into three calm, glanceable views designed for a na
 
 ## Privacy, Architecture & FAQ
 
-- **100% Local Read-Only**: AGY-HUD reads `~/.gemini/antigravity/conversations/<uuid>.db` (`?mode=ro`), local loopback Language Server RPC, and on-disk Swarm metadata. Prompts, code, and telemetry never leave your machine. The only optional outbound request is checking/downloading releases from `github.com/skywalker512/agy-hud`.
+- **100% Local Read-Only Telemetry**: AGY-HUD reads `~/.gemini/antigravity/conversations/<uuid>.db` (`?mode=ro`), local loopback Language Server RPC, and on-disk Swarm metadata. Prompts, code, and local telemetry never leave your machine; outbound requests are strictly read-only public fetches (GitHub release checks and toggleable Gemini Global Pulse status feeds).
 - **Zero Patching, Survives Updates**: Because AGY-HUD is a standard Antigravity sidecar plugin—never touching `app.asar` or requiring CDP flags—it keeps working across Antigravity updates and launches cleanly from your normal app icon.
 - **Why Node.js 22.18+?** Built-in `node:sqlite` and native TypeScript stripping allow the entire sidecar backend and installer to run with **zero runtime npm dependencies**.
 
@@ -163,9 +163,10 @@ AGY-HUD organizes everything into three calm, glanceable views designed for a na
 
 | Resource | Description |
 | :--- | :--- |
-| [Launch Website](https://skywalker512.github.io/agy-hud/) | Interactive 3-tab HUD preview & OS install picker ([`site/`](site/)) |
+| [Launch Website](https://agy-hud.512.pub/) | Interactive 3-tab HUD preview, 16-theme sync & OS install picker ([`site/`](site/)) |
+| [Gemini Pulse Radar](https://agy-hud.512.pub/pulse/) | Standalone 5-minute global Gemini TTFT, TPS, cache hit & GCP incident dashboard ([`workers/gemini-pulse/`](workers/gemini-pulse/)) |
 | [Installation & Self-Upgrade Guide](docs/INSTALLATION.md) | Custom paths, pinned versions, `--doctor`, security model & troubleshooting ([中文](docs/INSTALLATION.zh-CN.md)) |
-| [User & Technical Guide](docs/GUIDE.md) | Deep dive into Swarm Cockpit, Cache TTL math, IRLS `k`-fitter, Protobuf map & API ([中文](docs/GUIDE.zh-CN.md)) |
+| [User & Technical Guide](docs/GUIDE.md) | Deep dive into Swarm Cockpit, Gemini Pulse, Cache TTL math, IRLS `k`-fitter, Protobuf map & API ([中文](docs/GUIDE.zh-CN.md)) |
 | [AGENTS.md](AGENTS.md) | Copy-pasteable install & verification guide for AI coding agents |
 | [CHANGELOG.md](CHANGELOG.md) | Full release history |
 
@@ -175,12 +176,12 @@ AGY-HUD organizes everything into three calm, glanceable views designed for a na
 ```bash
 # Build UI bundle (Preact + TypeScript + Tailwind CSS v4 -> plugin/sidecars/hud_panel/ui/)
 npm --prefix web install
-npm --prefix web run build
+npm run build:ui
 npm --prefix web run dev          # watch mode paired with `node plugin/install.mjs --link`
 
-# Full verification: backend typecheck + UI build + all unit & trace tests
-npm --prefix plugin/sidecars/hud_panel run check
-node --test tools/test/trace.test.mjs
+# Full verification: web/site/worker typecheck + sidecar, worker & tools test suites
+npm run check
+npm run build:site
 ```
 
 </details>

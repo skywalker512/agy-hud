@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { memo } from 'preact/compat';
+import { useCallback, useMemo, useRef, useState } from 'preact/hooks';
+import { useElementWidth } from '../../hooks/useElementWidth';
 import type { GeminiIntradayPoint, GeminiModelGlobalPulse, GeminiPulseSnapshot, Lang } from '../../types/telemetry';
 import { fmtClock, fmtSec, fmtTps } from '../../utils/format';
 import { buildMonotonePath, clamp, niceMax } from './trendMath';
+
+const EMPTY_MODELS: GeminiModelGlobalPulse[] = [];
 
 export type GlobalTrendMetric = 'ttft' | 'e2e' | 'tps' | 'cache' | 'uptime';
 
@@ -84,35 +88,29 @@ function fmtShortX(xLabel: string, metric: GlobalTrendMetric, isZh: boolean, isI
   return xLabel.slice(5, 10);
 }
 
-export function GlobalTrendView({
+function GlobalTrendViewImpl({
   geminiPulse,
   metric,
   onSelectMetric,
   lang,
 }: GlobalTrendViewProps) {
   const isZh = lang === 'zh';
-  const models = geminiPulse?.available ? geminiPulse.models : [];
-  const boxRef = useRef<HTMLDivElement>(null);
-  const [svgW, setSvgW] = useState(380);
+  const models = geminiPulse?.available ? geminiPulse.models : EMPTY_MODELS;
+  const [svgW, setBoxWidthEl] = useElementWidth(380);
+  const boxElRef = useRef<HTMLDivElement | null>(null);
+  const boxRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      boxElRef.current = node;
+      setBoxWidthEl(node);
+    },
+    [setBoxWidthEl],
+  );
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [splitProviders, setSplitProviders] = useState<boolean>(false);
   const [showLocalOverlay, setShowLocalOverlay] = useState<boolean>(true);
   const [matchLocalCtx, setMatchLocalCtx] = useState<boolean>(false);
   const [granularity, setGranularity] = useState<'7d' | '5m'>('7d');
   const [selectedFamilies, setSelectedFamilies] = useState<string[] | null>(null);
-
-  useEffect(() => {
-    const el = boxRef.current;
-    if (!el) return;
-    if (el.clientWidth > 0) setSvgW(Math.max(220, Math.round(el.clientWidth)));
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect?.width || el.clientWidth;
-      if (w > 0) setSvgW(Math.max(220, Math.round(w)));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   const modelIndexMap = useMemo(
     () => new Map(models.map((m, idx) => [m.family, idx])),
@@ -680,10 +678,11 @@ export function GlobalTrendView({
   }, [xLabels, metric, isZh, effectiveIntraday]);
 
   const handlePointerMove = (e: PointerEvent) => {
-    if (!boxRef.current || xLabels.length === 0) return;
-    const rect = boxRef.current.getBoundingClientRect();
-    const relX = e.clientX - rect.left;
-    const frac = clamp((relX - padLeft) / Math.max(1, plotW), 0, 1);
+    if (!boxElRef.current || xLabels.length === 0) return;
+    const rect = boxElRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const svgX = ((e.clientX - rect.left) / rect.width) * svgW;
+    const frac = clamp((svgX - padLeft) / Math.max(1, plotW), 0, 1);
     const idx = Math.round(frac * (xLabels.length - 1));
     setHoveredIdx(idx);
   };
@@ -700,7 +699,7 @@ export function GlobalTrendView({
     <div className="flex flex-col gap-2 min-w-0">
       {/* Global Metric Tabs + Local Overlay + Provider Split toggle */}
       <div className="flex flex-wrap items-center justify-between gap-1.5 min-w-0">
-        <div className="metric-tabs" role="tablist" aria-label="Global metric">
+        <div className="metric-tabs" role="tablist" aria-label={isZh ? '全局指标' : 'Global metric'}>
           {(['ttft', 'e2e', 'tps', 'cache', 'uptime'] as const).map((gm) => (
             <button
               key={gm}
@@ -1069,3 +1068,5 @@ export function GlobalTrendView({
     </div>
   );
 }
+
+export const GlobalTrendView = memo(GlobalTrendViewImpl);

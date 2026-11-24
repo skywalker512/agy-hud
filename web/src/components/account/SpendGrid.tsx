@@ -13,7 +13,7 @@ export function SpendGrid({ summary, history, sessionInfo, t }: SpendGridProps) 
   const s = summary;
   const h = history;
   const tree = sessionInfo?.treeTotals;
-  const isZh = t.spendSession === '本会话';
+  const isZh = t.lang === 'zh';
 
   const rootCost = s?.totalCostUSD || 0;
   const rootSaved = s?.totalSavedUSD || 0;

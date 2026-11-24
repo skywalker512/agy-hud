@@ -1,26 +1,39 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { memo } from 'preact/compat';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'preact/hooks';
+import { useElementWidth } from '../../hooks/useElementWidth';
 import type { Translations } from '../../i18n';
 import { getTrendTranslations, resolveTrendLang } from '../../i18n/trend';
 import type { ChartMetric, Compaction, GeminiPulseSnapshot, Invocation, Lang } from '../../types/telemetry';
 import {
   cacheTier,
   fmtCachePct,
-  fmtClock,
   fmtNum,
   fmtQuotaPct,
   fmtSec,
   fmtTps,
   fmtUsd,
-  formatModelTag,
   ttftTier,
 } from '../../utils/format';
 import { IconClock, IconFastForward, IconMinus, IconPlus } from '../common/Icons';
 import { GlobalTrendView, stableGeminiModelColor, type GlobalTrendMetric } from './GlobalTrendView';
 import {
-  TREND_RANGE_STORAGE_KEY,
+  estimateSvgLabelWidth,
+  fmtSignedPct,
+  fmtSignedPp,
+  formatModelMetricAvg,
+  formatPrimaryMetricValue,
+  getModelKey,
+  preferredModelColor,
+  readSavedPreset,
+  shortArenaModelName,
+  shortModelName,
+  writeSavedPreset,
+} from './trend/modelLabels';
+import { TrendMinimap } from './trend/TrendMinimap';
+import { TrendPopover } from './trend/TrendPopover';
+import {
   advanceRangeOnDataUpdate,
   buildMonotonePath,
-  centerViewRangeAt,
   clamp,
   clampViewRange,
   computeEma,
@@ -34,9 +47,7 @@ import {
   getDefaultPreset,
   getMetricValue,
   getMinSpan,
-  isSavedRangePreset,
   locateCompactionMarkers,
-  locateMinimapCompactionFractions,
   niceMax,
   panViewRange,
   zoomViewRange,
@@ -44,23 +55,6 @@ import {
   type RangePreset,
   type ViewRange,
 } from './trendMath';
-
-function estimateSvgLabelWidth(text: string): number {
-  let w = 0;
-  for (const ch of text) {
-    w += ch.charCodeAt(0) > 0x7f ? 9.4 : 5.4;
-  }
-  return Math.ceil(w) + 10;
-}
-
-function shortArenaModelName(label: string): string {
-  return label
-    .replace(/^Gemini\s+/i, '')
-    .replace(/^4\s+Hydrogen$/i, 'Hydro')
-    .replace(/^4\s+Carbon$/i, 'Carbon')
-    .replace(/^4\s+Neon$/i, 'Neon')
-    .replace(/^4\s+Argon$/i, 'Argon');
-}
 
 export interface TrendChartCardProps {
   invocations: Invocation[];
@@ -107,136 +101,11 @@ interface DragZoomVisual {
   count: number;
 }
 
-type BrushMode = 'pan' | 'resize-left' | 'resize-right';
-
 const METRICS: ChartMetric[] = ['tps', 'ttft', 'out', 'cache', 'ctx', 'quota'];
 const RANGE_PRESETS: Array<Exclude<RangePreset, 'custom'>> = ['20', '50', '100', 'all'];
 const MODEL_PALETTE = ['var(--seg-think)', 'var(--seg-cache)', 'var(--seg-input)', 'var(--seg-out)'];
 
-function readSavedPreset(): Exclude<RangePreset, 'custom'> | null {
-  try {
-    const raw = window.localStorage.getItem(TREND_RANGE_STORAGE_KEY);
-    return isSavedRangePreset(raw) ? raw : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeSavedPreset(preset: Exclude<RangePreset, 'custom'>): void {
-  try {
-    window.localStorage.setItem(TREND_RANGE_STORAGE_KEY, preset);
-  } catch {
-    // Ignore storage errors in restricted webviews
-  }
-}
-
-function getModelKey(r: Invocation): string {
-  return formatModelTag(r.modelId, r.modelDisplay, r.model) || 'unknown';
-}
-
-function shortTierSuffix(probe: string): string {
-  const m = /(?:\(|-)(xhigh|high|medium|low|minimal)\)?\s*$/i.exec(probe.trim());
-  if (!m) return '';
-  const tier = m[1].toLowerCase();
-  if (tier === 'xhigh') return '·XH';
-  if (tier === 'low') return '·L';
-  if (tier === 'medium') return '·M';
-  if (tier === 'minimal') return '·Min';
-  return '';
-}
-
-function shortModelName(r: Invocation): string {
-  const fullTag = formatModelTag(r.modelId, r.modelDisplay, r.model);
-  const probe = `${r.modelDisplay || ''} ${fullTag} ${r.model || ''}`.toLowerCase();
-  const tier = shortTierSuffix(fullTag || r.modelDisplay || '');
-  if (probe.includes('orchestrator')) {
-    if (probe.includes('carbon')) return 'Orch·Carbon';
-    if (probe.includes('neon')) return 'Orch·Neon';
-    if (probe.includes('argon')) return 'Orch·Argon';
-    if (probe.includes('hydrogen')) return 'Orch·Hydro';
-    return 'Orchestrator';
-  }
-  if (probe.includes('flash-worker')) return 'Flash·Worker';
-  if (probe.includes('3.8-flash') || probe.includes('3.8 flash')) return `3.8 Flash${tier}`;
-  if (probe.includes('carbon')) return `Carbon${tier}`;
-  if (probe.includes('argon')) return `Argon${tier}`;
-  if (probe.includes('hydrogen')) return `Hydrogen${tier}`;
-  if (probe.includes('neon')) return `Neon${tier}`;
-  if (probe.includes('opus')) return `Opus${tier}`;
-  if (probe.includes('sonnet')) return `Sonnet${tier}`;
-  const raw = r.modelDisplay || fullTag || r.model || 'Model';
-  return raw.length > 14 ? `${raw.slice(0, 13)}…` : raw;
-}
-
-function preferredModelColor(r: Invocation): string {
-  const probe = `${r.modelDisplay || ''} ${r.modelId || ''} ${r.model || ''}`.toLowerCase();
-  if (probe.includes('flash') || probe.includes('hydrogen')) {
-    return 'var(--seg-cache)';
-  }
-  if (probe.includes('neon') || probe.includes('sonnet')) {
-    return 'var(--seg-input)';
-  }
-  if (probe.includes('orchestrator') || probe.includes('carbon') || probe.includes('argon') || probe.includes('opus')) {
-    return 'var(--seg-think)';
-  }
-  return 'var(--seg-out)';
-}
-
-function formatModelMetricAvg(items: Invocation[], metric: ChartMetric): string {
-  if (!items.length) return '';
-  if (metric === 'ttft') {
-    const avg = items.reduce((s, r) => s + (r.ttftSec || 0), 0) / items.length;
-    return fmtSec(avg);
-  }
-  if (metric === 'out') {
-    const avg = items.reduce((s, r) => s + (r.outputTokens || 0), 0) / items.length;
-    return fmtNum(avg);
-  }
-  if (metric === 'cache') {
-    const valid = items.map((r) => r.cacheHitPct).filter((v): v is number => v !== null && Number.isFinite(v));
-    const avg = valid.length ? valid.reduce((s, v) => s + v, 0) / valid.length : null;
-    return fmtCachePct(avg);
-  }
-  if (metric === 'ctx') {
-    return `${items.length}`;
-  }
-  if (metric === 'quota') {
-    const avg = items.reduce((s, r) => s + (r.quotaPct5h || 0), 0) / items.length;
-    const f = fmtQuotaPct(avg);
-    return f ? `-${f}` : '';
-  }
-  const sustained = items.filter((r) => !r.isBuffered && r.genTps > 0);
-  const pool = sustained.length ? sustained : items;
-  const avg = pool.reduce((s, r) => s + (r.isBuffered ? r.e2eTps : r.genTps), 0) / pool.length;
-  return `${fmtTps(avg)} t/s`;
-}
-
-function fmtSignedPct(deltaPct: number): string {
-  const rounded = Math.round(deltaPct);
-  if (rounded === 0) return '0%';
-  return rounded > 0 ? `+${rounded}%` : `${rounded}%`;
-}
-
-function fmtSignedPp(deltaPp: number): string {
-  const rounded = Number(deltaPp.toFixed(1));
-  if (Math.abs(rounded) < 0.05) return '0pp';
-  return rounded > 0 ? `+${rounded.toFixed(1)}pp` : `${rounded.toFixed(1)}pp`;
-}
-
-function formatPrimaryMetricValue(inv: Invocation, metric: ChartMetric): string {
-  if (metric === 'ttft') return fmtSec(inv.ttftSec);
-  if (metric === 'out') return `${fmtNum(inv.outputTokens)} tok`;
-  if (metric === 'cache') return fmtCachePct(inv.cacheHitPct);
-  if (metric === 'ctx') return `${(inv.contextPct || 0).toFixed(1)}%`;
-  if (metric === 'quota') {
-    const q = fmtQuotaPct(inv.quotaPct5h);
-    return q ? `-${q}` : '0%';
-  }
-  const v = inv.isBuffered ? inv.e2eTps : inv.genTps;
-  return `${fmtTps(v)} t/s`;
-}
-
-export function TrendChartCard({
+function TrendChartCardImpl({
   invocations,
   compactions = [],
   convId,
@@ -251,18 +120,21 @@ export function TrendChartCard({
 }: TrendChartCardProps) {
   const resolvedLang = resolveTrendLang(lang, t);
   const tt = useMemo(() => getTrendTranslations(resolvedLang), [resolvedLang]);
-  const gradPrefix = useMemo(() => `tc-${Math.random().toString(36).slice(2, 8)}`, []);
+  const rawId = useId();
+  const gradPrefix = `tc-${rawId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
-  const boxRef = useRef<HTMLDivElement>(null);
-  const mainSvgRef = useRef<SVGSVGElement>(null);
-  const minimapSvgRef = useRef<SVGSVGElement>(null);
+  const [svgW, boxRef] = useElementWidth(380);
+  const mainSvgRef = useRef<SVGSVGElement | null>(null);
+  const [mainSvgEl, setMainSvgEl] = useState<SVGSVGElement | null>(null);
+  const bindMainSvg = useCallback((node: SVGSVGElement | null) => {
+    mainSvgRef.current = node;
+    setMainSvgEl(node);
+  }, []);
 
-  const [svgW, setSvgW] = useState(380);
   const [internalModel, setInternalModel] = useState<string>('all');
   const [axisMode, setAxisMode] = useState<AxisMode>('seq');
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [dragZoom, setDragZoom] = useState<DragZoomVisual | null>(null);
-  const [brushDragging, setBrushDragging] = useState(false);
   const [chartSource, setChartSource] = useState<'session' | 'global'>('session');
   const [globalMetric, setGlobalMetric] = useState<GlobalTrendMetric>('ttft');
   // User-pinned OpenRouter Gemini model families for multi-model "Cyber Cricket" overlay comparison.
@@ -298,19 +170,6 @@ export function TrendChartCard({
     }
   }, [convId, isModelControlled]);
 
-  // Measure container width dynamically for responsive breakpoints
-  useEffect(() => {
-    const el = boxRef.current;
-    if (!el) return;
-    if (el.clientWidth > 0) setSvgW(Math.max(220, Math.round(el.clientWidth)));
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect?.width || el.clientWidth;
-      if (width > 0) setSvgW(Math.max(220, Math.round(width)));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   // Build model roster & color map across FULL session history
   const { sessionModels, modelColorMap } = useMemo(() => {
@@ -365,10 +224,11 @@ export function TrendChartCard({
 
   const totalCount = filteredInvs.length;
 
-  // Viewport state: rangePreset, viewRange, followLive
-  const initialPreset = getDefaultPreset(totalCount, readSavedPreset());
-  const [rangePreset, setRangePreset] = useState<RangePreset>(initialPreset);
-  const [viewRange, setViewRange] = useState<ViewRange>(() => computeRangeForPreset(totalCount, initialPreset));
+  // Viewport state: lazy localStorage init (avoid synchronous storage read on every render)
+  const [rangePreset, setRangePreset] = useState<RangePreset>(() => getDefaultPreset(totalCount, readSavedPreset()));
+  const [viewRange, setViewRange] = useState<ViewRange>(() =>
+    computeRangeForPreset(totalCount, getDefaultPreset(totalCount, readSavedPreset())),
+  );
   const [followLive, setFollowLive] = useState<boolean>(true);
 
   const prevCtxRef = useRef<string>(`${convId}::${activeModel}`);
@@ -945,7 +805,7 @@ export function TrendChartCard({
   }, [hoveredIdx !== null]);
 
   useEffect(() => {
-    const svg = mainSvgRef.current;
+    const svg = mainSvgEl;
     if (!svg || !hasVisible) return;
     const onWheel = (e: WheelEvent) => {
       const st = wheelStateRef.current;
@@ -984,204 +844,15 @@ export function TrendChartCard({
     };
     svg.addEventListener('wheel', onWheel, { passive: false });
     return () => svg.removeEventListener('wheel', onWheel);
-  }, [hasVisible]);
+  }, [mainSvgEl, hasVisible]);
 
-  // Minimap geometry & data (rendered whenever totalCount > 8)
   const showMinimap = totalCount > 8;
-  const miniPadX = 3;
-  const miniPlotW = Math.max(40, svgW - miniPadX * 2);
-  const miniInnerTop = 3;
-  const miniInnerH = Math.max(10, minimapH - 6);
-
-  const minimapData = useMemo(() => {
-    if (!showMinimap) {
-      return { isBars: false, path: '', areaPath: '', bars: [] as Array<{ x: number; h: number }>, compactXs: [] as number[] };
-    }
-    const vals = filteredInvs.map((r) => getMetricValue(r, metric));
-    const maxV = Math.max(metric === 'cache' || metric === 'ctx' ? 100 : 1e-6, ...vals);
-    const isBars = metric === 'out' || metric === 'quota';
-    const compactFracs = locateMinimapCompactionFractions(filteredInvs, compactions);
-    const compactXs = compactFracs.map((f) => miniPadX + f * miniPlotW);
-
-    if (isBars) {
-      const bucketCount = Math.min(totalCount, Math.max(40, Math.floor(miniPlotW / 3)));
-      const bars: Array<{ x: number; h: number }> = [];
-      for (let b = 0; b < bucketCount; b++) {
-        const s = Math.floor((b * totalCount) / bucketCount);
-        const eIdx = Math.max(s + 1, Math.floor(((b + 1) * totalCount) / bucketCount));
-        let peak = 0;
-        for (let k = s; k < eIdx; k++) {
-          if (vals[k] > peak) peak = vals[k];
-        }
-        const x = miniPadX + ((b + 0.5) / bucketCount) * miniPlotW;
-        const bh = Math.max(1.5, clamp(peak / maxV, 0, 1) * miniInnerH);
-        bars.push({ x, h: bh });
-      }
-      return { isBars: true, path: '', areaPath: '', bars, compactXs };
-    }
-
-    // Decimate sparkline cleanly if session has > 220 calls
-    const maxPts = 220;
-    const stride = totalCount > maxPts ? totalCount / maxPts : 1;
-    const pts: Array<{ x: number; y: number }> = [];
-    const steps = stride > 1 ? maxPts : totalCount;
-    for (let i = 0; i < steps; i++) {
-      const idx = Math.min(totalCount - 1, Math.round(i * stride));
-      const x = miniPadX + (idx / Math.max(1, totalCount - 1)) * miniPlotW;
-      const y = miniInnerTop + miniInnerH - clamp(vals[idx] / maxV, 0, 1) * miniInnerH;
-      pts.push({ x, y });
-    }
-    if (pts.length && pts[pts.length - 1].x < miniPadX + miniPlotW - 0.5) {
-      const lastVal = vals[totalCount - 1];
-      pts.push({
-        x: miniPadX + miniPlotW,
-        y: miniInnerTop + miniInnerH - clamp(lastVal / maxV, 0, 1) * miniInnerH,
-      });
-    }
-    const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
-    const baseY = (miniInnerTop + miniInnerH).toFixed(1);
-    const areaPath =
-      pts.length >= 2
-        ? `${linePath} L ${pts[pts.length - 1].x.toFixed(1)} ${baseY} L ${pts[0].x.toFixed(1)} ${baseY} Z`
-        : '';
-    return { isBars: false, path: linePath, areaPath, bars: [], compactXs };
-  }, [showMinimap, filteredInvs, metric, compactions, miniPlotW, miniInnerH, totalCount]);
-
-  // Minimap viewport window coordinates
-  const rawVx1 = totalCount > 1 ? miniPadX + (safeRange.start / (totalCount - 1)) * miniPlotW : miniPadX;
-  const rawVx2 = totalCount > 1 ? miniPadX + (safeRange.end / (totalCount - 1)) * miniPlotW : miniPadX + miniPlotW;
-  const minWinPx = 14;
-  let vx1 = rawVx1;
-  let vx2 = rawVx2;
-  if (vx2 - vx1 < minWinPx) {
-    const mid = (vx1 + vx2) / 2;
-    vx1 = clamp(mid - minWinPx / 2, miniPadX, miniPadX + miniPlotW - minWinPx);
-    vx2 = vx1 + minWinPx;
-  }
-
-  // Minimap Brush Pointer State Machine (setPointerCapture)
-  const brushRef = useRef<{
-    active: boolean;
-    pointerId: number;
-    mode: BrushMode;
-    startX: number;
-    initRange: ViewRange;
-  }>({
-    active: false,
-    pointerId: -1,
-    mode: 'pan',
-    startX: 0,
-    initRange: { start: 0, end: 0 },
-  });
-
-  const getMiniX = (clientX: number): number => {
-    const svg = minimapSvgRef.current;
-    if (!svg) return miniPadX;
-    const rect = svg.getBoundingClientRect();
-    if (rect.width <= 0) return miniPadX;
-    return ((clientX - rect.left) / rect.width) * svgW;
-  };
-
-  const miniXToIndex = (mx: number): number => {
-    if (totalCount <= 1) return 0;
-    const ratio = clamp((mx - miniPadX) / Math.max(1, miniPlotW), 0, 1);
-    return Math.round(ratio * (totalCount - 1));
-  };
-
-  const handleMiniPointerDown = (e: PointerEvent) => {
-    if (e.button !== 0 || !showMinimap) return;
-    const svg = minimapSvgRef.current;
-    if (!svg) return;
-    const mx = clamp(getMiniX(e.clientX), miniPadX, miniPadX + miniPlotW);
-    setHoveredIdx(null);
-
-    let mode: BrushMode = 'pan';
-    let initRange = safeRange;
-
-    if (Math.abs(mx - vx1) <= 7) {
-      mode = 'resize-left';
-    } else if (Math.abs(mx - vx2) <= 7) {
-      mode = 'resize-right';
-    } else if (mx >= vx1 && mx <= vx2) {
-      mode = 'pan';
-    } else {
-      // Clicked outside viewport on minimap track -> center immediately and allow continued drag
-      const clickedIdx = miniXToIndex(mx);
-      const centered = centerViewRangeAt(safeRange, totalCount, clickedIdx);
-      initRange = centered.range;
-      setViewRange(centered.range);
-      setFollowLive(centered.followLive);
-      if (!centered.followLive) setRangePreset('custom');
-      mode = 'pan';
-    }
-
-    brushRef.current = {
-      active: true,
-      pointerId: e.pointerId,
-      mode,
-      startX: mx,
-      initRange,
-    };
-    setBrushDragging(true);
-    try {
-      svg.setPointerCapture(e.pointerId);
-    } catch {
-      // Ignore
-    }
-  };
-
-  const handleMiniPointerMove = (e: PointerEvent) => {
-    const b = brushRef.current;
-    if (!b.active || b.pointerId !== e.pointerId || totalCount <= 1) return;
-    const mx = clamp(getMiniX(e.clientX), miniPadX, miniPadX + miniPlotW);
-    const deltaIdx = Math.round(((mx - b.startX) / Math.max(1, miniPlotW)) * (totalCount - 1));
-
-    if (b.mode === 'pan') {
-      const next = panViewRange(b.initRange, totalCount, deltaIdx);
-      setViewRange(next.range);
-      setFollowLive(next.followLive);
-      if (!next.followLive) setRangePreset('custom');
-    } else if (b.mode === 'resize-left') {
-      const maxStart = b.initRange.end - minSpan + 1;
-      const nextStart = clamp(b.initRange.start + deltaIdx, 0, Math.max(0, maxStart));
-      const nextRange = { start: nextStart, end: b.initRange.end };
-      setViewRange(nextRange);
-      const isFull = nextRange.start === 0 && nextRange.end === totalCount - 1;
-      setFollowLive(isFull ? true : nextRange.end >= totalCount - 1 && followLive);
-      setRangePreset(isFull ? 'all' : 'custom');
-    } else if (b.mode === 'resize-right') {
-      const minEnd = b.initRange.start + minSpan - 1;
-      const nextEnd = clamp(b.initRange.end + deltaIdx, Math.min(totalCount - 1, minEnd), totalCount - 1);
-      const nextRange = { start: b.initRange.start, end: nextEnd };
-      setViewRange(nextRange);
-      const isFull = nextRange.start === 0 && nextRange.end === totalCount - 1;
-      setFollowLive(isFull ? true : nextEnd >= totalCount - 1);
-      setRangePreset(isFull ? 'all' : 'custom');
-    }
-  };
-
-  const handleMiniPointerUp = (e: PointerEvent) => {
-    const b = brushRef.current;
-    if (!b.active || b.pointerId !== e.pointerId) return;
-    const svg = minimapSvgRef.current;
-    if (svg) {
-      try {
-        if (svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
-      } catch {
-        // Ignore
-      }
-    }
-    b.active = false;
-    setBrushDragging(false);
-  };
-
-  const handleMiniDoubleClick = () => {
-    if (!showMinimap) return;
-    setRangePreset('all');
-    setViewRange({ start: 0, end: Math.max(0, totalCount - 1) });
-    setFollowLive(true);
-    setHoveredIdx(null);
-  };
+  const handleMinimapRangeChange = useCallback((range: ViewRange, nextFollow: boolean, nextPreset: RangePreset) => {
+    setViewRange(range);
+    setFollowLive(nextFollow);
+    setRangePreset(nextPreset);
+  }, []);
+  const handleClearHover = useCallback(() => setHoveredIdx(null), []);
 
   // Active hovered point & popover details
   const safeHoveredIdx = hoveredIdx !== null && hoveredIdx >= 0 && hoveredIdx < allPoints.length && !dragZoom ? hoveredIdx : null;
@@ -1405,7 +1076,7 @@ export function TrendChartCard({
           <div className="flex flex-wrap items-center gap-1.5 min-w-0">
             <span className="card-k">{t.chartTitle}</span>
             {showGlobalToggle ? (
-              <div className="metric-tabs" role="tablist" aria-label="Trend data source">
+              <div className="metric-tabs" role="tablist" aria-label={tt.sourceAria}>
                 <button
                   type="button"
                   role="tab"
@@ -1413,7 +1084,7 @@ export function TrendChartCard({
                   className={`metric-tab${!isGlobalSource ? ' is-active' : ''}`}
                   onClick={() => handleSwitchChartSource('session')}
                 >
-                  {resolvedLang === 'zh' ? '本会话' : 'Session'}
+                  {tt.sourceSession}
                 </button>
                 <button
                   type="button"
@@ -1422,7 +1093,7 @@ export function TrendChartCard({
                   className={`metric-tab${isGlobalSource ? ' is-active' : ''}`}
                   onClick={() => handleSwitchChartSource('global')}
                 >
-                  {resolvedLang === 'zh' ? '🌐 大盘折线' : '🌐 Global'}
+                  {tt.sourceGlobal}
                 </button>
               </div>
             ) : null}
@@ -1642,7 +1313,7 @@ export function TrendChartCard({
       {pulseModels.length > 0 && (metric === 'ttft' || metric === 'tps' || metric === 'cache') && (
         <div className="flex flex-wrap items-center gap-1 min-w-0 px-0.5">
           <span className="font-hud text-[9px] font-semibold uppercase tracking-[0.03em] text-hud-muted mr-0.5 whitespace-nowrap">
-            {resolvedLang === 'zh' ? '大盘参考 30m' : 'Global 30m'}
+            {tt.globalRefLabel}
           </span>
           {pulseModels.map((m, mi) => {
             const val = getPulseMetricVal(m, metric);
@@ -1661,11 +1332,7 @@ export function TrendChartCard({
                     : 'text-hud-muted bg-hud-fill/60 border-transparent hover:text-hud-fg hover:bg-hud-fill'
                 }`}
                 style={isSelected ? { borderColor: `color-mix(in srgb, ${lineColor} 58%, transparent)` } : undefined}
-                data-tip={
-                  resolvedLang === 'zh'
-                    ? `点击叠加/取消 ${m.label} 的 OpenRouter 近 30 分钟 P50 参考线（最多同图叠加 3 条斗蛐蛐对比）`
-                    : `Toggle ${m.label} OpenRouter 30m P50 reference line (up to 3 models on chart)`
-                }
+                data-tip={tt.globalRefTip(m.label)}
               >
                 <span
                   className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -1681,7 +1348,8 @@ export function TrendChartCard({
               type="button"
               onClick={() => setPinnedArenaFamilies([])}
               className="px-1 py-[1px] rounded font-hud text-[9px] text-hud-muted hover:text-hud-fg cursor-pointer transition-colors"
-              title={resolvedLang === 'zh' ? '隐藏大盘参考线' : 'Hide global reference lines'}
+              title={tt.globalRefHide}
+              aria-label={tt.globalRefHide}
             >
               ×
             </button>
@@ -1718,8 +1386,11 @@ export function TrendChartCard({
           </svg>
         ) : (
           <svg
-            ref={mainSvgRef}
-            className={`trend-main-svg block w-full overflow-visible${dragZoom ? ' is-selecting' : ''}`}
+            ref={bindMainSvg}
+            tabIndex={0}
+            role="img"
+            aria-label={tt.plotAria}
+            className={`trend-main-svg block w-full overflow-visible focus:outline-none focus-visible:ring-1 focus-visible:ring-hud-accent rounded${dragZoom ? ' is-selecting' : ''}`}
             style={{ height: `${svgH}px` }}
             viewBox={`0 0 ${svgW} ${svgH}`}
             onPointerDown={handleMainPointerDown}
@@ -1728,6 +1399,21 @@ export function TrendChartCard({
             onPointerCancel={(e) => finishMainPointer(e, true)}
             onPointerLeave={() => {
               if (!plotDragRef.current.active) setHoveredIdx(null);
+            }}
+            onKeyDown={(e) => {
+              if (!allPoints.length) return;
+              if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                setHoveredIdx((prev) => (prev === null ? 0 : Math.min(allPoints.length - 1, prev + 1)));
+              } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                setHoveredIdx((prev) => (prev === null ? allPoints.length - 1 : Math.max(0, prev - 1)));
+              } else if (e.key === 'Enter' && hoveredIdx !== null && allPoints[hoveredIdx] && onInspectCall) {
+                e.preventDefault();
+                onInspectCall(allPoints[hoveredIdx].inv.idx);
+              } else if (e.key === 'Escape') {
+                setHoveredIdx(null);
+              }
             }}
           >
             <defs>
@@ -2394,229 +2080,49 @@ export function TrendChartCard({
           </svg>
         )}
 
+        <div className="sr-only" aria-live="polite">
+          {hoveredInv ? `#${hoveredInv.idx + 1} ${shortModelName(hoveredInv)} ${formatPrimaryMetricValue(hoveredInv, metric)}` : ''}
+        </div>
+
         {/* Structured Zero-Lag Floating In-Card Popover */}
         {hoveredPt && hoveredInv && (
-          <div
-            className={`trend-popover absolute top-1 z-[24] max-w-[calc(100%-8px)] rounded-[7px] border pointer-events-none tabular-nums flex flex-col gap-[5px] ${isNarrow ? 'w-[192px] px-2 py-1.5' : 'w-[214px] px-[9px] py-[7px]'}`}
-            style={{ left: `${popoverLeftPx}px` }}
-          >
-            <div className="trend-pop-head flex items-center justify-between gap-1 font-hud-mono text-hud-muted min-w-0">
-              <span className="inline-flex items-center gap-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-                <span className="font-bold text-hud-fg">#{hoveredInv.idx + 1}</span>
-                <span
-                  className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: modelColorMap.get(getModelKey(hoveredInv)) || 'var(--hud-accent)' }}
-                />
-                <span>{shortModelName(hoveredInv)}</span>
-                {hoveredInv.timestampMs > 0 && <span>· {fmtClock(hoveredInv.timestampMs)}</span>}
-              </span>
-              {(hoveredInv.isBuffered || hoveredInv.isToolStall) && (
-                <span className="inline-flex items-center gap-[3px] shrink-0">
-                  {hoveredInv.isBuffered && (
-                    <span className="trend-pop-badge px-1 rounded-[3px] font-bold leading-[1.4] text-hud-muted bg-hud-fill border border-hud-border">
-                      {tt.popBadgeBuf}
-                    </span>
-                  )}
-                  {hoveredInv.isToolStall && (
-                    <span className="trend-pop-badge is-stall px-1 rounded-[3px] font-bold leading-[1.4] border">
-                      {tt.popBadgeStall}
-                    </span>
-                  )}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-baseline justify-between gap-1.5 pb-1 border-b border-hud-border">
-              <span className="trend-pop-val font-hud-mono font-bold leading-tight text-hud-fg">
-                {formatPrimaryMetricValue(hoveredInv, metric)}
-              </span>
-              {popoverDelta && (
-                <span className={`trend-stat-delta inline-flex items-center px-1 rounded font-hud-mono font-bold leading-[1.35] whitespace-nowrap is-${popoverDelta.tone}`}>
-                  {popoverDelta.text}
-                </span>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-x-2 gap-y-[3px]">
-              {popoverGrid.map((item, idx) => (
-                <div key={idx} className="flex flex-col min-w-0">
-                  <span className="trend-pop-k font-hud-mono font-semibold tracking-[0.03em] text-hud-muted">
-                    {item.k}
-                  </span>
-                  <span className="trend-pop-v font-hud-mono font-semibold text-hud-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                    {item.v}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div className="trend-pop-foot font-hud-mono text-hud-faint pt-0.5 border-t border-dashed border-hud-border">
-              {onInspectCall ? tt.popHintInspectDrag : tt.popHintDragOnly}
-            </div>
-          </div>
+          <TrendPopover
+            inv={hoveredInv}
+            metric={metric}
+            modelColor={modelColorMap.get(getModelKey(hoveredInv)) || 'var(--hud-accent)'}
+            leftPx={popoverLeftPx}
+            isNarrow={isNarrow}
+            delta={popoverDelta}
+            grid={popoverGrid}
+            canInspect={Boolean(onInspectCall)}
+            tt={tt}
+          />
         )}
       </div>
 
       {/* Row 5: Interactive Minimap Brush / Scrubber (shown whenever filteredInvs.length > 8) */}
       {showMinimap && (
-        <div className="w-full min-w-0 mt-px select-none" title={tt.minimapTip}>
-          <svg
-            ref={minimapSvgRef}
-            className="trend-minimap-svg block w-full rounded-[5px]"
-            style={{ height: `${minimapH}px` }}
-            viewBox={`0 0 ${svgW} ${minimapH}`}
-            role="slider"
-            aria-label={tt.minimapAria}
-            aria-valuemin={1}
-            aria-valuemax={totalCount}
-            aria-valuenow={safeRange.end + 1}
-            onPointerDown={handleMiniPointerDown}
-            onPointerMove={handleMiniPointerMove}
-            onPointerUp={handleMiniPointerUp}
-            onPointerCancel={handleMiniPointerUp}
-            onDblClick={handleMiniDoubleClick}
-          >
-            {/* Track background */}
-            <rect
-              className="trend-minimap-track"
-              x="0.5"
-              y="0.5"
-              width={Math.max(1, svgW - 1)}
-              height={Math.max(1, minimapH - 1)}
-              rx="4"
-            />
-
-            {/* Full-session miniature silhouette */}
-            {minimapData.isBars ? (
-              <g opacity="0.48">
-                {minimapData.bars.map((b, bi) => (
-                  <rect
-                    key={bi}
-                    x={(b.x - 1).toFixed(1)}
-                    y={(miniInnerTop + miniInnerH - b.h).toFixed(1)}
-                    width="2"
-                    height={b.h.toFixed(1)}
-                    rx="0.7"
-                    fill="var(--hud-muted)"
-                  />
-                ))}
-              </g>
-            ) : (
-              <g>
-                {minimapData.areaPath && (
-                  <path d={minimapData.areaPath} fill="var(--hud-muted)" opacity="0.16" />
-                )}
-                {minimapData.path && (
-                  <path
-                    d={minimapData.path}
-                    fill="none"
-                    stroke="var(--hud-muted)"
-                    stroke-width="1.15"
-                    opacity="0.58"
-                    stroke-linejoin="round"
-                  />
-                )}
-              </g>
-            )}
-
-            {/* Historical Compaction Tick Markers on Minimap */}
-            {minimapData.compactXs.map((cx, ci) => (
-              <line
-                key={`mcmp-${ci}`}
-                x1={cx.toFixed(1)}
-                y1="2"
-                x2={cx.toFixed(1)}
-                y2={(minimapH - 2).toFixed(1)}
-                stroke="var(--seg-think)"
-                stroke-width="1.2"
-                opacity="0.78"
-              />
-            ))}
-
-            {/* Dimmed outside masks */}
-            {vx1 > miniPadX && (
-              <rect
-                className="trend-minimap-dim"
-                x="1"
-                y="1"
-                width={Math.max(0, vx1 - 1).toFixed(1)}
-                height={Math.max(0, minimapH - 2)}
-                rx="3"
-              />
-            )}
-            {vx2 < svgW - 1 && (
-              <rect
-                className="trend-minimap-dim"
-                x={vx2.toFixed(1)}
-                y="1"
-                width={Math.max(0, svgW - 1 - vx2).toFixed(1)}
-                height={Math.max(0, minimapH - 2)}
-                rx="3"
-              />
-            )}
-
-            {/* Draggable Viewport Window */}
-            <rect
-              className={`trend-minimap-window${brushDragging ? ' is-dragging' : ''}`}
-              x={vx1.toFixed(1)}
-              y="1.5"
-              width={Math.max(4, vx2 - vx1).toFixed(1)}
-              height={Math.max(4, minimapH - 3)}
-              rx="3"
-            />
-
-            {/* Left 6px resize handle */}
-            <rect
-              className="trend-minimap-handle"
-              x={Math.max(1, vx1 - 2.5).toFixed(1)}
-              y="3"
-              width="5"
-              height={Math.max(4, minimapH - 6)}
-              rx="2"
-            />
-            <line
-              className="trend-minimap-grip"
-              x1={Math.max(3.5, vx1).toFixed(1)}
-              y1={(minimapH * 0.34).toFixed(1)}
-              x2={Math.max(3.5, vx1).toFixed(1)}
-              y2={(minimapH * 0.66).toFixed(1)}
-            />
-            <rect
-              className="trend-minimap-handle-hit"
-              x={Math.max(0, vx1 - 6).toFixed(1)}
-              y="0"
-              width="12"
-              height={minimapH}
-            />
-
-            {/* Right 6px resize handle */}
-            <rect
-              className="trend-minimap-handle"
-              x={Math.min(svgW - 6, vx2 - 2.5).toFixed(1)}
-              y="3"
-              width="5"
-              height={Math.max(4, minimapH - 6)}
-              rx="2"
-            />
-            <line
-              className="trend-minimap-grip"
-              x1={Math.min(svgW - 3.5, vx2).toFixed(1)}
-              y1={(minimapH * 0.34).toFixed(1)}
-              x2={Math.min(svgW - 3.5, vx2).toFixed(1)}
-              y2={(minimapH * 0.66).toFixed(1)}
-            />
-            <rect
-              className="trend-minimap-handle-hit"
-              x={Math.max(0, vx2 - 6).toFixed(1)}
-              y="0"
-              width="12"
-              height={minimapH}
-            />
-          </svg>
-        </div>
+        <TrendMinimap
+          filteredInvs={filteredInvs}
+          compactions={compactions}
+          metric={metric}
+          svgW={svgW}
+          minimapH={minimapH}
+          totalCount={totalCount}
+          minSpan={minSpan}
+          safeRange={safeRange}
+          followLive={followLive}
+          isZoomed={rangePreset === 'custom'}
+          tt={tt}
+          onRangeChange={handleMinimapRangeChange}
+          onClearHover={handleClearHover}
+          onFollowLive={handleFollowLive}
+        />
       )}
         </>
       )}
     </section>
   );
 }
+
+export const TrendChartCard = memo(TrendChartCardImpl);

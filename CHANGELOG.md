@@ -2,10 +2,18 @@
 
 All notable changes to **AGY-HUD** are documented in this file.
 
-## [Unreleased] — Visual Craft Overhaul, Prompt Cache TTL & Iceberg Insights
+## v1.2.0 — Gemini Global Pulse, Visual Craft Overhaul, Prompt Cache TTL & Iceberg Insights
 
 ### Added
 
+- **Gemini Global Pulse, 5-Minute Cloudflare Collector & Standalone `/pulse/` Site (`lib/pulse-core.ts`, `lib/gemini-pulse.ts`, `workers/gemini-pulse/`, `site/pulse/`, `GeminiPulseCard.tsx`, `GlobalTrendView.tsx`)**:
+  - Unified pure `lib/pulse-core.ts` shared across the Node sidecar, Cloudflare Worker (`https://agy-hud.512.pub`), and launch site `/pulse/` dashboard: extracts OpenRouter 30m P50/P75/P90/P95/P99 TTFT, TPS, weighted cache hit rate, avg prompt/output context, 7d comparison series, evenly downsampled 24h availability (preserving outage dips), and active Google Cloud Service Health incidents.
+  - Added a $0 Free-tier Cloudflare Worker collecting 5-minute snapshots into a 24h ring buffer (288 points) with Workers Static Assets hosting `/` and `/pulse/`, canonical edge caching with ETag/304, cold-start KV locking, empty-response protection, and constant-time HMAC refresh auth.
+  - Added live TTFT attribution (`normal` / `upstream_degraded` / `cache_miss` / `large_context` / `local_concurrency` / `account_or_network`), context-bucketed local vs global comparison, Cyber Arena PK matchup mode, and a Global Trend multi-line view with local 7d/5m overlays.
+- **Wrapped Share Poster & Recursive Session Tree Rollup (`ActivityShareModal.tsx`, `posterCanvas.ts`, `lib/graph.ts`)**:
+  - Added one-click bilingual Wrapped activity poster export (Cyber / Gold / Light PNG + text summary) and recursive multi-level subagent/swarm rollup across session trees.
+- **CI Workflow & Monorepo Verification Scripts (`.github/workflows/ci.yml`, `package.json`, `.gitattributes`)**:
+  - Added GitHub Actions CI verifying `web`, `site`, and `workers/gemini-pulse` typechecks, sidecar & tools test suites, and compiled UI bundle parity (`plugin/sidecars/hud_panel/ui/`).
 - **Prompt Cache TTL Survival Modeling (`lib/cache-ttl.ts`, `CacheTtlCard.tsx`, `ContextWindowCard.tsx`)**:
   - Fits a regularized per-model-family Log-Logistic survival curve $S(t) = (1 - p_0) / (1 + (t / t_{50})^k)$ using weak provider MAP priors (modeling Claude's sharp hard-TTL cliff separately from Gemini's gradual LRU decay) with `prior` / `provisional` / `fitted` confidence levels.
   - Exposes `P80` / `P50` / `P20` survival horizons, empirical 7-bucket idle-gap hit-rate bars (`<1m` through `2h+`), cumulative expired-cache miss cost in USD, and a live session survival indicator with estimated miss penalty in both USD and `5h` quota `%`.
@@ -53,6 +61,11 @@ All notable changes to **AGY-HUD** are documented in this file.
 - **Node.js 22.18+ Sidecar Runtime**: Migrated sidecar backend modules to native TypeScript (`*.ts`) running directly on Node.js `22.18+` with built-in `node:sqlite` and zero runtime npm dependencies.
 - **Plugin-Only Architecture**: Removed the legacy Python desktop pill, `--cli` / `--watch` modes, `pyproject.toml`, and `plugin/install_plugin.py`; AGY-HUD now ships cleanly as the native Antigravity 2.0 side-pane plugin installed via `scripts/install.{sh,ps1}` or `node plugin/install.mjs`.
 - **LS Placeholder & Idle State Accuracy**: Expanded `KNOWN_LS_PLACEHOLDERS`, preserved fallback generator model from tail steps on synthetic fallbacks, and cleared stale `activeStep` / `currentModel.isActive` when LS reports idle.
+
+### Fixed & Hardened
+
+- **Security & Pulse Hardening**: Prevented `?feed=` query parameters on `/pulse/` from persisting into `localStorage` (session-only override), strictly enforced `https://status.cloud.google.com/` on all incident links across site/sidecar/Worker, added 5MB payload cap + schema/staleness validation (`>20m` falls back to direct OpenRouter), added exponential failure backoff (1–15m), fixed in-flight refresh race and `refresh`-while-disabled privacy bypass, switched sidecar cache writes to atomic compact temp-file rename, and fixed `deploy-cloudflare.yml` step `if:` secret reference.
+- **Frontend Performance, Stability & Accessibility**: Isolated live 250ms/1s clock ticks into `NowContext` (`useNow.tsx`) and wrapped heavy cards/rows (`TrendChartCard`, `GlobalTrendView`, `InvocationRow`, `CompactCard`, `GeminiPulseCard`, `SubagentsCard`) in `memo` with per-row detail props; fixed Session ↔ Global `ResizeObserver` and wheel-zoom listener detachment via `useElementWidth` and callback refs; split `TrendChartCard.tsx` into `trend/{modelLabels,TrendPopover,TrendMinimap}`; added keyboard navigation + `aria-live` announcements on Trend Chart & Minimap; switched pending swarm member buttons to `aria-disabled` with `sr-only` state labels; and replaced string-comparison language checks with `Translations.lang`.
 
 ---
 

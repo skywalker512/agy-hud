@@ -1,3 +1,4 @@
+import { useNowMs } from '../../hooks/useNow';
 import type { Translations } from '../../i18n';
 import type { AccountQuota, QuotaWindow } from '../../types/telemetry';
 import { fmtClockHm, fmtDurationShort, fmtQuotaPct, fmtUsd, fmtUsdWithBand } from '../../utils/format';
@@ -5,11 +6,11 @@ import { IconAlert } from '../common/Icons';
 
 interface QuotaPoolsListProps {
   quota: AccountQuota | undefined;
-  nowMs: number;
   t: Translations;
 }
 
-export function QuotaPoolsList({ quota, nowMs, t }: QuotaPoolsListProps) {
+export function QuotaPoolsList({ quota, t }: QuotaPoolsListProps) {
+  const nowMs = useNowMs();
   if (quota?.deferred) {
     return (
       <div className="l2-well text-[11px] font-hud text-hud-muted px-2.5 py-1.5">

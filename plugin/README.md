@@ -1,8 +1,8 @@
 # AGY-HUD Antigravity 2.0 Plugin
 
-Auxiliary side-pane UI plugin (`Live` / `Calls` / `Account`) displaying real-time Token/s (`GEN` & `E2E`), `TTFT`, actual routed model ID (`f19`), context window composition & per-tool token footprint, live streaming thinking/reply traces with phase diagnostics, subagent/Side-Q hierarchy, and `5h` / `7d` quota + API-equivalent spend.
+Auxiliary side-pane UI plugin (`Live` / `Calls` / `Account`) displaying real-time Token/s (`GEN` & `E2E`), `TTFT` root-cause attribution, Gemini Global Pulse & Cyber Arena PK, actual routed model ID (`f19`), context window X-Ray, Prompt Cache TTL survival, recursive Swarm/subagent rollup, calibrated `5h` / `7d` quota runway, and 2x Wrapped share posters.
 
-Requires **Node.js >= 22.5** (for built-in `node:sqlite`).
+Requires **Node.js >= 22.18** (for built-in `node:sqlite` and native TypeScript stripping).
 
 ## Install
 
@@ -23,5 +23,5 @@ node plugin/install.mjs --uninstall
 ## Run Unit Tests
 
 ```bash
-node --test plugin/sidecars/hud_panel/test/server.test.mjs
+npm run test:sidecar
 ```

@@ -1,4 +1,7 @@
+import type { Lang } from '../types/telemetry';
+
 export interface Translations {
+  lang: Lang;
   title: string;
   connecting: string;
   waitingModel: string;

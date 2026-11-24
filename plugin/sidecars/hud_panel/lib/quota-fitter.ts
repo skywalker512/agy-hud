@@ -538,6 +538,39 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
               isShort: dtSec <= SHORT_WINDOW_MAX_SEC,
               ...agg,
             });
+          } else if (historyConsistent && du5 >= 0.0003 && agg.callCount === 0 && dtSec <= 120) {
+            // Trailing asynchronous server settlement after a dirty/under-settled short window:
+            // merge only into an immediately contiguous sample when it strictly improves fit toward
+            // the pool's expected rate (never merges unrelated remote burn onto an already-clean sample).
+            const last = ps.samples[ps.samples.length - 1];
+            if (
+              last &&
+              (last.source === '5h_delta' || last.source === '5h_anchor') &&
+              last.t1 === prev.fetchedAtMs &&
+              last.callCount > 0 &&
+              last.totalBaseUSD > 0 &&
+              (fetchedAtMs - last.t0) / 1000 <= SHORT_WINDOW_MAX_SEC
+            ) {
+              const expectedRef = (ps.fit?.refBeta ?? 0) > 0 ? ps.fit!.refBeta : getPoolPriorRefBeta(pk);
+              const curRate = last.du5 / last.totalBaseUSD;
+              const mergedDu5 = last.du5 + Math.max(0, du5);
+              const mergedRate = mergedDu5 / last.totalBaseUSD;
+              const wasUnderOrDirty = !last.boundaryClean || curRate < expectedRef * 0.70;
+              const improvesFit =
+                expectedRef > 0 &&
+                mergedRate > 0 &&
+                Math.abs(Math.log(mergedRate / expectedRef)) < Math.abs(Math.log(Math.max(1e-6, curRate) / expectedRef));
+              if (wasUnderOrDirty && improvesFit) {
+                last.t1 = fetchedAtMs;
+                last.dtSec = Math.max(1, (fetchedAtMs - last.t0) / 1000);
+                last.du5 = mergedDu5;
+                if (last.du7 !== null && du7 !== null) {
+                  last.du7 = Math.max(0, last.du7 + du7);
+                }
+                addedSample = true;
+                dirty = true;
+              }
+            }
           }
         }
       } else {

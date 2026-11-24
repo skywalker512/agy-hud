@@ -15,7 +15,6 @@ interface RecentCallsCardProps {
   turns: TurnSummary[];
   activeStep: ActiveStep | null | undefined;
   serverTimeMs: number | undefined;
-  nowMs: number;
   latestContext: number;
   convId: string;
   recentOpen: boolean;
@@ -41,7 +40,6 @@ export function RecentCallsCard({
   turns,
   activeStep,
   serverTimeMs,
-  nowMs,
   latestContext,
   convId,
   recentOpen,
@@ -79,7 +77,6 @@ export function RecentCallsCard({
       turns={turns}
       activeStep={activeStep}
       serverTimeMs={serverTimeMs}
-      nowMs={nowMs}
       latestContext={latestContext}
       convId={convId}
       expandedRows={expandedRows}

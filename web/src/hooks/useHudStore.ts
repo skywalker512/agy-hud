@@ -50,7 +50,7 @@ export interface HudStore {
   selectedConv: string;
   snap: StatsSnapshot | null;
   retrying: boolean;
-  nowMs: number;
+  clockSkewMs: number;
   expandedRows: Set<number>;
   expandedCompacts: Set<number>;
   collapsedTurns: Set<number>;
@@ -100,7 +100,6 @@ export function useHudStore(): HudStore {
   const [snap, setSnap] = useState<StatsSnapshot | null>(null);
   const [retrying, setRetrying] = useState<boolean>(false);
   const [clockSkewMs, setClockSkewMs] = useState<number>(0);
-  const [tickNow, setTickNow] = useState<number>(() => Date.now());
 
   const [expandedRows, setExpandedRows] = useState<Set<number>>(() => new Set());
   const [expandedCompacts, setExpandedCompacts] = useState<Set<number>>(() => new Set());
@@ -308,7 +307,6 @@ export function useHudStore(): HudStore {
         setClockSkewMs(Date.now() - nextSnap.serverTimeMs);
       }
       setRetrying(false);
-      setTickNow(Date.now());
 
       if (!nextSnap.unchanged) {
         if (nextSnap.conversationId && nextSnap.conversationId !== activeConvIdRef.current) {
@@ -378,14 +376,6 @@ export function useHudStore(): HudStore {
     };
   }, [poll, triggerImmediatePoll]);
 
-  const isActiveStep = Boolean(snap?.activeStep);
-  useEffect(() => {
-    const intervalMs = isActiveStep ? 250 : 1000;
-    const id = setInterval(() => {
-      if (!document.hidden) setTickNow(Date.now());
-    }, intervalMs);
-    return () => clearInterval(id);
-  }, [isActiveStep]);
 
   const toggleLang = useCallback(() => {
     setLang((prev) => {
@@ -469,7 +459,6 @@ export function useHudStore(): HudStore {
     try {
       const fetcher = getSidecarFetch();
       await fetcher('/api/gemini-pulse?refresh=1', { method: 'GET' });
-      etagRef.current = '';
       triggerImmediatePoll(true);
     } catch {
       /* non-fatal */
@@ -488,7 +477,6 @@ export function useHudStore(): HudStore {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled }),
         });
-        etagRef.current = '';
         triggerImmediatePoll(true);
       } catch {
         /* non-fatal */
@@ -558,18 +546,20 @@ export function useHudStore(): HudStore {
   const toggleInvocationExpanded = useCallback(
     (idx: number, hasDetail: boolean) => {
       const convId = snapRef.current?.conversationId || '';
+      let shouldFetch = false;
       setExpandedRows((prev) => {
         const next = new Set(prev);
         if (next.has(idx)) {
           next.delete(idx);
         } else {
           next.add(idx);
-          if (convId && hasDetail && !detailCacheRef.current.has(`${convId}:inv:${idx}`)) {
-            void loadCallDetail(convId, 'inv', idx);
-          }
+          shouldFetch = true;
         }
         return next;
       });
+      if (shouldFetch && convId && hasDetail && !detailCacheRef.current.has(`${convId}:inv:${idx}`)) {
+        void loadCallDetail(convId, 'inv', idx);
+      }
     },
     [loadCallDetail],
   );
@@ -593,18 +583,20 @@ export function useHudStore(): HudStore {
   const toggleCompactExpanded = useCallback(
     (stepIdx: number, hasDetail: boolean) => {
       const convId = snapRef.current?.conversationId || '';
+      let shouldFetch = false;
       setExpandedCompacts((prev) => {
         const next = new Set(prev);
         if (next.has(stepIdx)) {
           next.delete(stepIdx);
         } else {
           next.add(stepIdx);
-          if (convId && hasDetail && !detailCacheRef.current.has(`${convId}:compact:${stepIdx}`)) {
-            void loadCallDetail(convId, 'compact', stepIdx);
-          }
+          shouldFetch = true;
         }
         return next;
       });
+      if (shouldFetch && convId && hasDetail && !detailCacheRef.current.has(`${convId}:compact:${stepIdx}`)) {
+        void loadCallDetail(convId, 'compact', stepIdx);
+      }
     },
     [loadCallDetail],
   );
@@ -687,7 +679,7 @@ export function useHudStore(): HudStore {
     selectedConv,
     snap,
     retrying,
-    nowMs: tickNow - clockSkewMs,
+    clockSkewMs,
     expandedRows,
     expandedCompacts,
     collapsedTurns,

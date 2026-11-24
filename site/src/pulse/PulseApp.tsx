@@ -17,6 +17,7 @@ import {
   GEMINI_SPECS,
   getSavedFeedUrl,
   loadCachedPulse,
+  sanitizeGcpIncidentUrl,
   saveFeedUrl,
   type PulseDashboardData,
   type PulseModelData,
@@ -384,7 +385,7 @@ export function PulseApp() {
             {incidents.map((inc) => (
               <a
                 key={inc.id}
-                href={inc.url}
+                href={sanitizeGcpIncidentUrl(inc.url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 class="flex items-start justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-[var(--fg)] no-underline transition-colors hover:border-amber-500/70"

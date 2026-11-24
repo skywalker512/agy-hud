@@ -42,7 +42,6 @@ export interface CallLogCardProps {
   turns: TurnSummary[];
   activeStep: ActiveStep | null | undefined;
   serverTimeMs: number | undefined;
-  nowMs: number;
   latestContext: number;
   convId: string;
   expandedRows: Set<number>;
@@ -121,7 +120,6 @@ export function CallLogCard({
   turns,
   activeStep,
   serverTimeMs,
-  nowMs,
   latestContext,
   convId,
   expandedRows,
@@ -158,6 +156,8 @@ export function CallLogCard({
   const isFull = !isRecent;
   const isCollapsible = typeof onToggleOpen === 'function';
   const isOpen = isCollapsible ? Boolean(open) : true;
+  const timelineDesc = useMemo(() => buildTimelineDesc(invocations, compactions), [invocations, compactions]);
+  const revCompacts = useMemo(() => [...compactions].reverse(), [compactions]);
   const limit = initialLimit ?? (isRecent ? 6 : 40);
   const cardTitle = title ?? (isRecent ? t.recentTitle : t.histTitle);
 
@@ -386,24 +386,22 @@ export function CallLogCard({
           invCount={invocations.length}
           activeStep={activeStep}
           serverTimeMs={serverTimeMs}
-          nowMs={nowMs}
           latestContext={latestContext}
           t={t}
         />,
       );
     }
-    if (compactions.length > 0) {
-      const revCompacts = [...compactions].reverse();
+    if (revCompacts.length > 0) {
       revCompacts.forEach((c, idx) => {
+        const cmpKey = convId ? `${convId}:compact:${c.stepIdx}` : '';
         nodes.push(
           <CompactCard
             key={`cmp-${c.stepIdx}`}
             compact={c}
             isLatest={idx === 0 && !hasLiveRow}
             expanded={expandedCompacts.has(c.stepIdx)}
-            convId={convId}
-            detailCache={detailCache}
-            detailLoading={detailLoading}
+            cached={cmpKey ? detailCache.get(cmpKey) : undefined}
+            isLoading={cmpKey ? detailLoading.has(cmpKey) : false}
             t={t}
             onToggle={onToggleCompact}
           />,
@@ -422,15 +420,15 @@ export function CallLogCard({
       : flatInvocations;
 
     visibleFlat.forEach((r) => {
+      const invKey = convId ? `${convId}:inv:${r.idx}` : '';
       nodes.push(
         <InvocationRow
           key={`inv-${r.idx}`}
           inv={r}
           isLatest={r.idx === latestInvIdx && !hasLiveRow}
           expanded={expandedRows.has(r.idx)}
-          convId={convId}
-          detailCache={detailCache}
-          detailLoading={detailLoading}
+          cached={invKey ? detailCache.get(invKey) : undefined}
+          isLoading={invKey ? detailLoading.has(invKey) : false}
           lang={lang}
           t={t}
           onToggle={onToggleInvocation}
@@ -501,7 +499,6 @@ export function CallLogCard({
             invCount={invocations.length}
             activeStep={activeStep}
             serverTimeMs={serverTimeMs}
-            nowMs={nowMs}
             latestContext={latestContext}
             t={t}
           />,
@@ -511,7 +508,6 @@ export function CallLogCard({
       ensureTurnBlock(latestTurn.turnIndex);
     }
 
-    const timelineDesc = buildTimelineDesc(invocations, compactions);
     let visibleItems: TimelineItem[] = timelineDesc;
     let shownInvCount = invocations.length;
 
@@ -535,6 +531,7 @@ export function CallLogCard({
 
       if (entry.kind === 'inv') {
         const r = entry.inv;
+        const invKey = convId ? `${convId}:inv:${r.idx}` : '';
         appendToTurnOrRoot(
           turnIdx,
           <InvocationRow
@@ -542,9 +539,8 @@ export function CallLogCard({
             inv={r}
             isLatest={idx === 0 && !hasLiveRow}
             expanded={expandedRows.has(r.idx)}
-            convId={convId}
-            detailCache={detailCache}
-            detailLoading={detailLoading}
+            cached={invKey ? detailCache.get(invKey) : undefined}
+            isLoading={invKey ? detailLoading.has(invKey) : false}
             lang={lang}
             t={t}
             onToggle={onToggleInvocation}
@@ -553,6 +549,7 @@ export function CallLogCard({
         );
       } else {
         const c = entry.compact;
+        const cmpKey = convId ? `${convId}:compact:${c.stepIdx}` : '';
         appendToTurnOrRoot(
           turnIdx,
           <CompactCard
@@ -560,9 +557,8 @@ export function CallLogCard({
             compact={c}
             isLatest={idx === 0 && !hasLiveRow}
             expanded={expandedCompacts.has(c.stepIdx)}
-            convId={convId}
-            detailCache={detailCache}
-            detailLoading={detailLoading}
+            cached={cmpKey ? detailCache.get(cmpKey) : undefined}
+            isLoading={cmpKey ? detailLoading.has(cmpKey) : false}
             t={t}
             onToggle={onToggleCompact}
           />,

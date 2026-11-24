@@ -8,7 +8,10 @@ import {
   GEMINI_PULSE_MODELS,
   buildGeminiPulseSnapshot,
   computeLocalGeminiBaselines,
+  downsampleUptimeBuckets,
   evaluateTtftAttribution,
+  getFailureBackoffMs,
+  getGeminiPulseVersion,
   mergeIntradayHistory,
   parseGcpGeminiIncidents,
   parseOpenRouterComparisonSeries,
@@ -16,6 +19,7 @@ import {
   parseOpenRouterModelHtml,
   parseOpenRouterUptimeBuckets,
   refreshGeminiPulse,
+  sanitizeGcpIncidentUrl,
   setGeminiPulseEnabled,
   summarizeModelPulse,
 } from '../lib/gemini-pulse.ts';
@@ -199,7 +203,7 @@ test('refreshGeminiPulse persists disk cache and setGeminiPulseEnabled toggles o
       };
     }) as any;
 
-    const cached = await refreshGeminiPulse({ cachePath, force: true, fetchImpl: mockFetch });
+    const cached = await refreshGeminiPulse({ cachePath, force: true, feedUrl: 'direct', fetchImpl: mockFetch });
     assert.equal(cached.models.length, GEMINI_PULSE_MODELS.length);
     assert.equal(existsSync(cachePath), true);
 
@@ -288,7 +292,7 @@ test('parseOpenRouterComparisonSeries and parseOpenRouterUptimeBuckets extract 7
   assert.equal(buckets[1].x, '2026-11-23 04:00');
 });
 
-test('parseOpenRouterModelHtml extracts P95/P99, tool call error rate, reasoning share & mergeIntradayHistory maintains 48h 30m ring buffer', () => {
+test('parseOpenRouterModelHtml extracts P95/P99, tool call error rate, reasoning share & mergeIntradayHistory maintains 24h 5m ring buffer', () => {
   const html = `
     <script>self.__next_f.push([1,"{\\"weightedCacheHitRate\\":0.82,\\"providerSummaries\\":[{\\"endpointId\\":\\"ep-v\\",\\"providerName\\":\\"Google Vertex (4)\\",\\"providerSlug\\":\\"google-vertex\\",\\"cacheHitRate\\":0.82,\\"effectiveInputPrice\\":0.66,\\"effectiveOutputPrice\\":15,\\"totalTokens\\":44000000000}]}"])</script>
     <script>self.__next_f.push([1,"{\\"stats\\":{\\"endpoint_id\\":\\"ep-v\\",\\"p50_latency\\":4300,\\"p75_latency\\":7400,\\"p90_latency\\":13900,\\"p95_latency\\":20600,\\"p99_latency\\":40290,\\"mean_latency\\":7080,\\"p50_throughput\\":67,\\"p90_throughput\\":18,\\"request_count\\":22476,\\"window_minutes\\":30}}"])</script>
@@ -394,4 +398,170 @@ test('avgPromptTokens extraction, context-bucketed local baselines, isBuffered f
   assert.equal(vLarge?.currentCtxTokens, 236000);
   assert.equal(vLarge?.globalAvgCtxTokens, 80000);
   assert.equal(vLarge?.localBucket, '>=200k');
+});
+
+test('sanitizeGcpIncidentUrl blocks javascript: and non-GCP origins, and downsampleUptimeBuckets preserves dips across 24h', () => {
+  assert.equal(sanitizeGcpIncidentUrl('javascript:alert(1)'), 'https://status.cloud.google.com/');
+  assert.equal(sanitizeGcpIncidentUrl('https://evil.example/phish'), 'https://status.cloud.google.com/');
+  assert.equal(
+    sanitizeGcpIncidentUrl('https://status.cloud.google.com/incidents/abc123'),
+    'https://status.cloud.google.com/incidents/abc123',
+  );
+
+  // 144 10-minute buckets covering a full 24h window with an outage dip at index 37
+  const tStart = Date.UTC(2026, 10, 23, 0, 0, 0);
+  const buckets = Array.from({ length: 144 }, (_, i) => ({
+    x: new Date(tStart + i * 10 * 60_000).toISOString().slice(0, 16).replace('T', ' '),
+    tsMs: tStart + i * 10 * 60_000,
+    availability: i === 37 ? 74.5 : 100,
+    rawAvailability: i === 37 ? 70.0 : 100,
+  }));
+  const down = downsampleUptimeBuckets(buckets, 72);
+  assert.ok(down.length <= 73);
+  assert.equal(down[0].tsMs, buckets[0].tsMs);
+  assert.equal(down[down.length - 1].tsMs, buckets[buckets.length - 1].tsMs);
+  assert.ok(down.some((b) => b.availability === 74.5), 'must preserve outage dip');
+});
+
+test('remote feed validation, staleness fallback, refresh-while-disabled privacy, and failure backoff', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-pulse-hardening-'));
+  const cachePath = join(dir, 'pulse.json');
+  try {
+    const now = 1_800_000_000_000;
+    let fetchCalls = 0;
+
+    // 1) Valid remote feed with untrusted incident URL, unknown family, and empty ttft7d
+    const remoteFetch = (async () => {
+      fetchCalls += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            fetchedAtMs: now - 2 * 60_000,
+            models: [
+              {
+                family: 'gemini-4-neon',
+                status: 'ok',
+                p50TtftSec: 3.1,
+                p50Tps: 88,
+                cacheHitPct: 82,
+                uptime30mPct: 100,
+                series: { ttft7d: [], tps7d: [], cache7d: [], uptime24h: [] },
+              },
+              {
+                family: 'evil-injected-model',
+                status: 'ok',
+                p50TtftSec: 1.0,
+              },
+            ],
+            incidents: [
+              {
+                id: 'inc-xss',
+                service: 'Vertex AI',
+                severity: 'medium',
+                impact: 'SERVICE_DISRUPTION',
+                summary: 'Test',
+                begin: '2026-11-24T00:00:00Z',
+                url: 'javascript:alert(1)',
+              },
+            ],
+          }),
+      };
+    }) as any;
+
+    const first = await refreshGeminiPulse({
+      cachePath,
+      force: true,
+      feedUrl: 'https://agy-hud.512.pub',
+      fetchImpl: remoteFetch,
+      nowMs: now,
+    });
+    assert.equal(first.models.length, 1);
+    assert.equal(first.models[0].family, 'gemini-4-neon');
+    assert.equal(first.fetchedAtMs, now - 2 * 60_000);
+    assert.equal(first.incidents[0].url, 'https://status.cloud.google.com/');
+
+    // 2) Privacy: once disabled, even force=true MUST NOT perform network requests
+    setGeminiPulseEnabled(false, { cachePath });
+    const callsBefore = fetchCalls;
+    await refreshGeminiPulse({
+      cachePath,
+      force: true,
+      feedUrl: 'https://agy-hud.512.pub',
+      fetchImpl: remoteFetch,
+      nowMs: now + 10 * 60_000,
+    });
+    assert.equal(fetchCalls, callsBefore);
+
+    // 3) Stale remote feed (>20m old) falls back to direct fetch
+    setGeminiPulseEnabled(true, { cachePath });
+    let hitDirect = false;
+    const staleRemoteThenDirect = (async (url: string) => {
+      if (url.includes('agy-hud.512.pub')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              fetchedAtMs: now - 45 * 60_000, // 45m stale!
+              models: [{ family: 'gemini-4-neon', status: 'ok', p50TtftSec: 9.9 }],
+            }),
+        };
+      }
+      hitDirect = true;
+      if (url.includes('status.cloud.google.com')) return { ok: true, status: 200, text: async () => '[]' };
+      if (url.endsWith('/endpoints')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ data: { endpoints: [{ tag: 'google-vertex/global', status: 0, uptime_last_30m: 99.5 }] } }) };
+      }
+      return { ok: false, status: 503, text: async () => '' };
+    }) as any;
+    const fellBack = await refreshGeminiPulse({
+      cachePath,
+      force: true,
+      feedUrl: 'https://agy-hud.512.pub',
+      fetchImpl: staleRemoteThenDirect,
+      nowMs: now + 12 * 60_000,
+    });
+    assert.equal(hitDirect, true);
+    assert.equal(fellBack.models[0].uptime30mPct, 99.5);
+
+    // 4) Failure backoff & pulseSeq stability on repeated identical errors
+    const allFailFetch = (async () => ({ ok: false, status: 503, text: async () => '' })) as any;
+    const fail1 = await refreshGeminiPulse({
+      cachePath,
+      force: true,
+      feedUrl: 'direct',
+      fetchImpl: allFailFetch,
+      nowMs: now + 20 * 60_000,
+    });
+    assert.equal(fail1.failCount, 1);
+    assert.equal(getFailureBackoffMs(1), 60_000);
+    assert.equal(getFailureBackoffMs(5), 15 * 60_000);
+    const seqAfterFail1 = getGeminiPulseVersion();
+
+    // Non-forced call within backoff window returns cached without retrying
+    let retryCount = 0;
+    const countingFail = (async () => { retryCount += 1; return { ok: false, status: 503, text: async () => '' }; }) as any;
+    await refreshGeminiPulse({
+      cachePath,
+      force: false,
+      feedUrl: 'direct',
+      fetchImpl: countingFail,
+      nowMs: now + 20 * 60_000 + 20_000,
+    });
+    assert.equal(retryCount, 0);
+
+    // Second identical failure does NOT bump pulseSeq
+    await refreshGeminiPulse({
+      cachePath,
+      force: true,
+      feedUrl: 'direct',
+      fetchImpl: allFailFetch,
+      nowMs: now + 25 * 60_000,
+    });
+    assert.equal(getGeminiPulseVersion(), seqAfterFail1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

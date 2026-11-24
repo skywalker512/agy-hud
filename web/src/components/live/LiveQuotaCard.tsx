@@ -1,3 +1,4 @@
+import { useNowMs } from '../../hooks/useNow';
 import type { Translations } from '../../i18n';
 import type { AccountQuota, QuotaPool, QuotaWindow, TelemetrySummary } from '../../types/telemetry';
 import { fmtClockHm, fmtDurationShort, fmtQuotaPct } from '../../utils/format';
@@ -6,7 +7,6 @@ import { IconArrowRight } from '../common/Icons';
 interface LiveQuotaCardProps {
   quota: AccountQuota | undefined;
   summary: TelemetrySummary | undefined;
-  nowMs: number;
   t: Translations;
   onOpenAccount: () => void;
 }
@@ -28,7 +28,8 @@ function selectActivePools(pools: QuotaPool[], summary: TelemetrySummary | undef
   return pools.slice(0, 1);
 }
 
-export function LiveQuotaCard({ quota, summary, nowMs, t, onOpenAccount }: LiveQuotaCardProps) {
+export function LiveQuotaCard({ quota, summary, t, onOpenAccount }: LiveQuotaCardProps) {
+  const nowMs = useNowMs();
   if (!quota?.available || !quota.pools?.length) return null;
 
   const activePools = selectActivePools(quota.pools, summary);

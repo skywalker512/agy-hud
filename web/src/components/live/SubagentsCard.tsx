@@ -1,3 +1,4 @@
+import { memo } from 'preact/compat';
 import { useMemo, useState } from 'preact/hooks';
 import { usePersistedOpen } from '../../hooks/usePersistedOpen';
 import type { Translations } from '../../i18n';
@@ -219,7 +220,7 @@ function SwarmMemberRow({ item: c, boardSeq, sw, t, onJumpConversation }: Member
   return (
     <button
       type="button"
-      disabled={!isRealConv}
+      aria-disabled={!isRealConv}
       onClick={() => {
         if (isRealConv) onJumpConversation(c.id);
       }}
@@ -237,6 +238,7 @@ function SwarmMemberRow({ item: c, boardSeq, sw, t, onJumpConversation }: Member
       <div className="flex items-center justify-between gap-1.5 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
           <StateIndicator state={state} />
+          <span className="sr-only">{sw.stateLabel(state)}</span>
           <span
             className={`font-hud-mono text-[11.5px] font-semibold tracking-[-0.01em] truncate ${
               isKilled ? 'text-hud-muted line-through' : 'text-hud-fg'
@@ -293,7 +295,7 @@ function SwarmMemberRow({ item: c, boardSeq, sw, t, onJumpConversation }: Member
   );
 }
 
-export function SubagentsCard({
+function SubagentsCardImpl({
   found,
   children,
   sessionInfo,
@@ -697,3 +699,5 @@ export function SubagentsCard({
     </section>
   );
 }
+
+export const SubagentsCard = memo(SubagentsCardImpl);

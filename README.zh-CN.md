@@ -3,7 +3,7 @@
 <img src="docs/assets/banner.svg" alt="AGY-HUD 横幅" width="100%" />
 
 <p>
-  <strong>Google Antigravity 的原生侧边栏遥测面板 —— 实时生成速度、首字延迟瀑布图、提示词缓存存活预测、实测配额续航与原生 Swarm 蜂群视图，一眼看清。</strong>
+  <strong>Google Antigravity 的原生侧边栏遥测面板 —— 实时生成速度、首字慢归因、Gemini 全球 7d/5m 实时雷达与赛博斗蛐蛐、提示词缓存存活预测、实测配额续航、Swarm 递归汇总与 2x 战报海报，一眼看清。</strong>
 </p>
 
 <p>
@@ -17,10 +17,10 @@
 <p>
   <a href="README.md">English</a> ·
   <strong>简体中文</strong> ·
-  <a href="https://skywalker512.github.io/agy-hud/">产品官网</a> ·
+  <a href="https://agy-hud.512.pub/">产品官网</a> ·
+  <a href="https://agy-hud.512.pub/pulse/">Gemini 实时雷达</a> ·
   <a href="#quick-install">10 秒安装</a> ·
   <a href="#interface-tour">一读就懂</a> ·
-  <a href="#craftsmanship">打磨细节</a> ·
   <a href="docs/GUIDE.zh-CN.md">完整技术指南</a> ·
   <a href="AGENTS.md">AGENTS.md</a>
 </p>
@@ -112,17 +112,17 @@ node plugin/install.mjs --uninstall
 - **主速度卡片与面积迷你折线**：清晰区分首字后流式速率（`GEN TPS`）与端到端速率（`E2E TPS`），附相对会话均值涨跌徽章与贴底平滑迷你面积图，自动剔除单包毛刺干扰。
 - **上下文窗口透视**：带分段间隙的进度条支持悬停高亮联动下方**双列对齐明细表**（`系统提示`、`工具定义`、`工具返回`含单工具占用排行、`模型回复`、`用户 / 检查点`，并在可解析时细分 MCP / Skills / Rules）。
 - **提前预判压缩与缓存失效**：底部紧凑四格微指标条一眼给出**剩余可用轮次（`~Nt`）**、**缓存命中率**、实时**提示词缓存 TTL 存活概率**与**本场费用 / `5h` 配额消耗**。
-- **原生 AGY Swarm 蜂群驾驶舱**：进入 Swarm 协作会话时自动浮现，集中呈现 `@rosterName` 实时状态、分配任务、`Board #seq`、全群配额与成本汇总，以及协调者↔工作节点一键互跳。
+- **原生 AGY Swarm 蜂群驾驶舱与递归树汇总**：进入 Swarm 或多级子代理会话时自动浮现，集中呈现 `@rosterName` 实时状态、分配任务、`Board #seq`、主会话+全量后代节点递归费用/输出/配额汇总，以及协调者↔工作节点一键互跳。
 
 ### 2. 调用（Calls）—— *刚才那次为什么变慢或变贵了？*
-- **全历史趋势浏览器**：不局限于最近 32 次调用，支持 6 大指标（`速度` / `首字` / `输出` / `缓存` / `上下文` / `配额%`）自由回溯；提供**缩略图刷选条**、主画布拖选缩放、智能**`跟随最新`**锁定，单击任意点直达下方调用详情。
+- **会话 & 全球双模趋势浏览器**：支持全历史 6 大指标（`速度` / `首字` / `输出` / `缓存` / `上下文` / `配额%`，含缩略图刷选、拖选缩放、`跟随最新`），并可一键切至 **Global 全局趋势**，直接叠加 OpenRouter 7d/5m Gemini 全球大盘曲线（含 Vertex / AI Studio 拆分）与本机曲线同图对比。
 - **五页签调用详情检视器**：展开任意一行即可切换 `概览`（四格核心条、按比例绘制的 `TTFT / 思考 / 工具生成 & TC-WAIT / 正文流式` **耗时瀑布图**与 **Token 构成条**）、`思考`、`工具`、`回复`、`原始数据`。
 - **检索、筛选与报告导出**：按 `/` 即时搜索模型、提示词与工具名；通过异常胶囊快速过滤 `慢首字 >3s`、`低缓存 <60%`、`卡顿/单包`、`压缩`；支持按最慢/最贵排序，并一键复制 **Markdown / JSON** 诊断报告。
 
 ### 3. 账户（Account）—— *我的配额还能撑多久？*
-- **5h / 7d 双窗口斜纹续航条**：直接在配额进度条内用斜纹区标出“当前速率在窗口重置前的预计消耗”，一眼判断本周期余量是否充裕或将提前耗尽。
-- **实测 `k` 倍率规则与缓存 TTL 生存曲线**：展示各模型家族经实测拟合的配额消耗倍率，以及 7 个空闲间隔分桶的缓存命中率与 `P80` / `P50` 安全窗口和过期重算成本。
-- **多端统一账单、16w/52w 冰山热力图与一键升级**：自动合并 App、CLI（`agy`）、ACP 与 IDE 历史账单，提供 **16 周 / 52 周活跃热力图**与**单色 Token 冰山图**（基准线上为新增 Token、基准线下为缓存读取），并支持应用内安全一键升级。
+- **Gemini 全局大盘、首字慢归因与 ⚔ 赛博斗蛐蛐 PK**：对照全球 30m/24h/7d 大盘（同步提供独立公开雷达站 [`agy-hud.512.pub/pulse/`](https://agy-hud.512.pub/pulse/)）实时评估本机延迟与吞吐，自动给出首字慢归因结论（上游波动 / 缓存未命中 / 大上下文 / 本机并发 / 账号网络），并支持模型间 1v1 赛博斗蛐蛐 PK。
+- **5h / 7d 双窗口斜纹续航条与实测 `k` 倍率**：在配额进度条内用斜纹区标出重置前预计消耗，并展示实测拟合的模型家族 `k` 倍率以及 7 分桶提示词缓存 TTL 生存曲线（`P80` / `P50` 安全窗口与过期重算成本）。
+- **多端统一账单、16w/52w 冰山热力图与 2x 战报海报**：自动合并 App、CLI（`agy`）、ACP 与 IDE 历史账单，提供 **16 周 / 52 周活跃热力图**、**单色 Token 冰山图**、一键生成 **2x 高清 PNG Wrapped 战报海报**（赛博 / 流金 / 浅色三套主题），以及应用内安全一键升级。
 
 ---
 
@@ -153,7 +153,7 @@ node plugin/install.mjs --uninstall
 
 ## 隐私、架构与常见问题
 
-- **100% 本地只读**：只读取 `~/.gemini/antigravity/conversations/<uuid>.db`（`?mode=ro`）、本机回环 Language Server RPC 与本地 Swarm 元数据，任何提示词、代码与遥测内容都不会上传。唯一可选的外部网络请求是检查/下载 `github.com/skywalker512/agy-hud` 的版本更新。
+- **100% 本地只读遥测**：只读取 `~/.gemini/antigravity/conversations/<uuid>.db`（`?mode=ro`）、本机回环 Language Server RPC 与本地 Swarm 元数据，任何提示词、代码与本地遥测都不会离开本机；外部请求仅限于只读拉取公开信息（GitHub 版本更新检查与可开关的 Gemini 全局大盘公共状态）。
 - **零侵入、无惧宿主升级**：纯官方 Sidecar 插件，不修改 `app.asar`，也不需要给 Antigravity 附加 CDP 调试参数；直接点击日常应用图标启动，Antigravity 升级后依然开箱即用。
 - **为什么需要 Node.js 22.18+？** 依赖内置 `node:sqlite` 与原生 TypeScript 类型剥离，从而让整个后端与安装脚本保持**零运行时 npm 依赖**。
 
@@ -163,9 +163,10 @@ node plugin/install.mjs --uninstall
 
 | 文档 | 说明 |
 | :--- | :--- |
-| [产品官网](https://skywalker512.github.io/agy-hud/) | 交互式三页签 HUD 演示与系统自适应安装引导（[`site/`](site/)） |
+| [产品官网](https://agy-hud.512.pub/) | 交互式三页签 HUD 演示、16 套主题同步与系统自适应安装引导（[`site/`](site/)） |
+| [Gemini 实时雷达](https://agy-hud.512.pub/pulse/) | 5 分钟粒度公开 Gemini 全球首字、速度、缓存与 GCP 故障看板（[`workers/gemini-pulse/`](workers/gemini-pulse/)） |
 | [安装与自升级指南](docs/INSTALLATION.zh-CN.md) | 自定义路径、指定版本、`--doctor` 诊断、安全模型与排障（[English](docs/INSTALLATION.md)） |
-| [完整使用与技术指南](docs/GUIDE.zh-CN.md) | Swarm 驾驶舱、缓存 TTL 数学模型、IRLS `k` 拟合、Protobuf 映射与接口文档（[English](docs/GUIDE.md)） |
+| [完整使用与技术指南](docs/GUIDE.zh-CN.md) | Swarm 驾驶舱、Gemini 大盘、缓存 TTL 数学模型、IRLS `k` 拟合、Protobuf 映射与接口文档（[English](docs/GUIDE.md)） |
 | [AGENTS.md](AGENTS.md) | 面向 AI 编程助手的标准安装与验证指南 |
 | [CHANGELOG.md](CHANGELOG.md) | 完整版本更新日志 |
 
@@ -175,12 +176,12 @@ node plugin/install.mjs --uninstall
 ```bash
 # 构建前端界面产物（Preact + TypeScript + Tailwind CSS v4 -> plugin/sidecars/hud_panel/ui/）
 npm --prefix web install
-npm --prefix web run build
+npm run build:ui
 npm --prefix web run dev          # 监听改动自动重建（配合 `node plugin/install.mjs --link`）
 
-# 运行全套校验：后端类型检查 + 前端构建 + 全部单元与轨迹测试
-npm --prefix plugin/sidecars/hud_panel run check
-node --test tools/test/trace.test.mjs
+# 运行全套校验：web/site/worker 类型检查 + sidecar / worker / tools 全部单元测试
+npm run check
+npm run build:site
 ```
 
 </details>

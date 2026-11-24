@@ -14,7 +14,7 @@
 import { getCurrentPricingSig, poolKeyForModel, resolveModelPricing } from './pricing.ts';
 
 export const FIT_STORE_VERSION = 1;
-export const FIT_SCHEMA_VERSION = 5;
+export const FIT_SCHEMA_VERSION = 6;
 export const FAMILY_CLASSIFIER_VERSION = 2;
 export const SHORT_WINDOW_MAX_SEC = 900; // <= 15m short windows train model parameters; long windows only evaluate external burn
 
@@ -62,6 +62,7 @@ export const POOL_FULL5H_PRIORS = Object.freeze({
 // Used to distinguish valid multi-tier accounts from genuine model-rate drift (>3σ off every known tier).
 export const POOL_KNOWN_FULL5H_CAPS: Readonly<Record<string, readonly number[]>> = Object.freeze({
   gemini: [30.0, 150.0, 600.0],
+  claude_gpt: [11.35, 20.0, 40.0],
 });
 
 export const POOL_GAMMA_PRIORS = Object.freeze({
@@ -1286,14 +1287,16 @@ export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = 
     initialRefBeta,
     hasPerTokenInTrain,
   );
-  const { tokenModels, usesPerTokenFit } = fitPerTokenModels(
-    fittedFamilies,
-    trainSet,
-    famShortTrainWins,
-    omegas,
-    beta,
-    refBetaCurr,
-  );
+  const { tokenModels, usesPerTokenFit } = activeShortCleanCount >= 2
+    ? fitPerTokenModels(
+        fittedFamilies,
+        trainSet,
+        famShortTrainWins,
+        omegas,
+        beta,
+        refBetaCurr,
+      )
+    : { tokenModels: new Map<string, TokenModelFit>(), usesPerTokenFit: false };
 
   const stats = evaluateResidualsAndQuality({
     poolKind,
@@ -1310,6 +1313,73 @@ export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = 
     usesPerTokenFit,
     nominalSet: inventory.nominalSet,
   });
+
+  // Dirty-burst conservation guard: when ALL short windows had concurrent in-flight straddling
+  // (activeShortCleanCount === 0) and no tight consensus cluster exists (provisional + relErr > 6%),
+  // summing a contiguous chain of dirty windows cancels internal boundary straddling exactly.
+  // Because external burn can only push the chain rate UP, capping downward to chainRate eliminates
+  // small-call upward bias without ever allowing remote burn to inflate refBeta.
+  if (
+    activeShortCleanCount === 0 &&
+    stats.quality === 'provisional' &&
+    !usesPerTokenFit &&
+    stats.empiricalRelErr > 0.06 &&
+    primarySet.length >= 3
+  ) {
+    let totalPriorWeighted = 0;
+    const samplePriorWeighted = primarySet.map((s) => {
+      let pw = 0;
+      for (const [fam, usd] of Object.entries(s.byModel || {})) {
+        if (usd > 0) pw += getFamilyPriorK(fam) * usd;
+      }
+      totalPriorWeighted += pw;
+      return pw;
+    });
+
+    let bestChainDu5 = 0;
+    let bestChainPW = 0;
+    let bestChainLen = 0;
+    let curDu5 = 0;
+    let curPW = 0;
+    let curLen = 0;
+    for (let i = 0; i < primarySet.length; i++) {
+      const s = primarySet[i];
+      const contiguous = i > 0 && Math.abs((s.t0 || 0) - (primarySet[i - 1].t1 || 0)) <= 2_000;
+      if (!contiguous) {
+        curDu5 = s.du5;
+        curPW = samplePriorWeighted[i];
+        curLen = 1;
+      } else {
+        curDu5 += s.du5;
+        curPW += samplePriorWeighted[i];
+        curLen += 1;
+      }
+      if (curLen >= 3 && curPW > bestChainPW) {
+        bestChainDu5 = curDu5;
+        bestChainPW = curPW;
+        bestChainLen = curLen;
+      }
+    }
+
+    if (bestChainLen >= 3 && totalPriorWeighted > 0 && bestChainPW / totalPriorWeighted >= 0.70) {
+      const chainRate = bestChainDu5 / bestChainPW;
+      if (Number.isFinite(chainRate) && chainRate > 0.01 && chainRate < stats.refBeta * 0.96) {
+        const scale = stats.refBeta > 0 ? chainRate / stats.refBeta : 1;
+        stats.refBeta = chainRate;
+        const matchedPrior = resolveMatchedPriorRefBeta(poolKind, chainRate);
+        for (const st of stats.fittedStats) {
+          st.beta = Math.max(0.01, Math.min(200, st.beta * scale));
+          st.se = st.se * scale;
+          if (!inventory.nominalSet.has(st.fam)) {
+            const priorBetaAbs = st.kPrior * matchedPrior;
+            st.priorBeta = priorBetaAbs;
+            st.priorRelDiffPct = ((st.beta - priorBetaAbs) / priorBetaAbs) * 100;
+            st.priorZScore = Math.abs(st.beta - priorBetaAbs) / Math.max(1e-9, st.se);
+          }
+        }
+      }
+    }
+  }
 
   const matchedPriorRefBeta = resolveMatchedPriorRefBeta(poolKind, stats.refBeta);
   const models = buildModelsMap({

@@ -1,3 +1,4 @@
+import { memo } from 'preact/compat';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import type { CallDetailPayload, Invocation, Lang } from '../../types/telemetry';
@@ -24,9 +25,8 @@ interface InvocationRowProps {
   inv: Invocation;
   isLatest: boolean;
   expanded: boolean;
-  convId: string;
-  detailCache: Map<string, CallDetailPayload>;
-  detailLoading: Set<string>;
+  cached?: CallDetailPayload;
+  isLoading?: boolean;
   lang?: Lang;
   t: Translations;
   onToggle: (idx: number, hasDetail: boolean) => void;
@@ -58,13 +58,12 @@ function allocateVisibleWidths(values: number[], minPct = 3): number[] {
   return sum > 0 ? clamped.map((p) => (p / sum) * 100) : clamped;
 }
 
-export function InvocationRow({
+function InvocationRowImpl({
   inv: r,
   isLatest,
   expanded,
-  convId,
-  detailCache,
-  detailLoading,
+  cached,
+  isLoading = false,
   lang = 'en',
   t,
   onToggle,
@@ -105,9 +104,6 @@ export function InvocationRow({
   const hasDetail = Boolean(r.hasThinking || r.hasReply || (r.toolCount || 0) > 0);
   const primary = r.isBuffered ? t.histBuf((r.genSec * 1000).toFixed(0)) : `${fmtTps(r.genTps)} tok/s`;
 
-  const cacheKey = `${convId}:inv:${r.idx}`;
-  const cached = convId ? detailCache.get(cacheKey) : undefined;
-  const isLoading = convId ? detailLoading.has(cacheKey) : false;
   const inlineContent =
     r.thinkingPreview || r.replyPreview || (r.toolCalls && r.toolCalls.length > 0) ? r : undefined;
   const contentSrc = cached || inlineContent;
@@ -611,3 +607,5 @@ export function InvocationRow({
     </div>
   );
 }
+
+export const InvocationRow = memo(InvocationRowImpl);

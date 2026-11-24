@@ -7,6 +7,7 @@ on:
     paths:
       - 'site/**'
       - 'plugin/sidecars/hud_panel/ui/**'
+      - 'plugin/sidecars/hud_panel/lib/pulse-core.ts'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 

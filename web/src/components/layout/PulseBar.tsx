@@ -1,3 +1,4 @@
+import { useNowMs } from '../../hooks/useNow';
 import type { Translations } from '../../i18n';
 import type { StatsSnapshot } from '../../types/telemetry';
 import {
@@ -13,12 +14,12 @@ import {
 
 interface PulseBarProps {
   snap: StatsSnapshot | null;
-  nowMs: number;
   t: Translations;
   visible?: boolean;
 }
 
-export function PulseBar({ snap, nowMs, t, visible = true }: PulseBarProps) {
+export function PulseBar({ snap, t, visible = true }: PulseBarProps) {
+  const nowMs = useNowMs();
   const found = Boolean(snap?.found);
   const latest = snap?.latest || null;
   const active = snap?.activeStep || null;

@@ -16,7 +16,18 @@
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://agy-hud.512.pub/" />
+    <meta property="og:image" content="https://agy-hud.512.pub/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="AGY-HUD — Native Telemetry Cockpit for Google Antigravity" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AGY-HUD — Native Telemetry for Google Antigravity" />
+    <meta
+      name="twitter:description"
+      content="Live GEN/E2E speed, Gemini Global Pulse 7d/5m curves & Cyber Arena PK, TTFT attribution, Cache TTL, calibrated quota runway, Swarm rollup, and 2x Wrapped posters."
+    />
+    <meta name="twitter:image" content="https://agy-hud.512.pub/og-image.png" />
+    <link rel="canonical" href="https://agy-hud.512.pub/" />
     <link rel="icon" type="image/svg+xml" href="./logo.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -30,8 +41,7 @@
       (function () {
         try {
           var saved = localStorage.getItem('agy-hud-site-theme');
-          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          var theme = saved === 'light' || saved === 'dark' ? saved : prefersDark ? 'dark' : 'dark';
+          var theme = saved === 'light' || saved === 'dark' ? saved : 'dark';
           document.documentElement.dataset.theme = theme;
           document.documentElement.style.colorScheme = theme;
         } catch (e) {}

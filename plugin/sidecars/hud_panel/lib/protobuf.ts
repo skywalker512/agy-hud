@@ -248,7 +248,8 @@ export function parseGenRow(idx: number, raw: Uint8Array) {
   const totalSec = ttftSec + genSec;
   const genTps = genSec > 0 ? outputTokens / genSec : 0;
   const e2eTps = totalSec > 0 ? outputTokens / totalSec : 0;
-  const isBuffered = genSec < 0.5 || (genSec < 1.0 && genTps > 1200);
+  // Flag single-packet or short (<1s) buffered burst flushes (>800 tok/s, e.g. Opus 9s TTFT + 0.76s flush)
+  const isBuffered = genSec < 0.5 || (genSec < 1.0 && genTps > 800);
 
   return {
     idx,

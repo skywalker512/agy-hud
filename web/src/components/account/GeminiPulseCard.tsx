@@ -1,8 +1,13 @@
-import { useMemo, useRef, useState } from 'preact/hooks';
+import { memo } from 'preact/compat';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { usePersistedOpen } from '../../hooks/usePersistedOpen';
 import type { Translations } from '../../i18n';
-import type { GeminiLocalBaseline, GeminiModelGlobalPulse, GeminiPulseSnapshot } from '../../types/telemetry';
+import type { GcpActiveIncident, GeminiLocalBaseline, GeminiModelGlobalPulse, GeminiPulseSnapshot } from '../../types/telemetry';
+import { copyText } from '../../utils/clipboard';
 import { fmtClock, fmtNum, fmtSec, fmtTps } from '../../utils/format';
+
+const EMPTY_MODELS: GeminiModelGlobalPulse[] = [];
+const EMPTY_INCIDENTS: GcpActiveIncident[] = [];
 import {
   IconAlert,
   IconCheck,
@@ -173,7 +178,7 @@ function scoreMatchup(a: ArenaFighter, b: ArenaFighter) {
   return { ttftWinner, tpsWinner, cacheWinner, upWinner, winsA, winsB, scoreA, scoreB, overallWinner };
 }
 
-export function GeminiPulseCard({
+function GeminiPulseCardImpl({
   pulse,
   refreshing,
   onRefresh,
@@ -188,10 +193,16 @@ export function GeminiPulseCard({
   const [copiedPk, setCopiedPk] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isZh = t.pulseColModel === '模型';
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const isZh = t.lang === 'zh';
   const enabled = pulse ? pulse.enabled : true;
-  const models = pulse?.models || [];
-  const incidents = pulse?.incidents || [];
+  const models = pulse?.models || EMPTY_MODELS;
+  const incidents = pulse?.incidents || EMPTY_INCIDENTS;
   const overall = pulse?.overallStatus || 'unknown';
   const fetchedClock = pulse?.fetchedAtMs ? fmtClock(pulse.fetchedAtMs) : '';
   const isBusy = refreshing || Boolean(pulse?.loading);
@@ -336,10 +347,12 @@ export function GeminiPulseCard({
         ? `🏆 胜者：${winnerName}（战力分 ${matchupResult.scoreA} : ${matchupResult.scoreB}）`
         : `🏆 Winner: ${winnerName} (Score ${matchupResult.scoreA} : ${matchupResult.scoreB})`,
     ];
-    navigator.clipboard?.writeText(lines.join('\n')).catch(() => {});
-    setCopiedPk(true);
-    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    copyTimerRef.current = setTimeout(() => setCopiedPk(false), 1400);
+    void copyText(lines.join('\n')).then((ok) => {
+      if (!ok) return;
+      setCopiedPk(true);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopiedPk(false), 1400);
+    });
   };
 
   const statusBadge = !enabled
@@ -478,7 +491,7 @@ export function GeminiPulseCard({
             <button
               type="button"
               className="collapse-btn"
-              aria-label="Refresh Gemini Pulse"
+              aria-label={isZh ? '刷新 Gemini 全局大盘' : 'Refresh Gemini Pulse'}
               disabled={isBusy}
               data-tip={t.pulseRefreshTip(fetchedClock)}
               onClick={onRefresh}
@@ -516,7 +529,7 @@ export function GeminiPulseCard({
               {/* Top sub-toolbar: Overview / Cyber Cricket PK + Local Comparison Window (30m/24h/7d) */}
               {models.length > 0 && (
                 <div className="flex flex-wrap items-center justify-between gap-1.5 min-w-0">
-                  <div className="metric-tabs" role="tablist" aria-label="Pulse mode">
+                  <div className="metric-tabs" role="tablist" aria-label={isZh ? '大盘视图模式' : 'Pulse mode'}>
                     <button
                       type="button"
                       role="tab"
@@ -546,7 +559,7 @@ export function GeminiPulseCard({
                     }
                   >
                     <span className="font-hud text-[9px] text-hud-muted">{isZh ? '本机窗' : 'Mine'}</span>
-                    <div className="metric-tabs" role="group" aria-label="Local window">
+                    <div className="metric-tabs" role="group" aria-label={isZh ? '本机统计窗口' : 'Local window'}>
                       {(['30m', '24h', '7d'] as const).map((w) => (
                         <button
                           key={w}
@@ -739,7 +752,7 @@ export function GeminiPulseCard({
                   {/* Fighter selectors (Red vs Blue) */}
                   <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1.5">
                     <select
-                      aria-label="Left contestant"
+                      aria-label={isZh ? '左侧对战模型' : 'Left contestant'}
                       className="w-full min-w-0 px-1.5 py-1 rounded-md bg-hud-card border border-hud-ok/35 font-hud text-[10px] font-semibold text-hud-fg outline-none cursor-pointer truncate"
                       value={resolvedA?.id || ''}
                       onChange={(e) => setFighterAId((e.target as HTMLSelectElement).value)}
@@ -752,7 +765,7 @@ export function GeminiPulseCard({
                     </select>
                     <span className="font-hud-mono text-[10px] font-bold text-hud-muted px-0.5">VS</span>
                     <select
-                      aria-label="Right contestant"
+                      aria-label={isZh ? '右侧对战模型' : 'Right contestant'}
                       className="w-full min-w-0 px-1.5 py-1 rounded-md bg-hud-card border border-seg-input/40 font-hud text-[10px] font-semibold text-hud-fg outline-none cursor-pointer truncate"
                       value={resolvedB?.id || ''}
                       onChange={(e) => setFighterBId((e.target as HTMLSelectElement).value)}
@@ -855,3 +868,5 @@ export function GeminiPulseCard({
     </section>
   );
 }
+
+export const GeminiPulseCard = memo(GeminiPulseCardImpl);

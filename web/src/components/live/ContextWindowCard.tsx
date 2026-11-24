@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
+import { useElementWidth } from '../../hooks/useElementWidth';
+import { useNowMs } from '../../hooks/useNow';
 import type { Translations } from '../../i18n';
 import type { StatsSnapshot, TokenBreakdownItem } from '../../types/telemetry';
 import {
@@ -18,7 +20,6 @@ import {
 
 interface ContextWindowCardProps {
   snap: StatsSnapshot | null;
-  nowMs: number;
   t: Translations;
 }
 
@@ -41,23 +42,10 @@ function fmtItemTipList(title: string, items: TokenBreakdownItem[] | undefined, 
   return `\n${title}\n${head.join('\n')}`;
 }
 
-export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
+export function ContextWindowCard({ snap, t }: ContextWindowCardProps) {
+  const nowMs = useNowMs();
   const [hoveredSegIdx, setHoveredSegIdx] = useState<number | null>(null);
-  const [cardWidth, setCardWidth] = useState(380);
-  const cardRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    const el = cardRef.current;
-    if (!el) return;
-    if (el.clientWidth > 0) setCardWidth(el.clientWidth);
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect?.width || el.clientWidth;
-      if (w > 0) setCardWidth(w);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  const [cardWidth, cardRef] = useElementWidth(380);
 
   const found = Boolean(snap?.found);
   const latest = found ? snap?.latest || null : null;
@@ -152,7 +140,7 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
   const hasPricedCost = Boolean(found && (effPriced > 0 || effCost > 0));
   const costStr = hasPricedCost ? fmtUsd(effCost) : '';
   const savedStr = hasPricedCost && effSaved > 0 ? fmtUsd(effSaved) : '';
-  const isZh = t.ctxMicroSession === '本会话';
+  const isZh = t.lang === 'zh';
   const childSplitLine = hasChildRollup
     ? isZh
       ? `\n主会话：${fmtUsd(rootCost)}（${s?.count || 0} 次） + ${tree?.swarmWorkerCount ? 'Swarm/子会话' : '子会话'}（${childCount} 个）：${fmtUsd(childCost)}（${childCalls} 次）`

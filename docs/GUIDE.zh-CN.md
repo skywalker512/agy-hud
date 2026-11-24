@@ -16,7 +16,8 @@
 6. [智能中文环境启发式识别与缓存机制](#6-智能中文环境启发式识别与缓存机制)
 7. [核心指标公式与 Protobuf 字段映射](#7-核心指标公式与-protobuf-字段映射)
 8. [实测配额 `k` 倍率拟合、斜纹续航条与冰山图](#8-实测配额-k-倍率拟合斜纹续航条与冰山图)
-9. [快捷键与本地 Sidecar HTTP 接口参考](#9-快捷键与本地-sidecar-http-接口参考)
+9. [Gemini 全局大盘、首字慢归因与 2x 战报海报](#9-gemini-全局大盘首字慢归因与-2x-战报海报)
+10. [快捷键与本地 Sidecar HTTP 接口参考](#10-快捷键与本地-sidecar-http-接口参考)
 
 ---
 
@@ -273,7 +274,19 @@ Antigravity 按模型池（`gemini` 与 `claude_gpt`）实施滚动 **5 小时�
 
 ---
 
-## 9. 快捷键与本地 Sidecar HTTP 接口参考
+## 9. Gemini 全局大盘、首字慢归因与 2x 战报海报
+
+- **三端共用核心与 5 分钟采集器（`lib/pulse-core.ts`、`lib/gemini-pulse.ts`、`workers/gemini-pulse/`）**：
+  - Node sidecar、Cloudflare Worker（`https://agy-hud.512.pub`）与独立网页雷达（[`/pulse/`](https://agy-hud.512.pub/pulse/)）共用同一份零依赖解析器，追踪 OpenRouter 30m/5m 粒度 TTFT（`P50`–`P99`）、吞吐（`TPS`）、加权缓存命中率、平均上下文长度、7 天趋势曲线、24 小时可用率以及 Google Cloud Service Health 实时故障。
+- **上下文分桶首字归因与 ⚔ 赛博斗蛐蛐 PK（`GeminiPulseCard.tsx`、`GlobalTrendView.tsx`）**：
+  - 将本机近期 Gemini 调用与按上下文规模分桶的本机基线、全球实时大盘综合比对，自动给出首字变慢归因（`normal` / `upstream_degraded` / `cache_miss` / `large_context` / `local_concurrency` / `account_or_network`）。
+  - 可在调用页趋势图一键切到 **Global 全局模式** 同图叠加本机与全球曲线（支持拆看 Vertex 与 AI Studio 路由），或在账户页开启 **赛博斗蛐蛐 PK** 进行模型 1v1 对战。
+- **2x 高清 PNG Wrapped 战报海报（`ActivityShareModal.tsx`、`posterCanvas.ts`）**：
+  - 在活跃热力图卡片一键生成赛博 / 流金 / 浅色三套主题的高清双语战报 PNG，或直接复制文字版汇总战报。
+
+---
+
+## 10. 快捷键与本地 Sidecar HTTP 接口参考
 
 ### 快捷键与手势汇总
 
@@ -292,8 +305,10 @@ Antigravity 按模型池（`gemini` 与 `claude_gpt`）实施滚动 **5 小时�
 
 | 方法与路径 | 参数 / 请求体 | 用途 |
 | :--- | :--- | :--- |
-| `GET /api/stats` | `mode`、`conversationId`、`refreshQuota`、`etag` | 主遥测快照接口，ETag 增量校验（活跃 `500 ms` / 空闲 `1500 ms` 轮询），包含 Swarm、缓存 TTL、配额续航与热力图/冰山数据 |
+| `GET /api/stats` | `mode`、`conversationId`、`refreshQuota`、`etag` | 主遥测快照接口，ETag 增量校验（活跃 `500 ms` / 空闲 `1500 ms` 轮询），包含 Swarm、缓存 TTL、Gemini 全局大盘、配额续航与热力图/冰山数据 |
 | `GET /api/call-detail` | `conversationId`、`kind`（`inv`\|`compact`\|`turn`）、`id` | 按需获取单次调用完整思考/回复/工具参数（上限 `60k` 字符） |
+| `GET /api/gemini-pulse` | `force=1` *（可选）* | 读取或强制刷新 Gemini 全局大盘快照与本机对比基线 |
+| `POST /api/gemini-pulse` | `{ enabled?: boolean, refresh?: boolean }` | 开关 Gemini 全局大盘或手动触发刷新 |
 | `GET /api/locale` | `refresh=1` *（可选）* | 返回启发式中文/英文检测结果、分项得分与缓存状态 |
 | `GET /api/update-status` | `force=1` *（可选）* | 检查 GitHub 最新版本（6 小时缓存）与安装模式（`isLinked`、`canSelfUpdate`） |
 | `POST /api/update-apply` | `{ force?: boolean }` | 执行安全自升级（含 SHA-256 后端变更比对、原子替换与优雅重启） |

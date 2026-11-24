@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useNowMs } from '../../hooks/useNow';
 import type { Translations } from '../../i18n';
 import type {
   ConvMode,
@@ -19,7 +20,6 @@ import { SessionRelBar } from './SessionRelBar';
 interface TopBarProps {
   snap: StatsSnapshot | null;
   retrying: boolean;
-  nowMs: number;
   mode: ConvMode;
   selectedConv: string;
   lang: Lang;
@@ -37,7 +37,6 @@ interface TopBarProps {
 export function TopBar({
   snap,
   retrying,
-  nowMs,
   mode,
   selectedConv,
   lang,
@@ -51,6 +50,7 @@ export function TopBar({
   onOpenUpdates,
   onCheckUpdates,
 }: TopBarProps) {
+  const nowMs = useNowMs();
   const [menuOpen, setMenuOpen] = useState(false);
   const [copiedField, setCopiedField] = useState<'id' | 'jsonl' | 'full' | 'md' | 'json-saved' | 'json-copied' | null>(
     null,

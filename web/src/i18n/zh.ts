@@ -1,6 +1,7 @@
 import type { Translations } from './types';
 
 export const zh: Translations = {
+  lang: 'zh',
   title: 'AGY HUD',
   connecting: '连接中…',
   waitingModel: '等待模型响应数据…',

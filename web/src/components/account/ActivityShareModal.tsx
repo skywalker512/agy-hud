@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { AccountHistory, DailyHeatmapDay } from '../../types/telemetry';
 import { computeActivityInsights } from '../../utils/activityStats';
+import { copyText } from '../../utils/clipboard';
 import { buildWrappedTextReport, renderActivityPoster, type PosterThemeId } from '../../utils/posterCanvas';
 import { IconCheck, IconCopy, IconDownload, IconX } from '../common/Icons';
 
@@ -133,9 +134,10 @@ export function ActivityShareModal({
     }
   };
 
-  const handleCopyText = () => {
+  const handleCopyText = async () => {
     const text = buildWrappedTextReport({ insights, span: activeSpan, hideSpend, isZh, tierLabel });
-    navigator.clipboard?.writeText(text).catch(() => {});
+    const ok = await copyText(text);
+    if (!ok) return;
     setCopiedText(true);
     setTimeout(() => setCopiedText(false), 1500);
     flashStatus(isZh ? '已复制文字战报' : 'Text summary copied');
@@ -262,7 +264,7 @@ export function ActivityShareModal({
         </div>
 
         {/* Export actions */}
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="narrow-grid-2 grid grid-cols-3 gap-1.5">
           <button
             type="button"
             className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-hud-accent text-hud-accent-fg font-hud text-[10.5px] font-semibold cursor-pointer hover:opacity-90 transition-opacity"

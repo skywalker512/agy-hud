@@ -1,0 +1,19 @@
+{
+  "name": "agy-hud",
+  "version": "1.2.0",
+  "private": true,
+  "description": "AGY-HUD monorepo scripts for sidecar tests, UI/site builds, and Worker typecheck",
+  "scripts": {
+    "test:sidecar": "node --test --experimental-strip-types plugin/sidecars/hud_panel/test/*.test.ts",
+    "test:worker": "node --test --experimental-strip-types workers/gemini-pulse/test/*.test.ts",
+    "test:tools": "node --test tools/test/installer.test.mjs tools/test/trace.test.mjs",
+    "test": "npm run test:sidecar && npm run test:worker && npm run test:tools",
+    "typecheck:web": "npm --prefix web run typecheck",
+    "typecheck:site": "npm --prefix site run typecheck",
+    "typecheck:worker": "npm --prefix workers/gemini-pulse run typecheck",
+    "typecheck": "npm run typecheck:web && npm run typecheck:site && npm run typecheck:worker",
+    "build:ui": "npm --prefix web run build",
+    "build:site": "npm --prefix site run build",
+    "check": "npm run typecheck && npm test"
+  }
+}

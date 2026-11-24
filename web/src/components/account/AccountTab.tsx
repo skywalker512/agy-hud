@@ -17,7 +17,6 @@ import { SpendGrid } from './SpendGrid';
 
 interface AccountTabProps {
   snap: StatsSnapshot | null;
-  nowMs: number;
   t: Translations;
   updateStatus: UpdateStatusResponse | null;
   updateChecking: boolean;
@@ -45,7 +44,6 @@ function detectWindowsClient(): boolean {
 
 export function AccountTab({
   snap,
-  nowMs,
   t,
   updateStatus,
   updateChecking,
@@ -150,7 +148,7 @@ export function AccountTab({
         </div>
 
         <div className="mt-2.5 flex flex-col gap-2.5 min-w-0">
-          <QuotaPoolsList quota={q} nowMs={nowMs} t={t} />
+          <QuotaPoolsList quota={q} t={t} />
           <SpendGrid summary={s} history={h} sessionInfo={snap?.sessionInfo} t={t} />
           {remoteActiveUsd > 0 && (
             <div

@@ -22,7 +22,7 @@ export function KpiGrid({ found, hasLatest, summary, sessionInfo, t }: KpiGridPr
   const childOut = tree?.childOutputTokens || 0;
   const childCount = tree?.descendantCount || 0;
   const hasChildOut = childCount > 0 && childOut > 0;
-  const isZh = t.kpiOutputLabel === '累计输出';
+  const isZh = t.lang === 'zh';
 
   const avgGenNum = active ? fmtTps(summary?.avgGenTps) : '--';
   const avgE2eNum = active ? fmtTps(summary?.avgE2eTps) : '--';

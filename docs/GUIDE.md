@@ -16,7 +16,8 @@ A complete operational and technical reference for every view, statistical model
 6. [Heuristic Chinese Detection & Caching](#6-heuristic-chinese-detection--caching)
 7. [Metrics Glossary & Protobuf Field Map](#7-metrics-glossary--protobuf-field-map)
 8. [Empirical Quota `k`-Fitter, Hatched Runway & Iceberg Insights](#8-empirical-quota-k-fitter-hatched-runway--iceberg-insights)
-9. [Keyboard Shortcuts & Sidecar API Reference](#9-keyboard-shortcuts--sidecar-api-reference)
+9. [Gemini Global Pulse, TTFT Attribution & 2x Wrapped Posters](#9-gemini-global-pulse-ttft-attribution--2x-wrapped-posters)
+10. [Keyboard Shortcuts & Sidecar API Reference](#10-keyboard-shortcuts--sidecar-api-reference)
 
 ---
 
@@ -281,7 +282,19 @@ Antigravity enforces rolling **5-hour (`5h`)** and **7-day (`7d`)** quota pools 
 
 ---
 
-## 9. Keyboard Shortcuts & Sidecar API Reference
+## 9. Gemini Global Pulse, TTFT Attribution & 2x Wrapped Posters
+
+- **Shared Pulse Core & 5-Minute Edge Collector (`lib/pulse-core.ts`, `lib/gemini-pulse.ts`, `workers/gemini-pulse/`)**:
+  - A zero-dependency parser module shared by the Node sidecar, Cloudflare Worker (`https://agy-hud.512.pub`), and standalone [`/pulse/`](https://agy-hud.512.pub/pulse/) dashboard tracks OpenRouter 30m/5m TTFT (`P50`–`P99`), throughput (`TPS`), weighted cache hit rate, average prompt/output context, 7d comparison curves, 24h availability, and active Google Cloud Service Health incidents.
+- **Context-Bucketed TTFT Attribution & Cyber Arena PK (`GeminiPulseCard.tsx`, `GlobalTrendView.tsx`)**:
+  - Compares your recent local Gemini calls against both your own historical baseline (bucketed by prompt size) and the live global pool to classify slow turns (`normal`, `upstream_degraded`, `cache_miss`, `large_context`, `local_concurrency`, or `account_or_network`).
+  - Switch the Calls Trend chart into **Global** mode to overlay your local 7d/5m telemetry on global Gemini curves (with Vertex vs AI Studio route splitting), or open **Cyber Arena PK** in Account to pit models head-to-head.
+- **2x PNG Wrapped Share Posters (`ActivityShareModal.tsx`, `posterCanvas.ts`)**:
+  - Export bilingual high-DPI (`2x`) PNG activity posters in **Cyber**, **Gold**, and **Light** themes or copy a structured Markdown text summary directly from the Activity Heatmap card.
+
+---
+
+## 10. Keyboard Shortcuts & Sidecar API Reference
 
 ### Keyboard Shortcuts
 
@@ -300,8 +313,10 @@ Antigravity enforces rolling **5-hour (`5h`)** and **7-day (`7d`)** quota pools 
 
 | Method & Endpoint | Query / Body | Purpose |
 | :--- | :--- | :--- |
-| `GET /api/stats` | `mode`, `conversationId`, `refreshQuota`, `etag` | Main ETag-guarded adaptive telemetry snapshot (`500 ms` active / `1500 ms` idle polling), including Swarm, Cache TTL, Quota Runway & Activity Heatmap/Iceberg payloads |
+| `GET /api/stats` | `mode`, `conversationId`, `refreshQuota`, `etag` | Main ETag-guarded adaptive telemetry snapshot (`500 ms` active / `1500 ms` idle polling), including Swarm, Cache TTL, Gemini Pulse, Quota Runway & Activity Heatmap/Iceberg payloads |
 | `GET /api/call-detail` | `conversationId`, `kind` (`inv`\|`compact`\|`turn`), `id` | On-demand full thinking/reply/tool payload (`60k` char cap) |
+| `GET /api/gemini-pulse` | `force=1` *(optional)* | Read or force-refresh the Gemini Global Pulse snapshot & local comparison baselines |
+| `POST /api/gemini-pulse` | `{ enabled?: boolean, refresh?: boolean }` | Toggle Gemini Global Pulse on/off or trigger an explicit refresh |
 | `GET /api/locale` | `refresh=1` *(optional)* | Heuristic Chinese/English detection result with score breakdown & cache status |
 | `GET /api/update-status` | `force=1` *(optional)* | GitHub release check (6h cached) + install mode (`isLinked`, `canSelfUpdate`) |
 | `POST /api/update-apply` | `{ force?: boolean }` | Hardened atomic self-upgrade with SHA-256 backend diff & graceful restart |

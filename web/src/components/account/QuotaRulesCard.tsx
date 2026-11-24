@@ -182,7 +182,7 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
                             </span>
                           </div>
 
-                          <div className="grid grid-cols-3 gap-1.5 min-w-0">
+                          <div className="narrow-grid-2 grid grid-cols-3 gap-1.5 min-w-0">
                             <div className="px-2 py-1 rounded-md bg-hud-card flex flex-col gap-[1px] min-w-0">
                               <span className="font-hud text-[9px] text-hud-muted truncate">{t.rulesTokInLabel}</span>
                               <span className="font-hud-mono text-[10.5px] font-bold text-hud-fg tabular-nums">

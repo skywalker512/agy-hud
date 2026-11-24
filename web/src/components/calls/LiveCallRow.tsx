@@ -1,3 +1,4 @@
+import { useNowMs } from '../../hooks/useNow';
 import type { Translations } from '../../i18n';
 import type { ActiveStep } from '../../types/telemetry';
 import { formatLiveStage, formatModelTag } from '../../utils/format';
@@ -7,7 +8,6 @@ interface LiveCallRowProps {
   invCount: number;
   activeStep: ActiveStep | null | undefined;
   serverTimeMs: number | undefined;
-  nowMs: number;
   latestContext?: number;
   t: Translations;
 }
@@ -16,10 +16,10 @@ export function LiveCallRow({
   invCount,
   activeStep,
   serverTimeMs,
-  nowMs,
   latestContext = 0,
   t,
 }: LiveCallRowProps) {
+  const nowMs = useNowMs();
   if (!activeStep || (activeStep.stepType !== 15 && activeStep.stepType !== 23)) {
     return null;
   }

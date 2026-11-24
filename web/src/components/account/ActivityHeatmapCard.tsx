@@ -18,7 +18,7 @@ export function ActivityHeatmapCard({ history, tierLabel, t }: ActivityHeatmapCa
   const [shareOpen, setShareOpen] = useState(false);
 
   const hm = history?.dailyHeatmap;
-  const isZh = t.heatmapTitle === '活跃趋势';
+  const isZh = t.lang === 'zh';
   const has52w = Boolean(hm?.days52 && hm.days52.length > (hm.days?.length || 0));
   const activeSpan = has52w ? spanMode : '16w';
 
@@ -239,7 +239,7 @@ export function ActivityHeatmapCard({ history, tierLabel, t }: ActivityHeatmapCa
       </div>
 
       {/* Viral Highlight Ribbon: Streak / Peak Day / Cache Iceberg / Total Tokens */}
-      <div className="grid grid-cols-4 gap-1.5 min-w-0">
+      <div className="narrow-grid-2 grid grid-cols-4 gap-1.5 min-w-0">
         <div
           className="l2-well px-2 py-1.5 flex flex-col gap-0.5 min-w-0 cursor-help"
           data-tip={

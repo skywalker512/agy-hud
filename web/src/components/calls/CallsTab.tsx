@@ -21,7 +21,6 @@ interface CallsTabProps {
   turns: TurnSummary[];
   activeStep: ActiveStep | null | undefined;
   serverTimeMs: number | undefined;
-  nowMs: number;
   latestContext: number;
   convId: string;
   metric: ChartMetric;
@@ -54,7 +53,6 @@ export function CallsTab({
   turns,
   activeStep,
   serverTimeMs,
-  nowMs,
   latestContext,
   convId,
   metric,
@@ -123,7 +121,6 @@ export function CallsTab({
         turns={turns}
         activeStep={activeStep}
         serverTimeMs={serverTimeMs}
-        nowMs={nowMs}
         latestContext={latestContext}
         convId={convId}
         expandedRows={expandedRows}

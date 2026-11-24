@@ -1,3 +1,4 @@
+import { memo } from 'preact/compat';
 import type { Translations } from '../../i18n';
 import type { CallDetailPayload, Compaction } from '../../types/telemetry';
 import { fmtClock, fmtNum, fmtQuotaPct, fmtSec, fmtUsd, formatModelTag } from '../../utils/format';
@@ -6,20 +7,18 @@ interface CompactCardProps {
   compact: Compaction;
   isLatest?: boolean;
   expanded: boolean;
-  convId: string;
-  detailCache: Map<string, CallDetailPayload>;
-  detailLoading: Set<string>;
+  cached?: CallDetailPayload;
+  isLoading?: boolean;
   t: Translations;
   onToggle: (stepIdx: number, hasDetail: boolean) => void;
 }
 
-export function CompactCard({
+function CompactCardImpl({
   compact: c,
   isLatest = false,
   expanded,
-  convId,
-  detailCache,
-  detailLoading,
+  cached,
+  isLoading = false,
   t,
   onToggle,
 }: CompactCardProps) {
@@ -49,9 +48,6 @@ export function CompactCard({
   );
 
   const hasDetail = Boolean(c.hasSummary || c.summaryPreview);
-  const cacheKey = `${convId}:compact:${c.stepIdx}`;
-  const cached = convId ? detailCache.get(cacheKey) : undefined;
-  const isLoading = convId ? detailLoading.has(cacheKey) : false;
   const summaryText = cached?.summaryPreview ?? c.summaryPreview ?? '';
 
   const qPctStr = fmtQuotaPct(c.quotaPct5h);
@@ -140,3 +136,5 @@ export function CompactCard({
     </div>
   );
 }
+
+export const CompactCard = memo(CompactCardImpl);

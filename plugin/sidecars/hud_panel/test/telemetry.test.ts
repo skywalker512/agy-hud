@@ -672,3 +672,15 @@ test('parseContextBreakdown and readTelemetry expose additive mcpTools, skills, 
   assert.equal(plainBd.rules, 0);
   assert.equal(plainBd.checkpointTokens, 0);
 });
+
+test('parseGenRow flags short <1s buffered burst flushes (>800 tok/s) while keeping fast sustained streams unbuffered', () => {
+  // Real Opus 5.5 buffered flush: 9.14s TTFT, 0.764s gen, 835 out => 1092 tok/s
+  const burst = parseGenRow(12, buildGenMetadataBlob({ output: 835, ttftSec: 9.14, genSec: 0.764 }));
+  assert.ok(burst);
+  assert.equal(burst.isBuffered, true);
+
+  // Legitimate fast sustained stream (e.g. Flash/Hydrogen at 400 tok/s over 0.8s)
+  const fastStream = parseGenRow(13, buildGenMetadataBlob({ output: 320, ttftSec: 1.2, genSec: 0.8 }));
+  assert.ok(fastStream);
+  assert.equal(fastStream.isBuffered, false);
+});

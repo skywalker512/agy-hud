@@ -1,6 +1,7 @@
 import type { Translations } from './types';
 
 export const en: Translations = {
+  lang: 'en',
   title: 'AGY HUD',
   connecting: 'SYNC...',
   waitingModel: 'Waiting for telemetry...',

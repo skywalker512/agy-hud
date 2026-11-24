@@ -7,6 +7,7 @@ import { TabNav } from './components/layout/TabNav';
 import { TopBar } from './components/layout/TopBar';
 import { LiveTab } from './components/live/LiveTab';
 import { useHudStore } from './hooks/useHudStore';
+import { NowProvider } from './hooks/useNow';
 import { useThemeSync } from './hooks/useThemeSync';
 import type { HudTab } from './types/telemetry';
 
@@ -175,11 +176,11 @@ export function App() {
   const showPulseBar = store.tab !== 'live' || heroPassed;
 
   return (
+    <NowProvider isActiveStep={Boolean(snap?.activeStep)} clockSkewMs={store.clockSkewMs}>
     <div className="hud-shell">
       <TopBar
         snap={snap}
         retrying={store.retrying}
-        nowMs={store.nowMs}
         mode={store.mode}
         selectedConv={store.selectedConv}
         lang={store.lang}
@@ -199,7 +200,7 @@ export function App() {
         ref={stickyDockRef}
         className={`hud-sticky-dock${dockStuck ? ' is-stuck' : ''}`}
       >
-        <PulseBar snap={snap} nowMs={store.nowMs} t={t} visible={showPulseBar} />
+        <PulseBar snap={snap} t={t} visible={showPulseBar} />
         <TabNav
           tab={store.tab}
           totalCalls={totalCalls}
@@ -211,7 +212,6 @@ export function App() {
       {store.tab === 'live' && (
         <LiveTab
           snap={snap}
-          nowMs={store.nowMs}
           lang={store.lang}
           recentOpen={store.recentOpen}
           expandedRows={store.expandedRows}
@@ -243,7 +243,6 @@ export function App() {
           turns={snap?.found ? snap.turns || [] : []}
           activeStep={snap?.found ? snap.activeStep : null}
           serverTimeMs={snap?.serverTimeMs}
-          nowMs={store.nowMs}
           latestContext={snap?.found ? snap.latest?.totalContext || 0 : 0}
           convId={snap?.conversationId || ''}
           metric={store.metric}
@@ -272,7 +271,6 @@ export function App() {
       {store.tab === 'account' && (
         <AccountTab
           snap={snap}
-          nowMs={store.nowMs}
           t={t}
           updateStatus={store.updateStatus}
           updateChecking={store.updateChecking}
@@ -297,5 +295,6 @@ export function App() {
 
       <TooltipPortal snap={snap} t={t} loadCallDetail={store.loadCallDetail} />
     </div>
+    </NowProvider>
   );
 }
