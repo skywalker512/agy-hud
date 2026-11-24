@@ -1,17 +1,21 @@
 import type { Locale, SiteCopy } from '../i18n/content';
-import { HeroSimulator } from './HeroSimulator';
+import type { AgyTheme, ContrastMode } from '../themes/agyThemes';
 import { IconArrowRight, IconCheck } from './Icons';
+import { LiveHudFrame } from './LiveHudFrame';
 
 interface HeroSectionProps {
   locale: Locale;
+  theme: AgyTheme;
+  contrast: ContrastMode;
   copy: SiteCopy;
+  onCycleTheme: () => void;
 }
 
-export function HeroSection({ locale, copy }: HeroSectionProps) {
+export function HeroSection({ locale, theme, contrast, copy, onCycleTheme }: HeroSectionProps) {
   return (
-    <section id="top" class="relative overflow-hidden pt-12 pb-16 sm:pt-18 sm:pb-24">
+    <section id="top" class="relative overflow-hidden pt-10 pb-16 sm:pt-14 sm:pb-24">
       <div class="relative mx-auto max-w-6xl px-4 sm:px-6">
-        <div class="grid items-center gap-12 lg:grid-cols-[minmax(0,1.08fr)_minmax(352px,404px)] lg:gap-14">
+        <div class="grid items-center gap-10 lg:grid-cols-[minmax(0,1.02fr)_minmax(380px,426px)] lg:gap-12">
           {/* Left column: Editorial product pitch */}
           <div class="min-w-0">
             <div class="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-[12px] font-medium text-[var(--fg-2)]">
@@ -34,8 +38,11 @@ export function HeroSection({ locale, copy }: HeroSectionProps) {
             <div class="mt-8 flex flex-wrap items-center gap-3">
               <a
                 href="#install"
-                class="inline-flex h-10 items-center gap-2 rounded-lg px-5 text-[13.5px] font-semibold text-white transition-opacity hover:opacity-92"
-                style={{ backgroundColor: 'var(--accent)' }}
+                class="inline-flex h-10 items-center gap-2 rounded-lg px-5 text-[13.5px] font-semibold transition-opacity hover:opacity-92"
+                style={{
+                  backgroundColor: 'var(--accent)',
+                  color: 'var(--accent-fg, #ffffff)',
+                }}
               >
                 <span>{copy.hero.primaryCta}</span>
                 <IconArrowRight size={14} />
@@ -66,10 +73,15 @@ export function HeroSection({ locale, copy }: HeroSectionProps) {
             </div>
           </div>
 
-          {/* Right column: Upgraded Interactive HUD Simulator */}
+          {/* Right column: 100% Real Embedded AGY-HUD Sidecar UI */}
           <div class="relative">
-            <HeroSimulator locale={locale} copy={copy} />
-            <p class="mt-3.5 text-center text-[12px] text-[var(--faint)]">
+            <LiveHudFrame
+              locale={locale}
+              theme={theme}
+              contrast={contrast}
+              onCycleTheme={onCycleTheme}
+            />
+            <p class="mt-3 text-center text-[12px] text-[var(--faint)]">
               {copy.hero.interactiveHint}
             </p>
           </div>

@@ -1,4 +1,8 @@
 node_modules/
 web/node_modules/
+site/node_modules/
+site/dist/
+site/public/hud-demo/app.js
+site/public/hud-demo/styles.css
 .DS_Store
 Thumbs.db

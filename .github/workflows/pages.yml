@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'site/**'
+      - 'plugin/sidecars/hud_panel/ui/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 

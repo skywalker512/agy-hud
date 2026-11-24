@@ -1,0 +1,1153 @@
+/* Auto-extracted shared organic telemetry fixture for AGY-HUD live website embed.
+ * Identical organic dataset used by the Retina 2x README screenshots. */
+(function () {
+// Deterministic seeded PRNG (Mulberry32)
+function makeRng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function gauss(rng) {
+  const u1 = Math.max(1e-7, rng());
+  const u2 = rng();
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+}
+
+function clamp(v, lo, hi) {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+function round(v, digits = 2) {
+  const f = 10 ** digits;
+  return Math.round(v * f) / f;
+}
+
+function evalLogLogistic(p0, t50, k, sec) {
+  if (sec <= 0) return 1 - p0;
+  return (1 - p0) / (1 + (sec / t50) ** k);
+}
+
+/**
+ * Build a deeply realistic, organic StatsSnapshot + per-call details.
+ * Zero sine waves — uses genuine coding-session regimes, AR(1) autocorrelated noise,
+ * model-specific latency/throughput profiles, realistic compaction event, and real-world
+ * Cache TTL / Quota Runway / 52w Iceberg distributions.
+ */
+function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
+  const rng = makeRng(20261124);
+  const NOW = nowOverrideMs || Date.now();
+  const CONV_ID = '9a7c4e21-8b3f-4d19-a612-3f8b5e1092c4';
+  const isZh = lang === 'zh';
+
+  const MODELS = {
+    carbon: {
+      model: 'GEMINI_4_CARBON',
+      modelId: 'gemini-4-carbon',
+      modelDisplay: 'Gemini 4 Carbon',
+      pricingKey: 'gemini-4-carbon',
+      quotaPool: 'gemini',
+      k: 3.0,
+      baseTps: 94,
+      tpsSigma: 13.5,
+      tpsMin: 68,
+      tpsMax: 121,
+      baseTtft: 1.48,
+      inPerM: 2.5,
+      cachePerM: 0.25,
+      outPerM: 12.0,
+    },
+    flash: {
+      model: 'GEMINI_3_8_FLASH',
+      modelId: 'gemini-3.8-flash-k',
+      modelDisplay: 'Gemini 3.8 Flash',
+      pricingKey: 'gemini-3.8-flash-k',
+      quotaPool: 'gemini',
+      k: 1.0,
+      baseTps: 121,
+      tpsSigma: 14.0,
+      tpsMin: 91,
+      tpsMax: 141,
+      baseTtft: 0.76,
+      inPerM: 0.35,
+      cachePerM: 0.035,
+      outPerM: 1.5,
+    },
+    claude: {
+      model: 'CLAUDE_SONNET_4_6',
+      modelId: 'claude-sonnet-4-6',
+      modelDisplay: 'Claude Sonnet 4.6',
+      pricingKey: 'claude-sonnet-4-6',
+      quotaPool: 'claude_gpt',
+      k: 1.0,
+      baseTps: 77,
+      tpsSigma: 8.5,
+      tpsMin: 63,
+      tpsMax: 92,
+      baseTtft: 1.62,
+      inPerM: 3.0,
+      cachePerM: 0.3,
+      outPerM: 15.0,
+    },
+  };
+
+  // 16 realistic developer turns with organic call counts summing to 64
+  const turnSpecs = [
+    { calls: 3, en: 'Audit telemetry SQLite schema and protobuf fields', zh: '审计 telemetry SQLite 表结构与 protobuf 字段' },
+    { calls: 4, en: 'Inspect Log-Logistic cache TTL survival model', zh: '检查对数逻辑斯蒂缓存 TTL 存活模型' },
+    { calls: 5, en: 'Add 52-week daily Iceberg token split (new vs cached)', zh: '增加 52 周每日冰山 Token 拆分（新增 vs 缓存）' },
+    { calls: 3, en: 'Add unit tests for 52w rollup and context breakdown', zh: '补充 52 周汇总与上下文拆分的单元测试' },
+    { calls: 4, en: 'Refactor HUD surface tokens for layered borderless cards', zh: '重构 HUD 表面 Token 实现分层无边框卡片' },
+    { calls: 5, en: 'Build crisp SVG icon set and custom SelectPopover', zh: '构建矢量 SVG 图标集与自定义下拉弹层' },
+    { calls: 4, en: 'Slim TopBar chrome and make PulseBar scroll-aware', zh: '精简顶栏层级并实现滚动感知 PulseBar' },
+    { calls: 5, en: 'Redesign Context Window X-Ray 2-column table & hover sync', zh: '重构上下文 X-Ray 双列对齐表与悬浮联动' },
+    { calls: 4, en: 'Fix TrendChart Y-axis overlap and add area gradient fill', zh: '修复趋势图 Y 轴重叠并加入面积渐变填充' },
+    { calls: 3, en: 'Compact context & continue with Quota Runway bar', zh: '压缩上下文并继续实现配额续航斜纹条' }, // compaction right before turn 10
+    { calls: 4, en: 'Implement hatched diagonal runway projection in QuotaPoolsList', zh: '在配额池列表中实现斜纹续航预测条' },
+    { calls: 5, en: 'Add Monochrome Iceberg view and 16w/52w toggle in ActivityHeatmap', zh: '在活跃度卡片加入单色冰山图与 16w/52w 切换' },
+    { calls: 4, en: 'Polish CallLog inspector tiles and narrow 240px responsive layout', zh: '打磨调用日志检查器与 240px 窄侧栏适配' },
+    { calls: 3, en: 'Verify Antigravity dark/light & strong-contrast theme parity', zh: '验证 Antigravity 深浅色与高对比度主题同步' },
+    { calls: 4, en: 'Run full backend + web + site test suites and typechecks', zh: '运行全量后端、前端与官网测试和类型检查' },
+    { calls: 4, en: 'Final polish on Swarm Cockpit rows and copy tightness', zh: '最终打磨 Swarm 驾驶舱列表与文案精简' },
+  ];
+
+  // Hand-crafted realistic model routing pattern across 64 calls (not periodic!)
+  const modelSeq = [
+    'flash', 'carbon', 'carbon',
+    'flash', 'carbon', 'carbon', 'flash',
+    'carbon', 'carbon', 'carbon', 'flash', 'carbon',
+    'flash', 'carbon', 'flash',
+    'carbon', 'carbon', 'claude', 'carbon',
+    'carbon', 'flash', 'carbon', 'claude', 'carbon',
+    'carbon', 'flash', 'carbon', 'carbon',
+    'carbon', 'claude', 'claude', 'carbon', 'flash',
+    'carbon', 'carbon', 'carbon', 'flash',
+    'carbon', 'flash', 'carbon',
+    'carbon', 'carbon', 'claude', 'carbon',
+    'carbon', 'flash', 'carbon', 'carbon', 'flash',
+    'claude', 'carbon', 'flash', 'carbon',
+    'flash', 'carbon', 'carbon',
+    'flash', 'flash', 'carbon', 'carbon',
+    'carbon', 'claude', 'flash', 'carbon',
+  ];
+
+  const TOOL_POOLS = [
+    ['read_file', 'grep_search'],
+    ['read_file', 'edit_file'],
+    ['edit_file', 'run_command'],
+    ['read_file', 'read_file', 'edit_file'],
+    ['run_command'],
+    ['edit_file', 'edit_file', 'run_command'],
+    ['swarm', 'read_file'],
+  ];
+
+  const invocations = [];
+  const turns = [];
+  const callDetails = {};
+  const compactions = [];
+
+  // Start ~48 minutes before NOW; last call is 94s before NOW for crisp ~1m34s cache age
+  let cursorMs = NOW - 48 * 60 * 1000;
+  let stepIdx = 4;
+  let ctxTokens = 29_400;
+
+  // AR(1) state per model so consecutive calls have organic momentum + sudden realistic shifts
+  const tpsDrift = { carbon: 0, flash: 0, claude: 0 };
+  const COMPACT_AFTER_IDX = 35; // compaction happens between call #36 (idx 35) and call #37 (idx 36)
+
+  let callIdx = 0;
+  for (let ti = 0; ti < turnSpecs.length; ti++) {
+    const spec = turnSpecs[ti];
+    const turnStartStep = stepIdx;
+    const turnStartMs = cursorMs;
+    let turnOut = 0;
+    let turnSec = 0;
+    let turnQuota5h = 0;
+    let turnQuota7d = 0;
+    let turnHasCompact = false;
+
+    for (let c = 0; c < spec.calls; c++) {
+      const mKey = modelSeq[callIdx] || 'carbon';
+      const prof = MODELS[mKey];
+
+      // Occasional realistic gap (e.g. user read output or took a 6m coffee break at call #24)
+      let idleGapSec = 14 + Math.floor(rng() * 44);
+      if (callIdx === 24) idleGapSec = 395; // ~6.5m pause -> causes realistic cache hit dip!
+      if (callIdx === 48) idleGapSec = 148;
+      cursorMs += idleGapSec * 1000;
+
+      // Compaction event right before call #37 (idx 36)
+      if (callIdx === COMPACT_AFTER_IDX + 1) {
+        const beforeCtx = ctxTokens;
+        const afterCtx = 43_850;
+        const compTs = cursorMs - 9500;
+        compactions.push({
+          stepIdx: stepIdx++,
+          turnIndex: ti + 1,
+          afterGmIdx: COMPACT_AFTER_IDX,
+          timestampMs: compTs,
+          durationSec: 6.4,
+          model: MODELS.carbon.model,
+          modelId: MODELS.carbon.modelId,
+          modelDisplay: MODELS.carbon.modelDisplay,
+          cachedInput: Math.round(beforeCtx * 0.91),
+          newInput: Math.round(beforeCtx * 0.09),
+          outputTokens: 3240,
+          thinkingTokens: 890,
+          candidateTokens: 2350,
+          beforeCtx,
+          afterCtx,
+          afterCtxEstimated: false,
+          priced: true,
+          pricingKey: MODELS.carbon.pricingKey,
+          costUSD: 0.142,
+          cacheSavedUSD: 0.43,
+          quotaPool: 'gemini',
+          quotaPct5h: 0.28,
+          quotaPct5hErr: 0.014,
+          quotaPct7d: 0.07,
+          quotaMultiplierK: 3.0,
+          quotaFitSource: 'fitted',
+          hasSummary: true,
+          summaryPreview: isZh
+            ? '已将前 9 轮架构与 CSS 重构上下文压缩为结构化检查点（保留关键接口契约、类型定义与待办队列）。'
+            : 'Compacted turns 1–9 into a structured checkpoint preserving backend additive schemas, surface tokens, and remaining verification items.',
+        });
+        ctxTokens = afterCtx;
+        turnHasCompact = true;
+      }
+
+      // Organic AR(1) + occasional regime shock (NO sine wave!)
+      const shock = rng() < 0.18 ? gauss(rng) * prof.tpsSigma * 1.15 : 0;
+      tpsDrift[mKey] = 0.45 * tpsDrift[mKey] + gauss(rng) * (prof.tpsSigma * 0.72) + shock;
+      // Add slight load slowdown at larger contexts (>150k)
+      const ctxLoadPenalty = ctxTokens > 150_000 ? ((ctxTokens - 150_000) / 100_000) * 9.5 : 0;
+      let genTps = clamp(prof.baseTps + tpsDrift[mKey] - ctxLoadPenalty, prof.tpsMin, prof.tpsMax);
+
+      // Hand-tune last 3 calls for natural crisp hero numbers (and realistic spread)
+      if (callIdx === 61) genTps = 79.4;   // Claude Sonnet 4.6 review
+      if (callIdx === 62) genTps = 131.6;  // Gemini 3.8 Flash fast verification (expanded in Calls screenshot!)
+      if (callIdx === 63) genTps = 104.2;  // Gemini 4 Carbon latest call
+
+      // Realistic special events
+      const isSlowThinkBurst = callIdx === 18 || callIdx === 44;
+      const isBuffered = callIdx === 29;
+      const isToolStall = callIdx === 52;
+
+      // Output & thinking tokens (heavy-tailed realistic distribution)
+      let outputTokens;
+      let thinkingTokens;
+      if (isBuffered) {
+        outputTokens = 148;
+        thinkingTokens = 26;
+      } else if (isSlowThinkBurst) {
+        thinkingTokens = Math.round(2200 + rng() * 950);
+        outputTokens = thinkingTokens + Math.round(1450 + rng() * 900);
+      } else if (mKey === 'flash') {
+        thinkingTokens = Math.round(140 + rng() * 340);
+        outputTokens = thinkingTokens + Math.round(420 + rng() * 880);
+      } else if (mKey === 'claude') {
+        thinkingTokens = Math.round(480 + rng() * 760);
+        outputTokens = thinkingTokens + Math.round(780 + rng() * 1120);
+      } else {
+        thinkingTokens = Math.round(420 + rng() * 980);
+        outputTokens = thinkingTokens + Math.round(640 + rng() * 1380);
+      }
+      if (callIdx === 62) {
+        thinkingTokens = 342;
+        outputTokens = 1128;
+      }
+      if (callIdx === 63) {
+        thinkingTokens = 986;
+        outputTokens = 2048;
+      }
+      const candidateTokens = Math.max(80, outputTokens - thinkingTokens);
+
+      // TTFT (log-normal-ish with realistic thinking latency)
+      let ttftSec = prof.baseTtft * Math.exp(gauss(rng) * 0.28);
+      if (isSlowThinkBurst) ttftSec = 4.6 + rng() * 1.9;
+      if (callIdx === 62) ttftSec = 0.84;
+      if (callIdx === 63) ttftSec = 4.42;
+      ttftSec = round(clamp(ttftSec, 0.42, 7.2), 2);
+
+      let genSec = isBuffered ? 0.29 : round(outputTokens / genTps, 2);
+      if (isBuffered) genTps = round(outputTokens / genSec, 1);
+      else genTps = round(outputTokens / genSec, 1);
+
+      const totalSec = round(ttftSec + genSec, 2);
+      const e2eTps = round(outputTokens / totalSec, 2);
+
+      // Cache hit ratio: realistic cold start -> steady 88-95% -> idle dip -> compaction drop -> recovery
+      let cacheRatio;
+      if (callIdx === 0) cacheRatio = 0.18;
+      else if (callIdx === 1) cacheRatio = 0.69;
+      else if (callIdx === 24) cacheRatio = 0.54; // after 6.5m break
+      else if (callIdx === COMPACT_AFTER_IDX + 1) cacheRatio = 0.41; // immediately post-compaction
+      else if (callIdx === COMPACT_AFTER_IDX + 2) cacheRatio = 0.74;
+      else if (mKey === 'claude' && modelSeq[callIdx - 1] !== 'claude') cacheRatio = 0.62; // model switch prefix coldness
+      else cacheRatio = clamp(0.895 + gauss(rng) * 0.032, 0.78, 0.955);
+
+      if (callIdx === 62) cacheRatio = 0.892;
+      if (callIdx === 63) cacheRatio = 0.904;
+
+      const totalPromptTokens = ctxTokens;
+      const cachedInput = Math.round(totalPromptTokens * cacheRatio);
+      const newInput = Math.max(600, totalPromptTokens - cachedInput);
+      const cacheHitPct = round((cachedInput / totalPromptTokens) * 100, 1);
+
+      // Cost & cache savings (API-equivalent USD)
+      const costUSD = round(
+        (newInput * prof.inPerM + cachedInput * prof.cachePerM + outputTokens * prof.outPerM) / 1_000_000,
+        4,
+      );
+      const cacheSavedUSD = round(
+        (cachedInput * (prof.inPerM - prof.cachePerM)) / 1_000_000,
+        4,
+      );
+
+      // Quota impact (5h / 7d)
+      const cap5h = prof.quotaPool === 'gemini' ? 150 : 50;
+      const cap7d = prof.quotaPool === 'gemini' ? 600 : 200;
+      const quotaPct5h = round(((costUSD * prof.k) / cap5h) * 100, 4);
+      const quotaPct7d = round(((costUSD * prof.k) / cap7d) * 100, 4);
+
+      const thinkSec = round(genSec * (thinkingTokens / Math.max(1, outputTokens)) * 0.95, 2);
+      const toolSet = TOOL_POOLS[(callIdx + Math.floor(rng() * 3)) % TOOL_POOLS.length];
+      const stepToolCount = isToolStall ? 5 : toolSet.length;
+      const toolGenSec = isToolStall ? 9.4 : round(0.4 + rng() * 2.1, 2);
+
+      const toolCalls =
+        callIdx === 62
+          ? [
+              { name: 'read_file', args: '{"Path":"web/src/components/account/QuotaPoolsList.tsx","StartLine":1,"EndLine":140}' },
+              { name: 'run_command', args: '{"CommandLine":"npm --prefix web run build"}' },
+            ]
+          : toolSet.map((tName) => ({
+              name: tName,
+              args: tName === 'run_command'
+                ? '{"CommandLine":"npm test"}'
+                : '{"Path":"web/src/styles/app.css"}',
+            }));
+
+      const thinkingPreview = callIdx === 62
+        ? (isZh
+            ? '检查配额续航条在窄屏（240px）与常规（400px）下的宽度对齐：已用轨迹、斜纹预测区间与剩余实心条比例一致，无文字截断。'
+            : 'Verifying hatched runway stripe alignment across 240px and 400px widths: solid post-reset remainder + diagonal projected burn matches 5h reset horizon with zero text clipping.')
+        : (isZh
+            ? `分析第 ${ti + 1} 轮改动影响范围，核对类型定义与深浅色主题对比度边界。`
+            : `Reviewing turn #${ti + 1} surface token changes and verifying dark/light/strong-contrast parity before patching.`);
+
+      const replyPreview = callIdx === 62
+        ? (isZh
+            ? '已完成 `QuotaPoolsList.tsx` 与 `web` 生产构建校验：0 TypeScript 错误，斜纹续航条在深浅双色模式下对比度清晰。'
+            : 'Verified `QuotaPoolsList.tsx` and ran the production `web` build: 0 TypeScript errors, hatched runway stripe renders crisply in both dark and light host themes.')
+        : (isZh
+            ? `已完成第 ${ti + 1} 轮目标变更并验证局部渲染行为正常。`
+            : `Applied turn #${ti + 1} changes cleanly and verified component behavior.`);
+
+      const inv = {
+        idx: callIdx,
+        stepIdx: stepIdx++,
+        turnIndex: ti + 1,
+        lastStepIndex: stepIdx + stepToolCount,
+        botId: `bot_${callIdx + 1}`,
+        modelEnum: mKey === 'carbon' ? 401 : mKey === 'flash' ? 381 : 502,
+        model: prof.model,
+        modelId: prof.modelId,
+        modelDisplay: prof.modelDisplay,
+        parentCascadeId: '',
+        subagentType: '',
+        newInput,
+        cachedInput,
+        totalPromptTokens,
+        cacheHitPct,
+        outputTokens,
+        thinkingTokens,
+        candidateTokens,
+        ttftSec,
+        genSec,
+        totalSec,
+        isBuffered,
+        genTps,
+        e2eTps,
+        totalContext: totalPromptTokens + outputTokens,
+        contextLimit: 256_000,
+        contextPct: round(((totalPromptTokens + outputTokens) / 256_000) * 100, 1),
+        timestampMs: cursorMs,
+        priced: true,
+        pricingKey: prof.pricingKey,
+        costUSD,
+        cacheSavedUSD,
+        quotaPool: prof.quotaPool,
+        quotaPct5h,
+        quotaPct5hErr: round(quotaPct5h * 0.045, 4),
+        quotaPct7d,
+        quotaMultiplierK: prof.k,
+        quotaFitSource: 'fitted',
+        thinkSec,
+        toolGenSec,
+        stepToolCount,
+        isToolStall,
+        hasThinking: true,
+        hasReply: true,
+        toolCount: toolCalls.length,
+        thinkingChars: thinkingPreview.length * 14,
+        replyChars: replyPreview.length * 18,
+        thinkingPreview,
+        replyPreview,
+        toolCalls,
+      };
+
+      invocations.push(inv);
+      callDetails[`${CONV_ID}:inv:${callIdx}`] = {
+        thinkingPreview,
+        thinkingChars: inv.thinkingChars,
+        replyPreview,
+        replyChars: inv.replyChars,
+        toolCalls,
+      };
+
+      turnOut += outputTokens;
+      turnSec += totalSec;
+      turnQuota5h += quotaPct5h;
+      turnQuota7d += quotaPct7d;
+
+      // Advance context organically per call (tool results + model output)
+      // Faster growth pre-compaction (29k -> ~210k), steady growth post-compaction (43.8k -> ~112.5k)
+      const deltaCtx = callIdx <= COMPACT_AFTER_IDX
+        ? Math.round(outputTokens + 2400 + rng() * 3200)
+        : Math.round(outputTokens * 0.65 + 1150 + rng() * 1450);
+      ctxTokens = Math.min(218_000, ctxTokens + deltaCtx);
+      stepIdx += stepToolCount;
+      callIdx++;
+    }
+
+    turns.push({
+      turnIndex: ti + 1,
+      stepIdx: turnStartStep,
+      timestampMs: turnStartMs,
+      promptPreview: isZh ? spec.zh : spec.en,
+      promptFull: isZh ? spec.zh : spec.en,
+      hasFullPrompt: true,
+      isCompact: turnHasCompact,
+      compactCount: turnHasCompact ? 1 : 0,
+      callCount: spec.calls,
+      outputTokens: turnOut,
+      totalSec: round(turnSec, 1),
+      quotaPool: 'gemini',
+      quotaPct5h: round(turnQuota5h, 3),
+      quotaPct7d: round(turnQuota7d, 3),
+      quotaFitSource: 'fitted',
+    });
+  }
+
+  // Shift all timestamps so the very last call lands exactly 94 seconds before NOW (1m34s age)
+  const lastTs = invocations[invocations.length - 1].timestampMs;
+  const shiftMs = (NOW - 94_000) - lastTs;
+  for (const inv of invocations) inv.timestampMs += shiftMs;
+  for (const c of compactions) c.timestampMs += shiftMs;
+  for (const u of turns) u.timestampMs += shiftMs;
+
+  // Align latest context cleanly to 114,620 / 256,000 (44.8%) while keeping call #63 monotonic
+  const prevCall = invocations[invocations.length - 2];
+  const latest = invocations[invocations.length - 1];
+  const targetLatestCtx = Math.max(114_620, prevCall.totalContext + 3_200);
+  latest.totalContext = targetLatestCtx;
+  latest.totalPromptTokens = targetLatestCtx - latest.outputTokens;
+  latest.cachedInput = Math.round(latest.totalPromptTokens * 0.904);
+  latest.newInput = latest.totalPromptTokens - latest.cachedInput;
+  latest.cacheHitPct = round((latest.cachedInput / latest.totalPromptTokens) * 100, 1);
+  latest.contextPct = round((latest.totalContext / 256_000) * 100, 1);
+
+  // Aggregate summary accurately from the 64 invocations
+  const sustained = invocations.filter((x) => !x.isBuffered);
+  const totalOutput = invocations.reduce((s, x) => s + x.outputTokens, 0);
+  const totalThinking = invocations.reduce((s, x) => s + x.thinkingTokens, 0);
+  const totalCandidate = invocations.reduce((s, x) => s + x.candidateTokens, 0);
+  const totalCachedInput = invocations.reduce((s, x) => s + x.cachedInput, 0);
+  const totalNewInput = invocations.reduce((s, x) => s + x.newInput, 0);
+  const totalModelSec = round(invocations.reduce((s, x) => s + x.totalSec, 0), 1);
+  const totalToolSec = round(invocations.reduce((s, x) => s + x.toolGenSec, 0), 1);
+  const totalCostUSD = round(invocations.reduce((s, x) => s + x.costUSD, 0), 2);
+  const totalSavedUSD = round(invocations.reduce((s, x) => s + x.cacheSavedUSD, 0), 2);
+  const avgGenTps = round(
+    sustained.reduce((s, x) => s + x.outputTokens, 0) /
+      Math.max(1, sustained.reduce((s, x) => s + x.genSec, 0)),
+    2,
+  );
+  const avgE2eTps = round(
+    invocations.reduce((s, x) => s + x.outputTokens, 0) /
+      Math.max(1, invocations.reduce((s, x) => s + x.totalSec, 0)),
+    2,
+  );
+  const peakGenTps = round(Math.max(...sustained.map((x) => x.genTps)), 1);
+  const avgTtftSec = round(invocations.reduce((s, x) => s + x.ttftSec, 0) / invocations.length, 2);
+  const avgCacheHitPct = round((totalCachedInput / Math.max(1, totalCachedInput + totalNewInput)) * 100, 1);
+
+  const gem5h = round(invocations.filter((x) => x.quotaPool === 'gemini').reduce((s, x) => s + (x.quotaPct5h || 0), 0), 2);
+  const gem7d = round(invocations.filter((x) => x.quotaPool === 'gemini').reduce((s, x) => s + (x.quotaPct7d || 0), 0), 2);
+  const claude5h = round(invocations.filter((x) => x.quotaPool === 'claude_gpt').reduce((s, x) => s + (x.quotaPct5h || 0), 0), 2);
+  const claude7d = round(invocations.filter((x) => x.quotaPool === 'claude_gpt').reduce((s, x) => s + (x.quotaPct7d || 0), 0), 2);
+
+  // Build Monday-aligned 52 weeks (matching hud-backend buildAccountHistory exactly)
+  const dayRng = makeRng(20260917);
+  const days52 = [];
+  const baseDate = new Date(Date.UTC(2026, 10, 23)); // Mon 2026-11-23
+  const dowMon0 = (baseDate.getUTCDay() + 6) % 7; // 0 = Mon .. 6 = Sun
+  const totalGridDays16 = 15 * 7 + dowMon0 + 1;
+  const totalGridDays52 = 51 * 7 + dowMon0 + 1;
+  let peakCostUSD52 = 0;
+  let peakDate52 = '';
+
+  for (let i = totalGridDays52 - 1; i >= 0; i--) {
+    const d = new Date(baseDate.getTime() - i * 86_400_000);
+    const dow = d.getUTCDay(); // 0 Sun .. 6 Sat
+    const iso = d.toISOString().slice(0, 10);
+
+    // Realistic weekday/weekend cadence + occasional vacation/light week + 14-day active streak at end
+    const isWeekend = dow === 0 || dow === 6;
+    const isHolidayDip = i > 180 && i < 191;
+    const forceActive = i <= 13; // 14-day current streak!
+    let activeProb = isWeekend ? 0.42 : 0.88;
+    if (isHolidayDip) activeProb *= 0.25;
+    // Slight ramp up in usage over the year
+    const growthFactor = 0.65 + 0.45 * ((totalGridDays52 - 1 - i) / Math.max(1, totalGridDays52 - 1));
+
+    const active = forceActive || dayRng() < activeProb;
+    if (!active) {
+      days52.push({
+        date: iso,
+        calls: 0,
+        appCalls: 0,
+        cliCalls: 0,
+        costUSD: 0,
+        outputTokens: 0,
+        newTokens: 0,
+        cachedTokens: 0,
+      });
+      continue;
+    }
+
+    const intensity = (isWeekend ? 0.55 : 1.0) * growthFactor * (0.4 + dayRng() * 1.35 + (dayRng() < 0.12 ? 0.9 : 0));
+    const calls = Math.max(4, Math.round(intensity * 95));
+    const cliShare = clamp(0.12 + dayRng() * 0.28, 0.05, 0.45);
+    const cliCalls = Math.round(calls * cliShare);
+    const appCalls = Math.max(0, calls - cliCalls);
+    const outputTokens = Math.round(calls * (980 + dayRng() * 720));
+    const newInputTok = Math.round(calls * (2800 + dayRng() * 3400));
+    const newTokens = outputTokens + newInputTok; // non-cached input + output (output includes thinking)
+    const cacheMult = 5.2 + dayRng() * 4.8; // realistic 84%–91% cache ratio
+    const cachedTokens = Math.round(newInputTok * cacheMult);
+    const costUSD = round((newInputTok * 2.1 + cachedTokens * 0.21 + outputTokens * 9.5) / 1_000_000, 2);
+
+    if (costUSD > peakCostUSD52) {
+      peakCostUSD52 = costUSD;
+      peakDate52 = iso;
+    }
+
+    days52.push({
+      date: iso,
+      calls,
+      appCalls,
+      cliCalls,
+      costUSD,
+      outputTokens,
+      newTokens,
+      cachedTokens,
+    });
+  }
+
+  // Ensure today's entry is strictly >= session cost & calls
+  const todayEntry = days52[days52.length - 1];
+  todayEntry.calls = Math.max(148, invocations.length + 84);
+  todayEntry.appCalls = Math.round(todayEntry.calls * 0.76);
+  todayEntry.cliCalls = todayEntry.calls - todayEntry.appCalls;
+  todayEntry.costUSD = round(totalCostUSD + 2.48, 2);
+  todayEntry.outputTokens = Math.max(186_400, totalOutput + 94_000);
+  todayEntry.newTokens = 642_000;
+  todayEntry.cachedTokens = 5_180_000;
+  if (todayEntry.costUSD > peakCostUSD52) {
+    peakCostUSD52 = todayEntry.costUSD;
+    peakDate52 = todayEntry.date;
+  }
+
+  const days16 = days52.slice(days52.length - totalGridDays16);
+  const activeDays16 = days16.filter((d) => d.calls > 0).length;
+  const activeDays52 = days52.filter((d) => d.calls > 0).length;
+  let streak = 0;
+  for (let i = days52.length - 1; i >= 0; i--) {
+    if (days52[i].calls > 0) streak++;
+    else break;
+  }
+  const peak16 = days16.reduce((best, d) => (d.costUSD > best.costUSD ? d : best), days16[0]);
+
+  // Cache TTL Survival models (realistic Log-Logistic curves + empirical buckets)
+  const BUCKET_DEFS = [
+    { key: '0-1m', label: '<1m', minSec: 0, maxSec: 60, midSec: 20 },
+    { key: '1-5m', label: '1-5m', minSec: 60, maxSec: 300, midSec: 150 },
+    { key: '5-10m', label: '5-10m', minSec: 300, maxSec: 600, midSec: 420 },
+    { key: '10-20m', label: '10-20m', minSec: 600, maxSec: 1200, midSec: 840 },
+    { key: '20-60m', label: '20-60m', minSec: 1200, maxSec: 3600, midSec: 2100 },
+    { key: '1-2h', label: '1-2h', minSec: 3600, maxSec: 7200, midSec: 5100 },
+    { key: '2h+', label: '2h+', minSec: 7200, maxSec: null, midSec: 10800 },
+  ];
+
+  function makeTtlModel({ family, providerKind, p0, t50, k, counts, hitRates, missCostUSD }) {
+    const buckets = BUCKET_DEFS.map((b, i) => {
+      const count = counts[i];
+      const hits = Math.round(count * hitRates[i]);
+      return {
+        ...b,
+        count,
+        hits,
+        hitRate: count > 0 ? round(hits / count, 3) : null,
+        predictedRate: round(evalLogLogistic(p0, t50, k, b.midSec), 3),
+      };
+    });
+    const sampleCount = buckets.reduce((s, b) => s + b.count, 0);
+    const hitCount = buckets.reduce((s, b) => s + b.hits, 0);
+    const missCount = sampleCount - hitCount;
+    const longGapCount = buckets.slice(2).reduce((s, b) => s + b.count, 0);
+    const expiredMissCount = buckets.slice(1).reduce((s, b) => s + (b.count - b.hits), 0);
+    const solveQ = (q) => Math.round(t50 * Math.max(0.01, (1 - p0) / q - 1) ** (1 / k));
+    return {
+      family,
+      providerKind,
+      confidence: 'fitted',
+      sampleCount,
+      longGapCount,
+      hitCount,
+      missCount,
+      expiredMissCount,
+      missCostUSD,
+      bgMissRate: p0,
+      t50Sec: t50,
+      shapeK: k,
+      p80Sec: solveQ(0.8),
+      p50Sec: solveQ(0.5),
+      p20Sec: solveQ(0.2),
+      buckets,
+    };
+  }
+
+  const gemTtl = makeTtlModel({
+    family: 'gemini-4-carbon',
+    providerKind: 'gemini',
+    p0: 0.014,
+    t50: 1560, // ~26m
+    k: 1.72,
+    counts: [192, 104, 51, 36, 31, 14, 6],
+    hitRates: [0.979, 0.952, 0.882, 0.722, 0.387, 0.143, 0.0],
+    missCostUSD: 3.42,
+  });
+
+  const claudeTtl = makeTtlModel({
+    family: 'claude-sonnet-5-5',
+    providerKind: 'claude',
+    p0: 0.012,
+    t50: 305, // ~5.1m sharp TTL cliff
+    k: 9.2,
+    counts: [94, 48, 22, 11, 9, 4, 2],
+    hitRates: [0.989, 0.917, 0.091, 0.0, 0.0, 0.0, 0.0],
+    missCostUSD: 4.18,
+  });
+
+  const cacheTtl = {
+    totalPairs: gemTtl.sampleCount,
+    totalLongGapPairs: gemTtl.longGapCount,
+    totalExpiredMisses: gemTtl.expiredMissCount,
+    totalMissCostUSD: round(gemTtl.missCostUSD, 2),
+    models: [gemTtl],
+    currentSession: {
+      family: 'gemini-4-carbon',
+      providerKind: 'gemini',
+      confidence: 'fitted',
+      sampleCount: gemTtl.sampleCount,
+      longGapCount: gemTtl.longGapCount,
+      bgMissRate: gemTtl.bgMissRate,
+      t50Sec: gemTtl.t50Sec,
+      shapeK: gemTtl.shapeK,
+      p80Sec: gemTtl.p80Sec,
+      p50Sec: gemTtl.p50Sec,
+      p20Sec: gemTtl.p20Sec,
+      lastCallMs: latest.timestampMs,
+      cachedContextTokens: latest.cachedInput,
+      missPenaltyUSD: 0.23,
+      missPenaltyQuota5hPct: 0.46,
+    },
+  };
+
+  // Swarm Cockpit members
+  const childSessions = [
+    {
+      id: '3c1f8b92-4a21-4e77-9b10-1a2b3c4d5e01',
+      kind: 'subagent',
+      subagentType: 'swarm_worker',
+      title: isZh ? '后端 52 周冰山 Token 拆分与上下文细分' : 'Backend 52w Iceberg token split & context X-Ray',
+      calls: 15,
+      outputTokens: 16_420,
+      costUSD: 0.52,
+      savedUSD: 1.84,
+      pricedCount: 15,
+      unpricedCount: 0,
+      updatedMs: NOW - 18_000,
+      latestTsMs: NOW - 18_000,
+      quotaUsage: { gemini: { pct5h: 0.94, pct7d: 0.24, isFitted: true } },
+      swarm: {
+        rosterName: 'hud-backend',
+        swarmRole: 'worker',
+        swarmState: 'working',
+        taskTitle: isZh ? '52周冰山统计 + 细分上下文遥测' : '52w Iceberg rollup + finer context X-Ray telemetry',
+        model: 'gemini-4-carbon',
+        workspaceMode: 'share',
+        lastReadSeq: 26,
+        lastPostSeq: 24,
+        lastPostSnippet: isZh ? '已通过全部 42 项遥测单测，正在校验边界情况' : 'All 42 telemetry unit tests green; checking 52w edge cases',
+        lastPostTime: '2026-11-23 16:17:58',
+      },
+    },
+    {
+      id: '7d4e2a11-9c08-4f31-8a12-1a2b3c4d5e02',
+      kind: 'subagent',
+      subagentType: 'swarm_worker',
+      title: isZh ? 'HUD 视觉工艺重构与斜纹续航条' : 'HUD visual craft overhaul & hatched runway bar',
+      calls: 22,
+      outputTokens: 28_910,
+      costUSD: 0.89,
+      savedUSD: 3.12,
+      pricedCount: 22,
+      unpricedCount: 0,
+      updatedMs: NOW - 11_000,
+      latestTsMs: NOW - 11_000,
+      quotaUsage: { gemini: { pct5h: 1.62, pct7d: 0.41, isFitted: true } },
+      swarm: {
+        rosterName: 'hud-ui',
+        swarmRole: 'worker',
+        swarmState: 'working',
+        taskTitle: isZh ? '无边框分层卡片、SVG 图标与冰山图' : 'Borderless surface layers, SVG icons & Iceberg chart',
+        model: 'gemini-4-carbon',
+        workspaceMode: 'share',
+        lastReadSeq: 27,
+        lastPostSeq: 27,
+        lastPostSnippet: isZh ? '已完成斜纹配额续航条与双列 X-Ray 对齐表' : 'Landed hatched runway bars and 2-col Context X-Ray table',
+        lastPostTime: '2026-11-23 16:18:19',
+      },
+    },
+    {
+      id: '5e9a0c33-1b72-4d90-a214-1a2b3c4d5e03',
+      kind: 'subagent',
+      subagentType: 'swarm_worker',
+      title: isZh ? '官网交互式模拟器与工艺展示重构' : 'Launch site redesign & organic HeroSimulator',
+      calls: 17,
+      outputTokens: 21_340,
+      costUSD: 0.64,
+      savedUSD: 2.05,
+      pricedCount: 17,
+      unpricedCount: 0,
+      updatedMs: NOW - 42_000,
+      latestTsMs: NOW - 42_000,
+      quotaUsage: { gemini: { pct5h: 1.18, pct7d: 0.30, isFitted: true } },
+      swarm: {
+        rosterName: 'launch-site',
+        swarmRole: 'worker',
+        swarmState: 'waiting',
+        taskTitle: isZh ? '官网叙事重构与实时交互模拟面板' : 'Product launch narrative & interactive HUD simulator',
+        model: 'gemini-4-carbon',
+        workspaceMode: 'share',
+        lastReadSeq: 27,
+        lastPostSeq: 25,
+        lastPostSnippet: isZh ? 'Vite 生产构建通过，等待合并验收' : 'Vite build green with zero warnings; awaiting merge',
+        lastPostTime: '2026-11-23 16:17:12',
+      },
+    },
+    {
+      id: '8b2c6f44-6e15-4a82-b319-1a2b3c4d5e04',
+      kind: 'subagent',
+      subagentType: 'swarm_worker',
+      title: isZh ? '全量验收与 Retina 2x 高清截图采集' : 'E2E quality verification & Retina 2x captures',
+      calls: 8,
+      outputTokens: 6_840,
+      costUSD: 0.17,
+      savedUSD: 0.61,
+      pricedCount: 8,
+      unpricedCount: 0,
+      updatedMs: NOW - 29_000,
+      latestTsMs: NOW - 29_000,
+      quotaUsage: { gemini: { pct5h: 0.28, pct7d: 0.07, isFitted: true } },
+      swarm: {
+        rosterName: 'verifier',
+        swarmRole: 'worker',
+        swarmState: 'waiting',
+        taskTitle: isZh ? '双倍视网膜截图与深浅/窄屏视觉回归' : 'Retina 2x captures & dark/light/240px visual audit',
+        model: 'gemini-3.8-flash-k',
+        workspaceMode: 'inherit',
+        lastReadSeq: 27,
+        lastPostSeq: 26,
+        lastPostSnippet: isZh ? 'Playwright 2x 截图管线就绪，待合并后验收' : 'Playwright 2x harness ready; awaiting branch merge',
+        lastPostTime: '2026-11-23 16:17:44',
+      },
+    },
+  ];
+
+  const snapshot = {
+    found: true,
+    etag: 'hd-fixture-v2',
+    bootId: 'boot-hd-20261123',
+    assetKey: 'asset-hd-v2',
+    mode: 'auto',
+    conversationId: CONV_ID,
+    dbPath: '/Users/sky/.gemini/antigravity/conversations/9a7c4e21.pb',
+    serverTimeMs: NOW,
+    conversations: [
+      {
+        id: CONV_ID,
+        updatedMs: NOW - 94_000,
+        title: isZh ? 'AGY-HUD v1.3 视觉工艺与遥测升级' : 'AGY-HUD v1.3 Visual Craft & Telemetry Upgrade',
+        kind: 'main',
+        source: 'app',
+        childCount: childSessions.length,
+        costUSD: totalCostUSD,
+        quotaUsage: {
+          gemini: { pct5h: gem5h, pct7d: gem7d, isFitted: true },
+          claude_gpt: { pct5h: claude5h, pct7d: claude7d, isFitted: true },
+        },
+      },
+    ],
+    sessionInfo: {
+      id: CONV_ID,
+      title: isZh ? 'AGY-HUD v1.3 视觉工艺与遥测升级' : 'AGY-HUD v1.3 Visual Craft & Telemetry Upgrade',
+      kind: 'main',
+      subagentType: '',
+      quotaUsage: {
+        gemini: { pct5h: gem5h, pct7d: gem7d, isFitted: true },
+        claude_gpt: { pct5h: claude5h, pct7d: claude7d, isFitted: true },
+      },
+      parentSession: null,
+      childSessions,
+      swarm: {
+        swarmId: 'swarm-agy-hud-v13',
+        coordinatorConvId: CONV_ID,
+        swarmTitle: isZh ? 'AGY-HUD v1.3 视觉与遥测升级' : 'AGY-HUD v1.3 Craft Upgrade',
+        goalTitle: isZh ? '分层无边框 UI、冰山图与配额续航' : 'Borderless UI, Iceberg View & Quota Runway',
+        goalLine: isZh ? '交付无边框卡片、斜纹续航条与 52 周冰山统计' : 'Ship layered cards, hatched runway & 52w Iceberg insights',
+        createdAt: '2026-11-23 15:30:00',
+        boardSeq: 28,
+        memberCount: 4,
+        workingCount: 2,
+        waitingCount: 2,
+        stoppedCount: 0,
+        killedCount: 0,
+        isCoordinatorView: true,
+        selfMember: {
+          rosterName: 'coordinator',
+          swarmRole: 'coordinator',
+          swarmState: 'working',
+          model: 'gemini-4-carbon',
+        },
+        threads: [
+          {
+            id: 't-hud',
+            title: isZh ? 'HUD 前后端遥测与界面' : 'HUD Telemetry & Interface',
+            members: ['hud-backend', 'hud-ui'],
+          },
+          {
+            id: 't-launch',
+            title: isZh ? '官网发布与质量验收' : 'Launch Site & Verification',
+            members: ['launch-site', 'verifier'],
+          },
+        ],
+      },
+    },
+    invocations,
+    latest,
+    latestSustained: latest,
+    currentModel: {
+      model: latest.model,
+      modelId: latest.modelId,
+      modelDisplay: latest.modelDisplay,
+      isActive: false,
+      stepType: null,
+      toolName: '',
+      statusName: 'IDLE',
+    },
+    summary: {
+      count: invocations.length,
+      userTurns: turns.length,
+      totalSteps: stepIdx,
+      toolStepCount: invocations.reduce((s, x) => s + x.stepToolCount, 0),
+      totalOutput,
+      totalThinking,
+      totalCandidate,
+      totalCachedInput,
+      totalNewInput,
+      avgCacheHitPct,
+      avgTtftSec,
+      totalModelSec,
+      totalToolSec,
+      avgGenTps,
+      avgE2eTps,
+      peakGenTps,
+      totalCostUSD,
+      totalSavedUSD,
+      pricedCount: invocations.length,
+      unpricedCount: 0,
+      latestCallMs: latest.timestampMs,
+      sessionQuota: {
+        gemini: { pct5h: gem5h, pct7d: gem7d, isFitted: true },
+        claude_gpt: { pct5h: claude5h, pct7d: claude7d, isFitted: true },
+      },
+    },
+    activeStep: null,
+    pendingCompact: null,
+    compactions,
+    turns,
+    contextBreakdown: {
+      reportedTotal: 114_620,
+      contextLimit: 256_000,
+      systemPrompt: 11_840,
+      toolsSchema: 15_280,
+      chatMessages: 87_500,
+      userInput: 6_920,
+      assistant: 19_640,
+      toolResults: 54_120,
+      checkpoint: 4_820,
+      sysMsg: 2_000,
+      otherChat: 0,
+      userAndOther: 13_740,
+      // Additive finer breakdown fields (used by upgraded HUD X-Ray when present)
+      mcpTools: 4_620,
+      skills: 3_180,
+      rules: 1_940,
+      checkpointTokens: 4_820,
+      systemPromptItems: [
+        { name: 'identity', tokens: 2_820 },
+        { name: 'guidelines', tokens: 2_000 },
+        { name: 'skills', tokens: 3_180 },
+        { name: 'workspace_rules', tokens: 1_940 },
+        { name: 'swarm_protocol', tokens: 1_900 },
+      ],
+      toolSchemaItems: [
+        { name: 'read_file', tokens: 2_860 },
+        { name: 'edit_file', tokens: 2_440 },
+        { name: 'run_command', tokens: 2_120 },
+        { name: 'mcp_github_pull_requests', tokens: 2_840 },
+        { name: 'mcp_browser_inspect', tokens: 1_780 },
+        { name: 'swarm', tokens: 3_240 },
+      ],
+      toolResultsByTool: [
+        { name: 'read_file', tokens: 23_840 },
+        { name: 'run_command', tokens: 14_620 },
+        { name: 'edit_file', tokens: 8_360 },
+        { name: 'grep_search', tokens: 4_880 },
+        { name: 'swarm', tokens: 2_420 },
+      ],
+    },
+    accountQuota: {
+      available: true,
+      deferred: false,
+      stale: false,
+      name: 'Google AI Ultra',
+      tierName: 'Google AI Ultra',
+      planName: 'Pro',
+      source: 'local_ls',
+      fetchedAtMs: NOW - 8_000,
+      pools: [
+        {
+          label: 'Gemini Pool',
+          remainingPct: 68.4,
+          resetTime: new Date(NOW + 3 * 3600_000 + 8 * 60_000).toISOString(),
+          resetAtMs: NOW + 3 * 3600_000 + 8 * 60_000,
+          modelCount: 5,
+          heldByWeekly: false,
+          windows: [
+            {
+              spanKey: '5h',
+              label: '5h',
+              remainingPct: 68.4,
+              resetTime: new Date(NOW + 3 * 3600_000 + 8 * 60_000).toISOString(),
+              resetAtMs: NOW + 3 * 3600_000 + 8 * 60_000,
+              estSpentUSD: 15.8,
+              estEffectiveSpentUSD: 47.4,
+              estFullUSD: 150.0,
+              estConfidence: 'high',
+              estPricedCalls: 142,
+              runway: {
+                status: 'safe',
+                burnPctPerHour: 7.4,
+                exhaustInSec: Math.round((68.4 / 7.4) * 3600),
+                exhaustAtMs: NOW + Math.round((68.4 / 7.4) * 3600_000),
+                willExhaustBeforeReset: false,
+                projectedRemAtResetPct: 45.2,
+                basis: 'active_blend',
+                habitBlended: true,
+                habitWeight: 0.34,
+                histBurnPctPerHour: 6.8,
+              },
+            },
+            {
+              spanKey: '7d',
+              label: '7d',
+              remainingPct: 81.6,
+              resetTime: new Date(NOW + (4 * 24 + 11) * 3600_000).toISOString(),
+              resetAtMs: NOW + (4 * 24 + 11) * 3600_000,
+              estSpentUSD: 36.8,
+              estEffectiveSpentUSD: 110.4,
+              estFullUSD: 600.0,
+              estConfidence: 'high',
+              estPricedCalls: 940,
+              runway: {
+                status: 'safe',
+                burnPctPerHour: 0.24,
+                exhaustInSec: Math.round((81.6 / 0.24) * 3600),
+                exhaustAtMs: NOW + Math.round((81.6 / 0.24) * 3600_000),
+                willExhaustBeforeReset: false,
+                projectedRemAtResetPct: 55.8,
+                basis: 'active_blend',
+                habitBlended: true,
+                habitWeight: 0.28,
+                histBurnPctPerHour: 0.22,
+                activeHoursPerDay: 5.4,
+              },
+            },
+          ],
+          fitSummary: {
+            quality: 'high',
+            driftWarning: false,
+            full5hUSD: 150.0,
+            full7dUSD: 600.0,
+            gamma: 0.25,
+            sampleCount: 38,
+            shortCleanCount: 24,
+            holdoutCount: 8,
+            oosRelErrPct: 1.8,
+            relErrPct: 1.4,
+            models: [
+              {
+                family: 'gemini-4-carbon',
+                k: 3.0,
+                beta: 2.0,
+                betaPlusMinus: 0.04,
+                source: 'fitted',
+                mode: 'usd_mult',
+                obsCalls: 620,
+              },
+              {
+                family: 'gemini-3.8-flash',
+                k: 1.0,
+                beta: 0.6667,
+                betaPlusMinus: 0.02,
+                source: 'fitted',
+                mode: 'usd_mult',
+                obsCalls: 320,
+              },
+            ],
+          },
+        },
+        {
+          label: 'Claude / GPT Pool',
+          remainingPct: 44.0,
+          resetTime: new Date(NOW + 3 * 3600_000 + 36 * 60_000).toISOString(),
+          resetAtMs: NOW + 3 * 3600_000 + 36 * 60_000,
+          modelCount: 4,
+          heldByWeekly: false,
+          windows: [
+            {
+              spanKey: '5h',
+              label: '5h',
+              remainingPct: 44.0,
+              resetTime: new Date(NOW + 3 * 3600_000 + 36 * 60_000).toISOString(),
+              resetAtMs: NOW + 3 * 3600_000 + 36 * 60_000,
+              estSpentUSD: 28.0,
+              estEffectiveSpentUSD: 28.0,
+              estFullUSD: 50.0,
+              estConfidence: 'high',
+              estPricedCalls: 86,
+              runway: {
+                status: 'warning',
+                burnPctPerHour: 15.2,
+                exhaustInSec: Math.round((44.0 / 15.2) * 3600),
+                exhaustAtMs: NOW + Math.round((44.0 / 15.2) * 3600_000),
+                willExhaustBeforeReset: true,
+                projectedRemAtResetPct: 0,
+                basis: 'active_blend',
+              },
+            },
+          ],
+          fitSummary: null,
+        },
+      ],
+    },
+    accountHistory: {
+      dbCount: 138,
+      dbCountBySource: { app: 94, cli: 44 },
+      indexedCount: 138,
+      indexing: false,
+      callsBySource: { app: 7120, cli: 2490 },
+      costBySource: { app: 228.4, cli: 79.8 },
+      totalCalls: 9610,
+      totalOutput: 11_840_000,
+      totalCostUSD: 308.2,
+      totalSavedUSD: 892.6,
+      pricedCount: 9580,
+      unpricedCount: 30,
+      todayCalls: todayEntry.calls,
+      todayCostUSD: todayEntry.costUSD,
+      todaySavedUSD: 14.2,
+      monthCalls: 2340,
+      monthCostUSD: 74.6,
+      monthSavedUSD: 218.4,
+      dailyHeatmap: {
+        weeks: 16,
+        weeks52: 52,
+        activeDays: activeDays16,
+        activeDays52,
+        streakDays: streak,
+        peakCostUSD: peak16.costUSD,
+        peakDate: peak16.date,
+        peakCostUSD52,
+        peakDate52,
+        days: days16,
+        days52,
+      },
+    },
+    cacheTtl,
+  };
+
+  const updateStatus = {
+    ok: true,
+    status: 'up_to_date',
+    currentVersion: '1.3.0',
+    latestVersion: '1.3.0',
+    updateAvailable: false,
+    canSelfUpdate: true,
+    blockReason: 'no_update',
+    isLinked: false,
+    installPath: '/Users/sky/.gemini/antigravity/plugins/agy-hud',
+    releaseUrl: 'https://github.com/skywalker512/agy-hud/releases/tag/v1.3.0',
+    downloadUrl: null,
+    assetKind: 'tar.gz',
+    releaseNotes: null,
+    publishedAt: '2026-11-23T15:00:00Z',
+    checkedAtMs: NOW - 120_000,
+    cached: true,
+    updating: false,
+  };
+
+  // Align contextBreakdown.reportedTotal with latest.totalContext
+  const ctxDelta = latest.totalContext - 114_620;
+  if (ctxDelta !== 0) {
+    snapshot.contextBreakdown.reportedTotal = latest.totalContext;
+    snapshot.contextBreakdown.toolResults += ctxDelta;
+    snapshot.contextBreakdown.chatMessages += ctxDelta;
+    snapshot.contextBreakdown.toolResultsByTool[0].tokens += ctxDelta;
+  }
+
+  return { snapshot, callDetails, updateStatus, NOW };
+}
+
+window.__AGY_HUD_BUILD_FIXTURE__ = buildOrganicFixture;
+})();

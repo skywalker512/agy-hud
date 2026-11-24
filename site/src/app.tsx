@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useCallback, useEffect, useState } from 'preact/hooks';
 import { BentoGrid } from './components/BentoGrid';
 import { CompareSection } from './components/CompareSection';
 import { CraftSection } from './components/CraftSection';
@@ -8,36 +8,37 @@ import { HeroSection } from './components/HeroSection';
 import { InstallGuideSection } from './components/InstallGuideSection';
 import { Navbar } from './components/Navbar';
 import { COPY, detectInitialLocale, saveLocale, type Locale } from './i18n/content';
-
-const THEME_STORAGE_KEY = 'agy-hud-site-theme';
-
-function getInitialTheme(): 'dark' | 'light' {
-  try {
-    const saved = localStorage.getItem(THEME_STORAGE_KEY);
-    if (saved === 'light' || saved === 'dark') return saved;
-  } catch {
-    /* ignore */
-  }
-  return 'dark';
-}
+import {
+  AGY_THEMES,
+  applyAgyThemeToDocument,
+  getInitialContrast,
+  getInitialThemeId,
+  getThemeById,
+  saveContrast,
+  saveThemeId,
+  type ContrastMode,
+} from './themes/agyThemes';
 
 export function App() {
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => getInitialTheme());
+  const [themeId, setThemeId] = useState<string>(() => getInitialThemeId());
+  const [previewThemeId, setPreviewThemeId] = useState<string | null>(null);
+  const [contrast, setContrast] = useState<ContrastMode>(() => getInitialContrast());
   const [locale, setLocale] = useState<Locale>(() => detectInitialLocale());
 
+  const activeTheme = getThemeById(themeId);
+  const displayTheme = previewThemeId ? getThemeById(previewThemeId) : activeTheme;
+
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    document.documentElement.style.colorScheme = theme;
-    const metaTheme = document.querySelector('meta[name="theme-color"]');
-    if (metaTheme) {
-      metaTheme.setAttribute('content', theme === 'dark' ? '#0a0b0e' : '#fafafa');
-    }
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme);
-    } catch {
-      /* ignore */
-    }
-  }, [theme]);
+    applyAgyThemeToDocument(displayTheme, contrast);
+  }, [displayTheme, contrast]);
+
+  useEffect(() => {
+    saveThemeId(themeId);
+  }, [themeId]);
+
+  useEffect(() => {
+    saveContrast(contrast);
+  }, [contrast]);
 
   useEffect(() => {
     document.documentElement.lang = locale === 'zh' ? 'zh-CN' : 'en';
@@ -48,20 +49,37 @@ export function App() {
     saveLocale(locale);
   }, [locale]);
 
+  const handleCycleTheme = useCallback(() => {
+    setThemeId((curr) => {
+      const idx = AGY_THEMES.findIndex((t) => t.id === curr);
+      const next = AGY_THEMES[(idx + 1) % AGY_THEMES.length];
+      return next.id;
+    });
+  }, []);
+
   const copy = COPY[locale];
 
   return (
     <div class="site-ambient min-h-screen text-[var(--fg)]">
       <Navbar
         locale={locale}
-        theme={theme}
+        activeTheme={activeTheme}
+        contrast={contrast}
         copy={copy}
         onToggleLocale={() => setLocale((l) => (l === 'en' ? 'zh' : 'en'))}
-        onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+        onSelectTheme={setThemeId}
+        onPreviewTheme={setPreviewThemeId}
+        onSelectContrast={setContrast}
       />
 
       <main>
-        <HeroSection locale={locale} copy={copy} />
+        <HeroSection
+          locale={locale}
+          theme={displayTheme}
+          contrast={contrast}
+          copy={copy}
+          onCycleTheme={handleCycleTheme}
+        />
         <BentoGrid copy={copy} />
         <CraftSection copy={copy} />
         <InstallGuideSection locale={locale} copy={copy} />

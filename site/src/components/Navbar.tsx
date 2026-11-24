@@ -1,13 +1,18 @@
 import { useState } from 'preact/hooks';
 import type { Locale, SiteCopy } from '../i18n/content';
+import type { AgyTheme, ContrastMode } from '../themes/agyThemes';
 import { IconGitHub } from './Icons';
+import { ThemePicker } from './ThemePicker';
 
 interface NavbarProps {
   locale: Locale;
-  theme: 'dark' | 'light';
+  activeTheme: AgyTheme;
+  contrast: ContrastMode;
   copy: SiteCopy;
   onToggleLocale: () => void;
-  onToggleTheme: () => void;
+  onSelectTheme: (themeId: string) => void;
+  onPreviewTheme: (themeId: string | null) => void;
+  onSelectContrast: (contrast: ContrastMode) => void;
 }
 
 export function BrandLogo({ size = 20 }: { size?: number }) {
@@ -33,7 +38,16 @@ export function BrandLogo({ size = 20 }: { size?: number }) {
   );
 }
 
-export function Navbar({ locale, theme, copy, onToggleLocale, onToggleTheme }: NavbarProps) {
+export function Navbar({
+  locale,
+  activeTheme,
+  contrast,
+  copy,
+  onToggleLocale,
+  onSelectTheme,
+  onPreviewTheme,
+  onSelectContrast,
+}: NavbarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const navItems = [
@@ -76,6 +90,15 @@ export function Navbar({ locale, theme, copy, onToggleLocale, onToggleTheme }: N
 
         {/* Controls */}
         <div class="flex items-center gap-1.5">
+          <ThemePicker
+            locale={locale}
+            activeTheme={activeTheme}
+            contrast={contrast}
+            onSelectTheme={onSelectTheme}
+            onPreviewTheme={onPreviewTheme}
+            onSelectContrast={onSelectContrast}
+          />
+
           <button
             type="button"
             onClick={onToggleLocale}
@@ -85,25 +108,6 @@ export function Navbar({ locale, theme, copy, onToggleLocale, onToggleTheme }: N
             <span class={locale === 'en' ? 'font-semibold text-[var(--fg)]' : ''}>EN</span>
             <span class="text-[var(--faint)]">/</span>
             <span class={locale === 'zh' ? 'font-semibold text-[var(--fg)]' : ''}>中文</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onToggleTheme}
-            class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--fg)]"
-            aria-label={theme === 'dark' ? copy.nav.themeLight : copy.nav.themeDark}
-            title={theme === 'dark' ? copy.nav.themeLight : copy.nav.themeDark}
-          >
-            {theme === 'dark' ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="4" />
-                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-              </svg>
-            )}
           </button>
 
           <a

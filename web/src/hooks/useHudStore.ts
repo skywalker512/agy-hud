@@ -151,6 +151,19 @@ export function useHudStore(): HudStore {
   }, [lang]);
 
   useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event?.data?.type === 'agy-demo-locale') {
+        const next = event.data.lang;
+        if (next === 'en' || next === 'zh') {
+          setLang((prev) => (prev === next ? prev : next));
+        }
+      }
+    };
+    window.addEventListener?.('message', onMessage);
+    return () => window.removeEventListener?.('message', onMessage);
+  }, []);
+
+  useEffect(() => {
     if (!shouldRefineLocaleFromServer()) return;
     const ac = typeof AbortController === 'function' ? new AbortController() : null;
     void refineLocaleFromServer(getSidecarFetch(), ac?.signal).then((refined) => {

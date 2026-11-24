@@ -1,6 +1,32 @@
-import { SIM_HEATMAP } from '../data/simulatorData';
 import type { SiteCopy } from '../i18n/content';
 import { IconClock, IconSkipForward } from './Icons';
+
+const ICEBERG_SAMPLE: readonly { date: string; newTokensM: number; cachedTokensM: number }[] = [
+  { date: '11-01', newTokensM: 1.6, cachedTokensM: 14.8 },
+  { date: '11-02', newTokensM: 0.7, cachedTokensM: 6.4 },
+  { date: '11-03', newTokensM: 2.9, cachedTokensM: 26.2 },
+  { date: '11-04', newTokensM: 3.4, cachedTokensM: 31.8 },
+  { date: '11-05', newTokensM: 2.1, cachedTokensM: 19.5 },
+  { date: '11-06', newTokensM: 4.2, cachedTokensM: 37.6 },
+  { date: '11-07', newTokensM: 1.2, cachedTokensM: 11.4 },
+  { date: '11-08', newTokensM: 0.9, cachedTokensM: 8.1 },
+  { date: '11-09', newTokensM: 3.1, cachedTokensM: 29.4 },
+  { date: '11-10', newTokensM: 4.8, cachedTokensM: 42.1 },
+  { date: '11-11', newTokensM: 2.6, cachedTokensM: 24.3 },
+  { date: '11-12', newTokensM: 3.7, cachedTokensM: 35.0 },
+  { date: '11-13', newTokensM: 2.3, cachedTokensM: 20.9 },
+  { date: '11-14', newTokensM: 1.4, cachedTokensM: 12.6 },
+  { date: '11-15', newTokensM: 0.6, cachedTokensM: 5.5 },
+  { date: '11-16', newTokensM: 3.9, cachedTokensM: 36.2 },
+  { date: '11-17', newTokensM: 4.4, cachedTokensM: 41.0 },
+  { date: '11-18', newTokensM: 5.1, cachedTokensM: 46.8 },
+  { date: '11-19', newTokensM: 3.2, cachedTokensM: 28.9 },
+  { date: '11-20', newTokensM: 4.6, cachedTokensM: 43.2 },
+  { date: '11-21', newTokensM: 2.8, cachedTokensM: 26.7 },
+  { date: '11-22', newTokensM: 3.5, cachedTokensM: 33.4 },
+  { date: '11-23', newTokensM: 5.3, cachedTokensM: 49.1 },
+  { date: '11-24', newTokensM: 3.8, cachedTokensM: 36.5 },
+];
 
 interface BentoGridProps {
   copy: SiteCopy;
@@ -8,7 +34,7 @@ interface BentoGridProps {
 
 export function BentoGrid({ copy }: BentoGridProps) {
   const c = copy.tour.cards;
-  const icebergSample = SIM_HEATMAP.slice(-24);
+  const icebergSample = ICEBERG_SAMPLE;
   const maxNew = Math.max(...icebergSample.map((d) => d.newTokensM), 1);
   const maxCached = Math.max(...icebergSample.map((d) => d.cachedTokensM), 1);
 
