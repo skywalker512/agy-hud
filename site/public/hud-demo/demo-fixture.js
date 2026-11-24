@@ -102,25 +102,32 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
     { calls: 4, en: 'Final polish on Swarm Cockpit rows and copy tightness', zh: '最终打磨 Swarm 驾驶舱列表与文案精简' },
   ];
 
-  // Clean 2-model Orchestrator alternation per turn:
-  // Orchestrator (Neon) plans -> Hydrogen Worker executes fast tool checks -> Orchestrator edits & synthesizes
+  // Clean phase-by-phase Orchestrator handoffs (sequential alternating runs, NOT parallel/interleaved):
+  // Neon executes a contiguous planning/design segment -> hands off to Hydrogen for a contiguous concrete execution block -> hands back to Neon -> ...
   const modelSeq = [
-    'orch', 'worker', 'orch',
-    'orch', 'worker', 'worker', 'orch',
-    'orch', 'worker', 'orch', 'worker', 'orch',
-    'orch', 'worker', 'orch',
-    'orch', 'worker', 'worker', 'orch',
-    'orch', 'worker', 'orch', 'worker', 'orch',
-    'orch', 'worker', 'worker', 'orch',
-    'orch', 'worker', 'orch', 'worker', 'orch',
-    'orch', 'worker', 'worker', 'orch',
-    'orch', 'worker', 'orch',
-    'orch', 'worker', 'worker', 'orch',
-    'orch', 'worker', 'orch', 'worker', 'orch',
-    'orch', 'worker', 'worker', 'orch',
-    'orch', 'worker', 'orch',
-    'orch', 'worker', 'worker', 'orch',
-    'orch', 'worker', 'worker', 'orch',
+    // Phase 1: Neon — audit schema & TTL survival design (Turns 1–2, 7 calls)
+    'orch', 'orch', 'orch',
+    'orch', 'orch', 'orch', 'orch',
+    // Phase 2: Hydrogen — implement 52w Iceberg split & unit tests (Turns 3–4, 8 calls)
+    'worker', 'worker', 'worker', 'worker', 'worker',
+    'worker', 'worker', 'worker',
+    // Phase 3: Neon — design layered HUD tokens & SVG icon system (Turns 5–6, 9 calls)
+    'orch', 'orch', 'orch', 'orch',
+    'orch', 'orch', 'orch', 'orch', 'orch',
+    // Phase 4: Hydrogen — implement TopBar, X-Ray table & TrendChart fixes (Turns 7–9, 13 calls)
+    'worker', 'worker', 'worker', 'worker',
+    'worker', 'worker', 'worker', 'worker', 'worker',
+    'worker', 'worker', 'worker', 'worker',
+    // Phase 5: Neon — post-compact checkpoint & Quota Runway math (Turns 10–11, 7 calls)
+    'orch', 'orch', 'orch',
+    'orch', 'orch', 'orch', 'orch',
+    // Phase 6: Hydrogen — wire Iceberg toggle, 240px CSS, theme & CI checks (Turns 12–15, 16 calls)
+    'worker', 'worker', 'worker', 'worker', 'worker',
+    'worker', 'worker', 'worker', 'worker',
+    'worker', 'worker', 'worker',
+    'worker', 'worker', 'worker', 'worker',
+    // Phase 7: Neon — final review, Swarm polish & synthesis (Turn 16, 4 calls)
+    'orch', 'orch', 'orch', 'orch',
   ];
 
   const TOOL_POOLS = [
@@ -216,13 +223,14 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
       const ctxLoadPenalty = ctxTokens > 150_000 ? ((ctxTokens - 150_000) / 100_000) * 9.5 : 0;
       let genTps = clamp(prof.baseTps + tpsDrift[mKey] - ctxLoadPenalty, prof.tpsMin, prof.tpsMax);
 
-      // Hand-tune last 3 calls for natural crisp hero numbers (and clean Orchestrator alternation)
-      if (callIdx === 61) genTps = 152.4;  // Hydrogen Worker fast read
-      if (callIdx === 62) genTps = 148.6;  // Hydrogen Worker build verify (expanded in Calls tab)
-      if (callIdx === 63) genTps = 110.4;  // Orchestrator (Neon) final synthesis
+      // Hand-tune Turn 15 tail (Hydrogen) -> Turn 16 handback (Neon) for crisp hero & Recent Calls clarity
+      if (callIdx === 59) genTps = 154.2;  // Hydrogen finishes Turn 15 build & tests
+      if (callIdx === 61) genTps = 114.6;  // Neon Turn 16 review
+      if (callIdx === 62) genTps = 116.2;  // Neon Turn 16 verify
+      if (callIdx === 63) genTps = 110.4;  // Neon Turn 16 final synthesis
 
       // Realistic special events
-      const isSlowThinkBurst = callIdx === 18 || callIdx === 44;
+      const isSlowThinkBurst = callIdx === 18 || callIdx === 41;
       const isBuffered = callIdx === 29;
       const isToolStall = callIdx === 52;
 
@@ -243,8 +251,8 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         outputTokens = thinkingTokens + Math.round(640 + rng() * 1380);
       }
       if (callIdx === 62) {
-        thinkingTokens = 342;
-        outputTokens = 1128;
+        thinkingTokens = 486;
+        outputTokens = 1320;
       }
       if (callIdx === 63) {
         thinkingTokens = 986;
@@ -255,7 +263,8 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
       // TTFT (log-normal-ish with realistic thinking latency)
       let ttftSec = prof.baseTtft * Math.exp(gauss(rng) * 0.28);
       if (isSlowThinkBurst) ttftSec = 4.6 + rng() * 1.9;
-      if (callIdx === 62) ttftSec = 0.84;
+      if (callIdx === 59) ttftSec = 0.84;
+      if (callIdx === 62) ttftSec = 1.42;
       if (callIdx === 63) ttftSec = 4.42;
       ttftSec = round(clamp(ttftSec, 0.42, 7.2), 2);
 
@@ -1197,8 +1206,8 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         swarmId: 'swarm-agy-hud-v12',
         coordinatorConvId: CONV_ID,
         swarmTitle: isZh ? 'AGY-HUD v1.2 遥测与发布协作' : 'AGY-HUD v1.2 Release Swarm',
-        goalTitle: isZh ? 'Orchestrator 双模型编排与发布' : 'Orchestrator Dual-Model Swarm & Launch',
-        goalLine: isZh ? 'Orchestrator (Neon) + Hydrogen Worker 双模型并行完成校准、审校与验收' : 'Orchestrator (Neon) + Hydrogen Worker shipping calibration, audit & CI',
+        goalTitle: isZh ? 'Orchestrator 双模型交替编排与发布' : 'Orchestrator Alternating Handoff & Launch',
+        goalLine: isZh ? 'Orchestrator (Neon) 与 Hydrogen 阶段交替接力：规划审校 ↔ 具体执行与验收' : 'Orchestrator (Neon) ↔ Hydrogen phased handoff: plan & review → execute & verify',
         createdAt: '2026-11-24 20:10:00',
         boardSeq: 64,
         memberCount: 6,
