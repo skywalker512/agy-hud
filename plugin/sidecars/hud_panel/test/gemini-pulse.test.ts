@@ -69,11 +69,11 @@ test('parseOpenRouterEndpointsJson and parseGcpGeminiIncidents detect degraded p
 test('computeLocalGeminiBaselines stratifies hit vs cold-miss TTFT and evaluateTtftAttribution classifies all 5 verdicts', () => {
   const now = 1_800_000_000_000;
   const recentCalls = [
-    // Cached hit calls (~1.2s TTFT)
-    { ts: now - 3600_000, poolKey: 'gemini', family: 'gemini-4-hydrogen', newInput: 3000, cachedInput: 90000, ttftSec: 1.1, genTps: 140 },
-    { ts: now - 3500_000, poolKey: 'gemini', family: 'gemini-4-hydrogen', newInput: 4000, cachedInput: 95000, ttftSec: 1.2, genTps: 145 },
-    { ts: now - 3400_000, poolKey: 'gemini', family: 'gemini-4-hydrogen', newInput: 5000, cachedInput: 100000, ttftSec: 1.3, genTps: 150 },
-    // Cold prefill calls (~5.0s TTFT)
+    // Recent 30m cached hit calls (~1.2s TTFT)
+    { ts: now - 10 * 60_000, poolKey: 'gemini', family: 'gemini-4-hydrogen', newInput: 3000, cachedInput: 90000, ttftSec: 1.1, genTps: 140 },
+    { ts: now - 15 * 60_000, poolKey: 'gemini', family: 'gemini-4-hydrogen', newInput: 4000, cachedInput: 95000, ttftSec: 1.2, genTps: 145 },
+    { ts: now - 20 * 60_000, poolKey: 'gemini', family: 'gemini-4-hydrogen', newInput: 5000, cachedInput: 100000, ttftSec: 1.3, genTps: 150 },
+    // Older (>30m, <24h) cold prefill calls (~5.0s TTFT)
     { ts: now - 3300_000, poolKey: 'gemini', family: 'gemini-4-hydrogen', newInput: 80000, cachedInput: 0, ttftSec: 4.8, genTps: 135 },
     { ts: now - 3200_000, poolKey: 'gemini', family: 'gemini-4-hydrogen', newInput: 90000, cachedInput: 10000, ttftSec: 5.0, genTps: 130 },
     { ts: now - 3100_000, poolKey: 'gemini', family: 'gemini-4-hydrogen', newInput: 110000, cachedInput: 5000, ttftSec: 5.4, genTps: 128 },
@@ -82,10 +82,14 @@ test('computeLocalGeminiBaselines stratifies hit vs cold-miss TTFT and evaluateT
     { ts: now - 9 * 86_400_000, poolKey: 'gemini', family: 'gemini-4-hydrogen', newInput: 2000, cachedInput: 50000, ttftSec: 30.0, genTps: 10 },
   ];
 
-  const baselines = computeLocalGeminiBaselines([{ latestTsMs: now - 3000_000, recentCalls }], now);
+  const baselines = computeLocalGeminiBaselines([{ latestTsMs: now - 10 * 60_000, recentCalls }], now);
   const hb = baselines['gemini-4-hydrogen'];
   assert.ok(hb);
   assert.equal(hb.calls7d, 6);
+  assert.equal(hb.calls24h, 6);
+  assert.equal(hb.calls30m, 3);
+  assert.equal(hb.p50Ttft30mSec, 1.2);
+  assert.equal(hb.p50Tps30m, 145);
   assert.equal(hb.hitP50TtftSec, 1.2);
   assert.equal(hb.missP50TtftSec, 5.0);
   assert.equal(baselines['claude-opus-5-5'], undefined);

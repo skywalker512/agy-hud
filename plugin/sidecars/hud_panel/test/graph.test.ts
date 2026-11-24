@@ -9,7 +9,9 @@ import { parseProcessCommandLines } from '../lib/constants.ts';
 import { poolKeyForModel } from '../lib/pricing.ts';
 import { resolveModelFamily } from '../lib/quota-solver.ts';
 import {
+  attachGraphQuotaSummaries,
   buildAccountHistory,
+  buildSessionInfo,
   computeBaseReferenceUSD,
   computeCallCost,
   getConversationGraph,
@@ -524,3 +526,98 @@ test('dailyHeatmap exposes additive newTokens/cachedTokens iceberg split and 52-
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('buildSessionInfo and attachGraphQuotaSummaries recursively roll up Swarm workers, nested grandchildren, and Side-Q without double counting cycles', () => {
+  const mkSum = (id: string, calls: number, out: number, cost: number, saved: number) => ({
+    id,
+    title: id,
+    calls,
+    outputTokens: out,
+    costUSD: cost,
+    savedUSD: saved,
+    pricedCount: calls,
+    unpricedCount: 0,
+    updatedMs: 1000,
+    latestTsMs: 1000,
+    key: `${id}:${calls}`,
+    familyUsage: {
+      'gemini-4-neon': {
+        poolKey: 'gemini',
+        baseUSD: cost,
+        inM: 0.1,
+        caM: 0.5,
+        outM: out / 1e6,
+      },
+    },
+    recentCalls: [],
+  });
+
+  const rootSum = mkSum('root', 4, 2000, 1.5, 0.4);
+  const workerSum = mkSum('worker-1', 6, 4500, 3.0, 1.1);
+  const grandSum = mkSum('grand-1', 3, 1500, 0.8, 0.2);
+  const sideQSum = mkSum('sideq-1', 2, 500, 0.2, 0.05);
+
+  const byId = new Map([
+    ['root', rootSum],
+    ['worker-1', workerSum],
+    ['grand-1', grandSum],
+    ['sideq-1', sideQSum],
+  ]);
+
+  const childrenByParent = new Map([
+    [
+      'root',
+      [
+        { id: 'worker-1', kind: 'subagent', subagentType: 'worker', title: 'worker-1', calls: 6, outputTokens: 4500, costUSD: 3.0, savedUSD: 1.1, pricedCount: 6, unpricedCount: 0, updatedMs: 1000, latestTsMs: 1000, key: 'w1', swarm: { rosterName: 'worker-1' } },
+        { id: 'sideq-1', kind: 'side_question', subagentType: '', title: 'sideq-1', calls: 2, outputTokens: 500, costUSD: 0.2, savedUSD: 0.05, pricedCount: 2, unpricedCount: 0, updatedMs: 900, latestTsMs: 900, key: 'sq1' },
+      ],
+    ],
+    [
+      'worker-1',
+      [
+        { id: 'grand-1', kind: 'subagent', subagentType: 'research', title: 'grand-1', calls: 3, outputTokens: 1500, costUSD: 0.8, savedUSD: 0.2, pricedCount: 3, unpricedCount: 0, updatedMs: 950, latestTsMs: 950, key: 'g1' },
+      ],
+    ],
+    // Deliberate cycle back to root to verify cycle guard
+    [
+      'grand-1',
+      [
+        { id: 'root', kind: 'subagent', subagentType: '', title: 'root', calls: 4, outputTokens: 2000, costUSD: 1.5, savedUSD: 0.4, pricedCount: 4, unpricedCount: 0, updatedMs: 1000, latestTsMs: 1000, key: 'r' },
+      ],
+    ],
+  ]);
+
+  const fakeGraph = {
+    byId,
+    parentLinks: new Map(),
+    childrenByParent,
+    sqTitleOverrides: new Map(),
+    swarmIndex: null,
+  };
+
+  const info = buildSessionInfo('root', fakeGraph);
+  assert.equal(info.treeTotals.descendantCount, 3);
+  assert.equal(info.treeTotals.swarmWorkerCount, 1);
+  assert.equal(info.treeTotals.childCalls, 11);
+  assert.equal(info.treeTotals.childOutputTokens, 6500);
+  assert.ok(Math.abs(info.treeTotals.childCostUSD - 4.0) < 1e-9);
+  assert.ok(Math.abs(info.treeTotals.childSavedUSD - 1.35) < 1e-9);
+  assert.equal(info.treeTotals.calls, 15);
+  assert.equal(info.treeTotals.outputTokens, 8500);
+  assert.ok(Math.abs(info.treeTotals.costUSD - 5.5) < 1e-9);
+  assert.ok(Math.abs(info.treeTotals.savedUSD - 1.75) < 1e-9);
+  assert.ok(info.childKeys.includes('grand-1:g1'));
+
+  const enriched = attachGraphQuotaSummaries({
+    conversations: [],
+    sessionInfo: info,
+    graph: fakeGraph,
+    accountQuota: null,
+    opts: { fitPath: '' },
+  });
+  const selfPct = enriched.sessionInfo.quotaUsage?.gemini?.pct5h || 0;
+  const treePct = enriched.sessionInfo.treeTotals?.quotaUsage?.gemini?.pct5h || 0;
+  assert.ok(selfPct > 0);
+  assert.ok(treePct > selfPct * 3, `Expected tree quota (${treePct}) to include all recursive descendants (> 3x root ${selfPct})`);
+});
+

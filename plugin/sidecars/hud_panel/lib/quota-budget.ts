@@ -1120,6 +1120,42 @@ export function attachGraphQuotaSummaries({
     return q ? { ...c, quotaUsage: q } : c;
   });
 
+  const mergeQuotaUsages = (items: any[]) => {
+    const merged: Record<string, any> = Object.create(null);
+    let hasAny = false;
+    for (const q of items) {
+      if (!q || typeof q !== 'object') continue;
+      for (const pk of ['gemini', 'claude_gpt']) {
+        const entry = q[pk];
+        if (!entry || !(entry.pct5h > 0)) continue;
+        if (!merged[pk]) {
+          merged[pk] = {
+            pct5h: 0,
+            fittedPct5h: 0,
+            pct7d: 0,
+            has7d: false,
+            active5hPct: null as number | null,
+            active7dPct: null as number | null,
+          };
+        }
+        merged[pk].pct5h += entry.pct5h;
+        if (entry.isFitted) merged[pk].fittedPct5h += entry.pct5h;
+        if (entry.pct7d !== null && entry.pct7d !== undefined && entry.pct7d > 0) {
+          merged[pk].pct7d += entry.pct7d;
+          merged[pk].has7d = true;
+        }
+        if (entry.active5hPct !== null && entry.active5hPct !== undefined) {
+          merged[pk].active5hPct = (merged[pk].active5hPct || 0) + entry.active5hPct;
+        }
+        if (entry.active7dPct !== null && entry.active7dPct !== undefined) {
+          merged[pk].active7dPct = (merged[pk].active7dPct || 0) + entry.active7dPct;
+        }
+        hasAny = true;
+      }
+    }
+    return hasAny ? finalizePoolQuotaMap(merged) : null;
+  };
+
   let nextSessionInfo = sessionInfo;
   if (sessionInfo) {
     const selfQ = lookup(sessionInfo.id);
@@ -1135,9 +1171,35 @@ export function attachGraphQuotaSummaries({
           return cq ? { ...ch, quotaUsage: cq } : ch;
         })
       : sessionInfo.childSessions;
+
+    // Collect recursive descendant quota usages (Swarm workers + multi-level subagents + Side-Q)
+    let nextTreeTotals = sessionInfo.treeTotals;
+    if (nextTreeTotals && nextTreeTotals.descendantCount > 0) {
+      const visited = new Set<string>([sessionInfo.id]);
+      const queue = [...(graph?.childrenByParent?.get(sessionInfo.id) || [])];
+      const quotaParts: any[] = [selfQ];
+      while (queue.length > 0) {
+        const item = queue.shift();
+        if (!item || !item.id || visited.has(item.id)) continue;
+        visited.add(item.id);
+        quotaParts.push(lookup(item.id));
+        const sub = graph?.childrenByParent?.get(item.id);
+        if (Array.isArray(sub)) {
+          for (const ch of sub) {
+            if (ch && ch.id && !visited.has(ch.id)) queue.push(ch);
+          }
+        }
+      }
+      const treeQ = mergeQuotaUsages(quotaParts);
+      nextTreeTotals = { ...nextTreeTotals, ...(treeQ ? { quotaUsage: treeQ } : {}) };
+    } else if (nextTreeTotals && selfQ) {
+      nextTreeTotals = { ...nextTreeTotals, quotaUsage: selfQ };
+    }
+
     nextSessionInfo = {
       ...sessionInfo,
       ...(selfQ ? { quotaUsage: selfQ } : {}),
+      ...(nextTreeTotals ? { treeTotals: nextTreeTotals } : {}),
       parentSession: nextParent,
       childSessions: nextChildren,
     };

@@ -208,3 +208,21 @@ export function IconDownload({ size = 11, strokeWidth = 1.6, className }: IconPr
     </svg>
   );
 }
+
+export function IconShare({ size = 11, strokeWidth = 1.6, className }: IconProps) {
+  return (
+    <svg {...baseProps(size, strokeWidth, className)}>
+      <path d="M8 2.5v7" />
+      <path d="M5.2 5.3L8 2.5l2.8 2.8" />
+      <path d="M3 9.5v3a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" />
+    </svg>
+  );
+}
+
+export function IconFlame({ size = 11, strokeWidth = 1.6, className }: IconProps) {
+  return (
+    <svg {...baseProps(size, strokeWidth, className)}>
+      <path d="M8.4 2.2c.4 2.2-1.1 3.3-1.1 4.8 0 .9.7 1.6 1.5 1.6.9 0 1.6-.7 1.7-1.8 1.5 1.2 2.2 2.7 2.2 4.1A4.7 4.7 0 0 1 8 14.5a4.5 4.5 0 0 1-4.5-4.5c0-2.6 1.7-4.8 4.9-7.8z" />
+    </svg>
+  );
+}

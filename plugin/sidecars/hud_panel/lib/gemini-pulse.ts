@@ -77,7 +77,9 @@ export interface GeminiModelGlobalPulse {
   windowMinutes: number;
   primaryProvider: string;
   degradedProviders: string[];
-  /** Present when local 7d history exists for this family */
+  /** Individual OpenRouter upstream provider endpoints (30m window) for Arena comparison */
+  endpoints?: GeminiEndpointPulse[];
+  /** Present when local history exists for this family */
   local?: GeminiLocalBaseline | null;
 }
 
@@ -89,6 +91,16 @@ export interface GeminiLocalBaseline {
   missP50TtftSec: number | null;
   p50Tps: number | null;
   cacheHitPct: number | null;
+  /** Strict 30m window aligned with OpenRouter 30m stats */
+  calls30m: number;
+  p50Ttft30mSec: number | null;
+  p50Tps30m: number | null;
+  cacheHit30mPct: number | null;
+  /** Rolling 24h local window */
+  calls24h: number;
+  p50Ttft24hSec: number | null;
+  p50Tps24h: number | null;
+  cacheHit24hPct: number | null;
 }
 
 export interface GcpActiveIncident {
@@ -391,6 +403,7 @@ export function summarizeModelPulse(
     windowMinutes: primary?.windowMinutes || 30,
     primaryProvider,
     degradedProviders: epParsed.degradedProviders,
+    endpoints: eps.slice(0, 6),
   };
 }
 
@@ -402,7 +415,9 @@ export function computeLocalGeminiBaselines(
   summaries: any[],
   nowMs = Date.now(),
 ): Record<string, GeminiLocalBaseline> {
-  const cutoffMs = nowMs - LOCAL_BASELINE_DAYS * 86_400_000;
+  const cutoff7d = nowMs - LOCAL_BASELINE_DAYS * 86_400_000;
+  const cutoff24h = nowMs - 86_400_000;
+  const cutoff30m = nowMs - 30 * 60_000;
   const acc = new Map<string, {
     ttfts: number[];
     hitTtfts: number[];
@@ -411,17 +426,45 @@ export function computeLocalGeminiBaselines(
     cachedSum: number;
     promptSum: number;
     calls: number;
+    ttfts30m: number[];
+    tps30m: number[];
+    cachedSum30m: number;
+    promptSum30m: number;
+    calls30m: number;
+    ttfts24h: number[];
+    tps24h: number[];
+    cachedSum24h: number;
+    promptSum24h: number;
+    calls24h: number;
   }>();
 
   for (const s of summaries || []) {
-    if (s.latestTsMs && s.latestTsMs < cutoffMs) continue;
+    if (s.latestTsMs && s.latestTsMs < cutoff7d) continue;
     for (const c of s.recentCalls || []) {
-      if (c.ts < cutoffMs || c.poolKey !== 'gemini') continue;
+      if (c.ts < cutoff7d || c.poolKey !== 'gemini') continue;
       const fam = c.family || '';
       if (!fam || !fam.startsWith('gemini')) continue;
       let b = acc.get(fam);
       if (!b) {
-        b = { ttfts: [], hitTtfts: [], missTtfts: [], tps: [], cachedSum: 0, promptSum: 0, calls: 0 };
+        b = {
+          ttfts: [],
+          hitTtfts: [],
+          missTtfts: [],
+          tps: [],
+          cachedSum: 0,
+          promptSum: 0,
+          calls: 0,
+          ttfts30m: [],
+          tps30m: [],
+          cachedSum30m: 0,
+          promptSum30m: 0,
+          calls30m: 0,
+          ttfts24h: [],
+          tps24h: [],
+          cachedSum24h: 0,
+          promptSum24h: 0,
+          calls24h: 0,
+        };
         acc.set(fam, b);
       }
       b.calls += 1;
@@ -431,7 +474,10 @@ export function computeLocalGeminiBaselines(
       b.cachedSum += cachedIn;
       b.promptSum += totIn;
       const cachePct = totIn > 0 ? (cachedIn / totIn) * 100 : null;
-      if (typeof c.ttftSec === 'number' && Number.isFinite(c.ttftSec) && c.ttftSec > 0 && c.ttftSec < 300) {
+      const validTtft = typeof c.ttftSec === 'number' && Number.isFinite(c.ttftSec) && c.ttftSec > 0 && c.ttftSec < 300;
+      const validTps = typeof c.genTps === 'number' && Number.isFinite(c.genTps) && c.genTps > 0 && c.genTps < 2000;
+
+      if (validTtft) {
         b.ttfts.push(c.ttftSec);
         if (newIn >= 25_000 || (cachePct !== null && cachePct < 60)) {
           b.missTtfts.push(c.ttftSec);
@@ -439,8 +485,23 @@ export function computeLocalGeminiBaselines(
           b.hitTtfts.push(c.ttftSec);
         }
       }
-      if (typeof c.genTps === 'number' && Number.isFinite(c.genTps) && c.genTps > 0 && c.genTps < 2000) {
+      if (validTps) {
         b.tps.push(c.genTps);
+      }
+
+      if (c.ts >= cutoff24h) {
+        b.calls24h += 1;
+        b.cachedSum24h += cachedIn;
+        b.promptSum24h += totIn;
+        if (validTtft) b.ttfts24h.push(c.ttftSec);
+        if (validTps) b.tps24h.push(c.genTps);
+      }
+      if (c.ts >= cutoff30m) {
+        b.calls30m += 1;
+        b.cachedSum30m += cachedIn;
+        b.promptSum30m += totIn;
+        if (validTtft) b.ttfts30m.push(c.ttftSec);
+        if (validTps) b.tps30m.push(c.genTps);
       }
     }
   }
@@ -451,6 +512,10 @@ export function computeLocalGeminiBaselines(
     b.hitTtfts.sort((a, x) => a - x);
     b.missTtfts.sort((a, x) => a - x);
     b.tps.sort((a, x) => a - x);
+    b.ttfts24h.sort((a, x) => a - x);
+    b.tps24h.sort((a, x) => a - x);
+    b.ttfts30m.sort((a, x) => a - x);
+    b.tps30m.sort((a, x) => a - x);
     out[fam] = {
       calls7d: b.calls,
       p50TtftSec: roundNum(quantile(b.ttfts, 0.5), 2),
@@ -459,6 +524,14 @@ export function computeLocalGeminiBaselines(
       missP50TtftSec: b.missTtfts.length >= 3 ? roundNum(quantile(b.missTtfts, 0.5), 2) : null,
       p50Tps: roundNum(quantile(b.tps, 0.5), 1),
       cacheHitPct: b.promptSum > 0 ? roundNum((b.cachedSum / b.promptSum) * 100, 1) : null,
+      calls30m: b.calls30m,
+      p50Ttft30mSec: roundNum(quantile(b.ttfts30m, 0.5), 2),
+      p50Tps30m: roundNum(quantile(b.tps30m, 0.5), 1),
+      cacheHit30mPct: b.promptSum30m > 0 ? roundNum((b.cachedSum30m / b.promptSum30m) * 100, 1) : null,
+      calls24h: b.calls24h,
+      p50Ttft24hSec: roundNum(quantile(b.ttfts24h, 0.5), 2),
+      p50Tps24h: roundNum(quantile(b.tps24h, 0.5), 1),
+      cacheHit24hPct: b.promptSum24h > 0 ? roundNum((b.cachedSum24h / b.promptSum24h) * 100, 1) : null,
     };
   }
   return out;
@@ -584,9 +657,9 @@ function loadDiskCache(cachePath: string): GeminiPulseCacheFile {
   try {
     if (cachePath && existsSync(cachePath)) {
       const raw = JSON.parse(readFileSync(cachePath, 'utf-8'));
-      if (raw && typeof raw === 'object' && raw.version === 1) {
+      if (raw && typeof raw === 'object' && (raw.version === 1 || raw.version === 2)) {
         loaded = {
-          version: 1,
+          version: raw.version,
           enabled: raw.enabled !== false,
           fetchedAtMs: typeof raw.fetchedAtMs === 'number' ? raw.fetchedAtMs : 0,
           models: Array.isArray(raw.models) ? raw.models : [],
@@ -598,7 +671,7 @@ function loadDiskCache(cachePath: string): GeminiPulseCacheFile {
   } catch {
     /* ignore corrupt cache */
   }
-  memCache = loaded || { version: 1, enabled: true, fetchedAtMs: 0, models: [], incidents: [] };
+  memCache = loaded || { version: 2, enabled: true, fetchedAtMs: 0, models: [], incidents: [] };
   memCachePath = cachePath;
   return memCache;
 }
@@ -711,7 +784,7 @@ export async function refreshGeminiPulse(opts: {
         .map((r) => summarizeModelPulse(r.spec, r.htmlParsed, r.epParsed, incidents));
 
       const next: GeminiPulseCacheFile = {
-        version: 1,
+        version: 2,
         enabled: cur.enabled,
         fetchedAtMs: Date.now(),
         models,
@@ -763,10 +836,11 @@ export function buildGeminiPulseSnapshot({
 }): GeminiPulseSnapshot {
   const path = cachePath || resolveGeminiPulsePath(appDataDir);
   const cache = loadDiskCache(path);
-  const isStale = !(cache.fetchedAtMs > 0) || (nowMs - cache.fetchedAtMs >= PULSE_TTL_MS);
+  const needsEndpointsUpgrade = cache.version < 2 && cache.models.length > 0 && !cache.models.some((m) => Array.isArray(m.endpoints) && m.endpoints.length > 0);
+  const isStale = !(cache.fetchedAtMs > 0) || (nowMs - cache.fetchedAtMs >= PULSE_TTL_MS) || needsEndpointsUpgrade;
 
   if (triggerRefresh && cache.enabled && isStale && !fetchInFlight) {
-    void refreshGeminiPulse({ appDataDir, cachePath: path, nowMs }).catch(() => {});
+    void refreshGeminiPulse({ appDataDir, cachePath: path, force: needsEndpointsUpgrade, nowMs }).catch(() => {});
   }
 
   const localBaselines = computeLocalGeminiBaselines(summaries, nowMs);

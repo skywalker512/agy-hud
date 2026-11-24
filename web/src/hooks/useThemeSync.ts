@@ -1,7 +1,9 @@
 import { useEffect } from 'preact/hooks';
+import { buildHudFontStack } from '../utils/fontStack';
 
 interface ThemePayload {
   fontFamily?: string;
+  monoFontFamily?: string;
   fontSize?: string | number;
   contrast?: string;
   cssVariables?: Record<string, string>;
@@ -26,6 +28,7 @@ export function useThemeSync(): void {
       accentFg: '',
       accentInk: '',
       font: '',
+      monoFont: '',
       fontScale: '',
     };
     let themeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -195,11 +198,22 @@ export function useThemeSync(): void {
         applyBodyVar('accentInk', '--hud-accent-ink', nextAccentInk);
 
         const cssVars = lastThemePayload?.cssVariables || {};
-        const hasVarFont = Boolean(readRootVar(['--font-family', '--ui-font-family', '--vscode-font-family']));
+        const rootVarFont = readRootVar(['--font-family', '--ui-font-family', '--vscode-font-family']);
         const payloadFont = String(lastThemePayload?.fontFamily || cssVars['--font-family'] || '').trim();
         const rootInlineFont = (document.documentElement?.style?.fontFamily || '').trim();
-        const nextFont = !hasVarFont ? payloadFont || rootInlineFont : '';
-        applyBodyVar('font', '--hud-font', nextFont);
+        const hostUiFont = rootVarFont || payloadFont || rootInlineFont;
+        applyBodyVar('font', '--hud-font', hostUiFont ? buildHudFontStack(hostUiFont, 'sans') : '');
+
+        const rootVarMono = readRootVar(['--editor-font-family', '--monospace-font-family', '--vscode-editor-font-family']);
+        const payloadMono = String(
+          lastThemePayload?.monoFontFamily ||
+            cssVars['--editor-font-family'] ||
+            cssVars['--monospace-font-family'] ||
+            cssVars['--vscode-editor-font-family'] ||
+            '',
+        ).trim();
+        const hostMonoFont = rootVarMono || payloadMono;
+        applyBodyVar('monoFont', '--hud-mono', hostMonoFont ? buildHudFontStack(hostMonoFont, 'mono') : '');
 
         const hostPx = sampleHostFontPx();
         const scale = hostPx / 14;

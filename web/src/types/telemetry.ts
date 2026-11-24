@@ -329,6 +329,24 @@ export interface ParentSessionItem {
   quotaUsage?: SessionQuotaUsage | null;
 }
 
+export interface SessionTreeTotals {
+  descendantCount: number;
+  swarmWorkerCount: number;
+  calls: number;
+  outputTokens: number;
+  costUSD: number;
+  savedUSD: number;
+  pricedCount: number;
+  unpricedCount: number;
+  childCalls: number;
+  childOutputTokens: number;
+  childCostUSD: number;
+  childSavedUSD: number;
+  childPricedCount: number;
+  childUnpricedCount: number;
+  quotaUsage?: SessionQuotaUsage | null;
+}
+
 export interface SessionInfo {
   id: string;
   title: string;
@@ -337,6 +355,7 @@ export interface SessionInfo {
   quotaUsage?: SessionQuotaUsage | null;
   parentSession: ParentSessionItem | null;
   childSessions: ChildSessionItem[];
+  treeTotals?: SessionTreeTotals | null;
   swarm?: SwarmOverview | null;
 }
 
@@ -566,6 +585,20 @@ export type TtftVerdictKind =
   | 'local_concurrency'
   | 'account_or_network';
 
+export interface GeminiEndpointPulse {
+  endpointId: string;
+  providerName: string;
+  providerSlug: string;
+  cacheHitPct: number | null;
+  p50TtftSec: number | null;
+  p75TtftSec: number | null;
+  p90TtftSec: number | null;
+  p50Tps: number | null;
+  p90Tps: number | null;
+  requestCount: number;
+  windowMinutes: number;
+}
+
 export interface GeminiLocalBaseline {
   calls7d: number;
   p50TtftSec: number | null;
@@ -574,6 +607,14 @@ export interface GeminiLocalBaseline {
   missP50TtftSec: number | null;
   p50Tps: number | null;
   cacheHitPct: number | null;
+  calls30m?: number;
+  p50Ttft30mSec?: number | null;
+  p50Tps30m?: number | null;
+  cacheHit30mPct?: number | null;
+  calls24h?: number;
+  p50Ttft24hSec?: number | null;
+  p50Tps24h?: number | null;
+  cacheHit24hPct?: number | null;
 }
 
 export interface GeminiModelGlobalPulse {
@@ -592,6 +633,7 @@ export interface GeminiModelGlobalPulse {
   windowMinutes: number;
   primaryProvider: string;
   degradedProviders: string[];
+  endpoints?: GeminiEndpointPulse[];
   local?: GeminiLocalBaseline | null;
 }
 

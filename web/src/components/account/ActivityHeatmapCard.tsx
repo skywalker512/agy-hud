@@ -1,18 +1,24 @@
 import { useMemo, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import type { AccountHistory, DailyHeatmapDay } from '../../types/telemetry';
+import { computeActivityInsights } from '../../utils/activityStats';
 import { fmtNum, fmtUsd } from '../../utils/format';
+import { IconFlame, IconShare } from '../common/Icons';
+import { ActivityShareModal } from './ActivityShareModal';
 
 interface ActivityHeatmapCardProps {
   history: AccountHistory | undefined;
+  tierLabel?: string;
   t: Translations;
 }
 
-export function ActivityHeatmapCard({ history, t }: ActivityHeatmapCardProps) {
+export function ActivityHeatmapCard({ history, tierLabel, t }: ActivityHeatmapCardProps) {
   const [spanMode, setSpanMode] = useState<'16w' | '52w'>('16w');
   const [chartMode, setChartMode] = useState<'heatmap' | 'iceberg'>('heatmap');
+  const [shareOpen, setShareOpen] = useState(false);
 
   const hm = history?.dailyHeatmap;
+  const isZh = t.heatmapTitle === '活跃趋势';
   const has52w = Boolean(hm?.days52 && hm.days52.length > (hm.days?.length || 0));
   const activeSpan = has52w ? spanMode : '16w';
 
@@ -136,6 +142,11 @@ export function ActivityHeatmapCard({ history, t }: ActivityHeatmapCardProps) {
     return { bars, maxNew, maxCached, sumNew, sumCached };
   }, [hasIcebergData, activeDaysList, activeSpan]);
 
+  const insights = useMemo(
+    () => computeActivityInsights(activeDaysList, history, hm?.streakDays),
+    [activeDaysList, history, hm?.streakDays],
+  );
+
   if (!hm || !gridData) {
     return null;
   }
@@ -151,63 +162,162 @@ export function ActivityHeatmapCard({ history, t }: ActivityHeatmapCardProps) {
     return 4;
   };
 
-  const activeDaysCount =
-    activeSpan === '52w' && typeof hm.activeDays52 === 'number' ? hm.activeDays52 : hm.activeDays || 0;
-  const peakCost =
-    activeSpan === '52w' && typeof hm.peakCostUSD52 === 'number' ? hm.peakCostUSD52 : hm.peakCostUSD || 0;
-  const peakStr = peakCost > 0 ? fmtUsd(peakCost) : '';
-  const summaryStr = t.heatmapSummary(activeDaysCount, hm.streakDays || 0, peakStr);
   const cellGapCls = activeSpan === '52w' ? 'gap-[1.5px]' : 'gap-[3px]';
+  const personaTitle = `${insights.persona.emoji} ${isZh ? insights.persona.titleZh : insights.persona.titleEn}`;
+  const personaTagline = isZh ? insights.persona.taglineZh : insights.persona.taglineEn;
+  const personaBadgeCls =
+    insights.persona.tier === 'mythic'
+      ? 'text-hud-warn bg-tint-warn border-tint-warn-border'
+      : insights.persona.tier === 'gold'
+        ? 'text-hud-warn bg-tint-warn border-tint-warn-border'
+        : insights.persona.tier === 'emerald'
+          ? 'text-hud-ok bg-tint-ok border-tint-ok-border'
+          : 'text-hud-accent-ink bg-tint-accent border-tint-accent-border';
 
   return (
     <section className="hud-card flex flex-col gap-2">
       <div className="card-head flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
         <div className="flex flex-wrap items-center gap-1.5 min-w-0">
           <span className="card-k">{t.heatmapTitle}</span>
-          <span className="font-hud-mono text-[10px] text-hud-muted tabular-nums">{summaryStr}</span>
+          <span
+            className={`inline-flex items-center px-1.5 py-[1px] rounded-full border font-hud text-[9.5px] font-semibold whitespace-nowrap cursor-help ${personaBadgeCls}`}
+            data-tip={personaTagline}
+          >
+            {personaTitle}
+          </span>
         </div>
 
-        {(has52w || hasIcebergData) && (
-          <div className="flex items-center gap-1 shrink-0">
-            {hasIcebergData && (
-              <div className="metric-tabs" role="group" aria-label="Activity view">
-                <button
-                  type="button"
-                  className={`metric-tab${effectiveChartMode === 'heatmap' ? ' is-active' : ''}`}
-                  onClick={() => setChartMode('heatmap')}
-                >
-                  {t.activityViewHeatmap}
-                </button>
-                <button
-                  type="button"
-                  className={`metric-tab${effectiveChartMode === 'iceberg' ? ' is-active' : ''}`}
-                  onClick={() => setChartMode('iceberg')}
-                >
-                  {t.activityViewIceberg}
-                </button>
-              </div>
-            )}
+        <div className="flex items-center gap-1 shrink-0">
+          {hasIcebergData && (
+            <div className="metric-tabs" role="group" aria-label="Activity view">
+              <button
+                type="button"
+                className={`metric-tab${effectiveChartMode === 'heatmap' ? ' is-active' : ''}`}
+                onClick={() => setChartMode('heatmap')}
+              >
+                {t.activityViewHeatmap}
+              </button>
+              <button
+                type="button"
+                className={`metric-tab${effectiveChartMode === 'iceberg' ? ' is-active' : ''}`}
+                onClick={() => setChartMode('iceberg')}
+              >
+                {t.activityViewIceberg}
+              </button>
+            </div>
+          )}
 
-            {has52w && (
-              <div className="metric-tabs" role="group" aria-label="Activity span">
-                <button
-                  type="button"
-                  className={`metric-tab font-hud-mono${activeSpan === '16w' ? ' is-active' : ''}`}
-                  onClick={() => setSpanMode('16w')}
-                >
-                  16w
-                </button>
-                <button
-                  type="button"
-                  className={`metric-tab font-hud-mono${activeSpan === '52w' ? ' is-active' : ''}`}
-                  onClick={() => setSpanMode('52w')}
-                >
-                  52w
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+          {has52w && (
+            <div className="metric-tabs" role="group" aria-label="Activity span">
+              <button
+                type="button"
+                className={`metric-tab font-hud-mono${activeSpan === '16w' ? ' is-active' : ''}`}
+                onClick={() => setSpanMode('16w')}
+              >
+                16w
+              </button>
+              <button
+                type="button"
+                className={`metric-tab font-hud-mono${activeSpan === '52w' ? ' is-active' : ''}`}
+                onClick={() => setSpanMode('52w')}
+              >
+                52w
+              </button>
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 px-1.5 py-[2.5px] rounded-md bg-tint-accent border border-tint-accent-border font-hud text-[9.5px] font-semibold text-hud-accent-ink hover:opacity-90 cursor-pointer transition-opacity whitespace-nowrap"
+            data-tip={isZh ? '生成 2x 高清社交分享战报海报（PNG / 文案）' : 'Generate 2x PNG Wrapped share poster'}
+            onClick={() => setShareOpen(true)}
+          >
+            <IconShare size={10} />
+            <span>{isZh ? '战报' : 'Share'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Viral Highlight Ribbon: Streak / Peak Day / Cache Iceberg / Total Tokens */}
+      <div className="grid grid-cols-4 gap-1.5 min-w-0">
+        <div
+          className="l2-well px-2 py-1.5 flex flex-col gap-0.5 min-w-0 cursor-help"
+          data-tip={
+            isZh
+              ? `当前连续活跃 ${insights.currentStreak} 天 · 区间最长连肝 ${insights.longestStreak} 天 · 共活跃 ${insights.activeDays}/${insights.spanDays} 天 (${insights.activeRatePct}%)`
+              : `Current streak ${insights.currentStreak}d · Best ${insights.longestStreak}d · Active ${insights.activeDays}/${insights.spanDays}d (${insights.activeRatePct}%)`
+          }
+        >
+          <span className="inline-flex items-center gap-0.5 font-hud text-[8.5px] font-semibold text-hud-muted truncate">
+            <IconFlame size={9} className="text-hud-warn" />
+            <span>{isZh ? '连肝' : 'Streak'}</span>
+          </span>
+          <span className="font-hud-mono text-[11.5px] font-bold text-hud-fg tabular-nums truncate">
+            {insights.currentStreak}{isZh ? '天' : 'd'}
+          </span>
+          <span className="font-hud-mono text-[8.5px] text-hud-muted tabular-nums truncate">
+            {isZh ? `最${insights.longestStreak}天 · 活${insights.activeDays}天` : `best ${insights.longestStreak}d · ${insights.activeDays}d`}
+          </span>
+        </div>
+
+        <div
+          className="l2-well px-2 py-1.5 flex flex-col gap-0.5 min-w-0 cursor-help"
+          data-tip={
+            insights.peakDate
+              ? isZh
+                ? `巅峰单日 ${insights.peakDate}：等效 ${fmtUsd(insights.peakCostUSD)} · ${insights.peakCalls} 次调用 · ${fmtNum(insights.peakTokens)} tokens`
+                : `Peak day ${insights.peakDate}: ${fmtUsd(insights.peakCostUSD)} · ${insights.peakCalls} calls · ${fmtNum(insights.peakTokens)} tokens`
+              : ''
+          }
+        >
+          <span className="font-hud text-[8.5px] font-semibold text-hud-muted truncate">
+            {isZh ? '巅峰单日' : 'Peak Day'}
+          </span>
+          <span className="font-hud-mono text-[11.5px] font-bold text-hud-fg tabular-nums truncate">
+            {insights.peakCostUSD > 0 ? fmtUsd(insights.peakCostUSD) : '--'}
+          </span>
+          <span className="font-hud-mono text-[8.5px] text-hud-muted tabular-nums truncate">
+            {insights.peakDate ? insights.peakDate.slice(5) : '--'}
+          </span>
+        </div>
+
+        <div
+          className="l2-well px-2 py-1.5 flex flex-col gap-0.5 min-w-0 cursor-help"
+          data-tip={
+            isZh
+              ? `缓存读取 ${fmtNum(insights.totalCachedTokens)} / 新增 ${fmtNum(insights.totalNewTokens)} · 预估省下 ${fmtUsd(insights.totalSavedUSD)}`
+              : `Cached ${fmtNum(insights.totalCachedTokens)} / New ${fmtNum(insights.totalNewTokens)} · Est. saved ${fmtUsd(insights.totalSavedUSD)}`
+          }
+        >
+          <span className="font-hud text-[8.5px] font-semibold text-hud-muted truncate">
+            {isZh ? '缓存率' : 'Cache'}
+          </span>
+          <span className="font-hud-mono text-[11.5px] font-bold text-hud-ok tabular-nums truncate">
+            {insights.cacheHitPct !== null ? `${Math.round(insights.cacheHitPct)}%` : '--'}
+          </span>
+          <span className="font-hud-mono text-[8.5px] text-hud-muted tabular-nums truncate">
+            {insights.totalSavedUSD > 0 ? (isZh ? `省 ${fmtUsd(insights.totalSavedUSD)}` : `-${fmtUsd(insights.totalSavedUSD)}`) : '--'}
+          </span>
+        </div>
+
+        <div
+          className="l2-well px-2 py-1.5 flex flex-col gap-0.5 min-w-0 cursor-help"
+          data-tip={
+            isZh
+              ? `区间累计吞吐 ${fmtNum(insights.totalAllTokens)} tok · ${fmtNum(insights.totalCalls)} 次调用（Desktop ${100 - insights.cliSharePct}% / CLI ${insights.cliSharePct}%）`
+              : `Total ${fmtNum(insights.totalAllTokens)} tok · ${fmtNum(insights.totalCalls)} calls (Desktop ${100 - insights.cliSharePct}% / CLI ${insights.cliSharePct}%)`
+          }
+        >
+          <span className="font-hud text-[8.5px] font-semibold text-hud-muted truncate">
+            {isZh ? '总吞吐' : 'Tokens'}
+          </span>
+          <span className="font-hud-mono text-[11.5px] font-bold text-hud-fg tabular-nums truncate">
+            {fmtNum(insights.totalAllTokens)}
+          </span>
+          <span className="font-hud-mono text-[8.5px] text-hud-muted tabular-nums truncate">
+            {fmtNum(insights.totalCalls)}{isZh ? '次' : ' calls'}
+          </span>
+        </div>
       </div>
 
       {effectiveChartMode === 'iceberg' && icebergData ? (
@@ -369,6 +479,17 @@ export function ActivityHeatmapCard({ history, t }: ActivityHeatmapCardProps) {
           </div>
         </div>
       )}
+      <ActivityShareModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        history={history}
+        initialSpan={activeSpan}
+        initialChartMode={effectiveChartMode}
+        has52w={has52w}
+        hasIceberg={hasIcebergData}
+        isZh={isZh}
+        tierLabel={tierLabel}
+      />
     </section>
   );
 }

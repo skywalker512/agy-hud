@@ -151,7 +151,7 @@ export function AccountTab({
 
         <div className="mt-2.5 flex flex-col gap-2.5 min-w-0">
           <QuotaPoolsList quota={q} nowMs={nowMs} t={t} />
-          <SpendGrid summary={s} history={h} t={t} />
+          <SpendGrid summary={s} history={h} sessionInfo={snap?.sessionInfo} t={t} />
           {remoteActiveUsd > 0 && (
             <div
               className="l2-well flex items-center justify-between gap-2 px-2.5 py-1.5 font-hud text-[10px] text-hud-muted cursor-help"
@@ -175,7 +175,7 @@ export function AccountTab({
         onToggleEnabled={onTogglePulse}
         t={t}
       />
-      <ActivityHeatmapCard history={h} t={t} />
+      <ActivityHeatmapCard history={h} tierLabel={tierLabel} t={t} />
 
       {/* Compact Plugin & Updates Card */}
       <section

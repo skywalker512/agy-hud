@@ -41,6 +41,8 @@
   --color-tint-out-border: var(--tint-out-border);
   --font-hud: var(--hud-font);
   --font-hud-mono: var(--hud-mono);
+  --font-sans: var(--hud-font);
+  --font-mono: var(--hud-mono);
 }
 
 @layer base {
@@ -88,6 +90,7 @@
     --tint-out: color-mix(in srgb, var(--seg-out) 11%, transparent);
     --tint-out-border: color-mix(in srgb, var(--seg-out) 30%, transparent);
 
+    --hud-cjk: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC";
     --hud-font: var(
       --font-family,
       var(
@@ -96,11 +99,14 @@
           --vscode-font-family,
           "Google Sans Flex",
           "Google Sans",
+          system-ui,
           -apple-system,
           BlinkMacSystemFont,
-          "Inter",
           "Segoe UI",
           Roboto,
+          "Helvetica Neue",
+          Arial,
+          var(--hud-cjk),
           sans-serif
         )
       )
@@ -109,7 +115,19 @@
       --editor-font-family,
       var(
         --monospace-font-family,
-        var(--vscode-editor-font-family, "Google Sans Code", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)
+        var(
+          --vscode-editor-font-family,
+          "Google Sans Code",
+          "JetBrains Mono",
+          SFMono-Regular,
+          Menlo,
+          Monaco,
+          Consolas,
+          "Liberation Mono",
+          var(--hud-cjk),
+          ui-monospace,
+          monospace
+        )
       )
     );
     --hud-font-scale: 1;
@@ -214,6 +232,17 @@
     background: var(--hud-bg) !important;
     color: var(--hud-fg) !important;
     font-family: var(--hud-font) !important;
+    font-variant-ligatures: no-contextual;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92;
+    text-rendering: optimizeLegibility;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp,
+  .font-hud-mono {
+    font-variation-settings: normal;
   }
 }
 
@@ -336,6 +365,10 @@
     @apply font-hud font-semibold text-hud-muted uppercase;
     letter-spacing: 0.055em;
     font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+
+  :root:lang(zh) .card-k {
+    letter-spacing: 0.02em;
   }
 
   .card-sub {

@@ -179,6 +179,7 @@ export function LiveTab({
         found={found}
         hasLatest={Boolean(latest)}
         summary={found ? snap?.summary : undefined}
+        sessionInfo={found ? snap?.sessionInfo || null : null}
         t={t}
       />
 

@@ -829,6 +829,26 @@ export function getConversationSwarmMeta(
   return null;
 }
 
+function collectDescendantSessions(rootId: string, graph: any) {
+  const visited = new Set<string>([rootId]);
+  const queue = [...(graph?.childrenByParent?.get(rootId) || [])];
+  const descendants: any[] = [];
+
+  while (queue.length > 0) {
+    const item = queue.shift();
+    if (!item || !item.id || visited.has(item.id)) continue;
+    visited.add(item.id);
+    descendants.push(item);
+    const sub = graph?.childrenByParent?.get(item.id);
+    if (Array.isArray(sub) && sub.length > 0) {
+      for (const ch of sub) {
+        if (ch && ch.id && !visited.has(ch.id)) queue.push(ch);
+      }
+    }
+  }
+  return descendants;
+}
+
 export function buildSessionInfo(targetId, graph) {
   const s = graph.byId.get(targetId);
   const link = graph.parentLinks.get(targetId);
@@ -846,6 +866,49 @@ export function buildSessionInfo(targetId, graph) {
     || (coordSwarm?.swarmTitle || workerLookup?.member.meta.taskTitle || '');
   const rawChildren = graph.childrenByParent.get(targetId) || [];
   const childSessions = rawChildren.map(({ key: _key, ...rest }) => rest);
+
+  // Recursive rollup across ALL Swarm workers + subagents + Side-Q descendants (cycle-safe)
+  const descendants = collectDescendantSessions(targetId, graph);
+  let childCalls = 0;
+  let childOutputTokens = 0;
+  let childCostUSD = 0;
+  let childSavedUSD = 0;
+  let childPricedCount = 0;
+  let childUnpricedCount = 0;
+  let swarmWorkerCount = 0;
+  for (const d of descendants) {
+    childCalls += d.calls || 0;
+    childOutputTokens += d.outputTokens || 0;
+    childCostUSD += d.costUSD || 0;
+    childSavedUSD += d.savedUSD || 0;
+    childPricedCount += d.pricedCount || 0;
+    childUnpricedCount += d.unpricedCount || 0;
+    if (d.swarm) swarmWorkerCount += 1;
+  }
+
+  const rootCalls = s?.calls || 0;
+  const rootOutputTokens = s?.outputTokens || 0;
+  const rootCostUSD = s?.costUSD || 0;
+  const rootSavedUSD = s?.savedUSD || 0;
+  const rootPricedCount = s?.pricedCount || 0;
+  const rootUnpricedCount = s?.unpricedCount || 0;
+
+  const treeTotals = {
+    descendantCount: descendants.length,
+    swarmWorkerCount,
+    calls: rootCalls + childCalls,
+    outputTokens: rootOutputTokens + childOutputTokens,
+    costUSD: rootCostUSD + childCostUSD,
+    savedUSD: rootSavedUSD + childSavedUSD,
+    pricedCount: rootPricedCount + childPricedCount,
+    unpricedCount: rootUnpricedCount + childUnpricedCount,
+    childCalls,
+    childOutputTokens,
+    childCostUSD,
+    childSavedUSD,
+    childPricedCount,
+    childUnpricedCount,
+  };
 
   const swarmOverview = coordSwarm
     ? buildSwarmOverview(coordSwarm, true)
@@ -877,8 +940,9 @@ export function buildSessionInfo(targetId, graph) {
     subagentType: s?.subagentType || (workerLookup ? 'worker' : ''),
     parentSession,
     childSessions,
+    treeTotals,
     ...(swarmOverview ? { swarm: swarmOverview } : {}),
-    childKeys: rawChildren.map((c) => `${c.id}:${c.key}`).join(','),
+    childKeys: descendants.map((c) => `${c.id}:${c.key}`).join(','),
     swarmSig,
   };
 }

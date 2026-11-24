@@ -399,9 +399,12 @@ export function SubagentsCard({
 
   // Non-Swarm Subagents / Side-Q mode
   if (!isSwarmCockpit || !swarm) {
+    const tree = sessionInfo?.treeTotals;
     const totalChildQuota = mergeSessionQuotas(children.map((c) => c.quotaUsage));
     const totalChildQuotaStr = formatSessionQuotaCompact(totalChildQuota);
     const totalChildQuotaTip = totalChildQuotaStr ? formatSessionQuotaTip(totalChildQuota, t) : undefined;
+    const childCostUSD = tree ? tree.childCostUSD : children.reduce((acc, c) => acc + (c.costUSD || 0), 0);
+    const childCountLabel = tree && tree.descendantCount > children.length ? `${children.length}/${tree.descendantCount}` : `${children.length}`;
 
     return (
       <section id="child-sessions-card" className="hud-card flex flex-col gap-2">
@@ -411,7 +414,12 @@ export function SubagentsCard({
         >
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">
             <span className="card-k">{t.linkedTitle}</span>
-            <span className="micro-badge">{children.length}</span>
+            <span className="micro-badge">{childCountLabel}</span>
+            {childCostUSD > 0 && (
+              <span className="font-hud-mono text-[10px] font-semibold text-hud-fg-2 tabular-nums">
+                +{fmtUsd(childCostUSD)}
+              </span>
+            )}
             {totalChildQuotaStr && (
               <span className="quota-pill cursor-help" data-tip={totalChildQuotaTip}>
                 {t.sessionQuotaPill(totalChildQuotaStr)}
@@ -452,22 +460,32 @@ export function SubagentsCard({
     );
   }
 
-  // Swarm Cockpit Mode (coordinator view)
+  // Swarm Cockpit Mode (coordinator view) — includes recursive descendants via treeTotals
+  const tree = sessionInfo?.treeTotals;
   let totalCalls = summary?.count || 0;
   let totalOutput = summary?.totalOutput || 0;
   let totalCostUSD = summary?.totalCostUSD || 0;
   let totalPriced = summary?.pricedCount || 0;
-  for (const c of children) {
-    totalCalls += c.calls || 0;
-    totalOutput += c.outputTokens || 0;
-    totalCostUSD += c.costUSD || 0;
-    totalPriced += c.pricedCount || 0;
+  if (tree) {
+    totalCalls += tree.childCalls || 0;
+    totalOutput += tree.childOutputTokens || 0;
+    totalCostUSD += tree.childCostUSD || 0;
+    totalPriced += tree.childPricedCount || 0;
+  } else {
+    for (const c of children) {
+      totalCalls += c.calls || 0;
+      totalOutput += c.outputTokens || 0;
+      totalCostUSD += c.costUSD || 0;
+      totalPriced += c.pricedCount || 0;
+    }
   }
 
-  const swarmQuota = mergeSessionQuotas([
-    summary?.sessionQuota || sessionInfo?.quotaUsage,
-    ...children.map((c) => c.quotaUsage),
-  ]);
+  const swarmQuota =
+    tree?.quotaUsage ||
+    mergeSessionQuotas([
+      summary?.sessionQuota || sessionInfo?.quotaUsage,
+      ...children.map((c) => c.quotaUsage),
+    ]);
   const swarmQuotaStr = formatSessionQuotaCompact(swarmQuota);
   const swarmQuotaTip = swarmQuotaStr ? formatSessionQuotaTip(swarmQuota, t) : undefined;
   const totalCostStr = totalPriced > 0 || totalCostUSD > 0 ? fmtUsd(totalCostUSD) : '';

@@ -36,12 +36,32 @@ import {
   isSavedRangePreset,
   locateCompactionMarkers,
   locateMinimapCompactionFractions,
+  niceMax,
   panViewRange,
   zoomViewRange,
   type AxisMode,
   type RangePreset,
   type ViewRange,
 } from './trendMath';
+
+const ARENA_LINE_COLORS = ['var(--seg-input)', 'var(--seg-out)', 'var(--seg-think)'] as const;
+
+function estimateSvgLabelWidth(text: string): number {
+  let w = 0;
+  for (const ch of text) {
+    w += ch.charCodeAt(0) > 0x7f ? 9.4 : 5.4;
+  }
+  return Math.ceil(w) + 10;
+}
+
+function shortArenaModelName(label: string): string {
+  return label
+    .replace(/^Gemini\s+/i, '')
+    .replace(/^4\s+Hydrogen$/i, 'Hydro')
+    .replace(/^4\s+Carbon$/i, 'Carbon')
+    .replace(/^4\s+Neon$/i, 'Neon')
+    .replace(/^4\s+Argon$/i, 'Argon');
+}
 
 export interface TrendChartCardProps {
   invocations: Invocation[];
@@ -244,6 +264,9 @@ export function TrendChartCard({
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [dragZoom, setDragZoom] = useState<DragZoomVisual | null>(null);
   const [brushDragging, setBrushDragging] = useState(false);
+  // User-pinned OpenRouter Gemini model families for multi-model "Cyber Cricket" overlay comparison.
+  // `null` means auto-follow the currently active Gemini model; an explicit array means user customized it.
+  const [pinnedArenaFamilies, setPinnedArenaFamilies] = useState<string[] | null>(null);
 
   const isModelControlled = selectedModelProp !== undefined && typeof onSelectModel === 'function';
   const activeModel = isModelControlled ? selectedModelProp : internalModel;
@@ -382,8 +405,66 @@ export function TrendChartCard({
     return keys.size >= 2;
   }, [visible]);
 
+  const pulseModels = useMemo(
+    () => (geminiPulse?.available ? geminiPulse.models : []),
+    [geminiPulse?.available, geminiPulse?.models],
+  );
+
+  const defaultArenaFamily = useMemo(() => {
+    if (!pulseModels.length) return '';
+    const probe = (activeModel !== 'all' ? activeModel : '') || geminiPulse?.activeFamily || '';
+    const pLower = probe.toLowerCase();
+    const matched =
+      pulseModels.find((m) => m.family === probe) ||
+      pulseModels.find((m) => pLower && (pLower.includes(m.family.replace('gemini-4-', '')) || pLower.includes(m.label.toLowerCase()))) ||
+      geminiPulse?.activeModel ||
+      null;
+    return matched?.family || '';
+  }, [pulseModels, activeModel, geminiPulse?.activeFamily, geminiPulse?.activeModel]);
+
+  const activeArenaFamilies = useMemo(() => {
+    if (!pulseModels.length || (metric !== 'ttft' && metric !== 'tps' && metric !== 'cache')) return [];
+    if (pinnedArenaFamilies !== null) {
+      return pinnedArenaFamilies.filter((fam) => pulseModels.some((m) => m.family === fam));
+    }
+    return defaultArenaFamily ? [defaultArenaFamily] : [];
+  }, [pulseModels, metric, pinnedArenaFamilies, defaultArenaFamily]);
+
+  const toggleArenaFamily = (family: string) => {
+    setPinnedArenaFamilies((prev) => {
+      const current = prev !== null ? prev : defaultArenaFamily ? [defaultArenaFamily] : [];
+      if (current.includes(family)) {
+        return current.filter((f) => f !== family);
+      }
+      const next = [...current, family];
+      return next.length > 3 ? next.slice(next.length - 3) : next;
+    });
+  };
+
+  const getPulseMetricVal = (m: (typeof pulseModels)[number], met: ChartMetric): number | null => {
+    if (met === 'ttft') return m.p50TtftSec !== null && m.p50TtftSec > 0 ? m.p50TtftSec : null;
+    if (met === 'tps') return m.p50Tps !== null && m.p50Tps > 0 ? m.p50Tps : null;
+    if (met === 'cache') return m.cacheHitPct !== null && m.cacheHitPct > 0 ? m.cacheHitPct : null;
+    return null;
+  };
+
   // Nice Y-axis scale + dynamic gutter width so Y labels NEVER collide with plot curve or ref labels
-  const yMax = useMemo(() => computeYAxisCeiling(visible, metric), [visible, metric]);
+  const baseYMax = useMemo(() => computeYAxisCeiling(visible, metric), [visible, metric]);
+  const yMax = useMemo(() => {
+    if (!activeArenaFamilies.length || metric === 'cache') return baseYMax;
+    let maxOverlay = 0;
+    for (const fam of activeArenaFamilies) {
+      const m = pulseModels.find((x) => x.family === fam);
+      const v = m ? getPulseMetricVal(m, metric) : null;
+      if (v !== null && v > maxOverlay) maxOverlay = v;
+    }
+    if (maxOverlay > baseYMax * 0.94) {
+      // Only expand when user explicitly pinned extra models or overlay is reasonably close (< 3.5x base)
+      const cap = pinnedArenaFamilies !== null ? maxOverlay * 1.15 : Math.min(maxOverlay * 1.15, baseYMax * 3.5);
+      if (cap > baseYMax) return niceMax(cap);
+    }
+    return baseYMax;
+  }, [baseYMax, activeArenaFamilies, pulseModels, metric, pinnedArenaFamilies]);
   const yTickLabels = useMemo(
     () => [formatYTick(yMax, metric), formatYTick(yMax * 0.5, metric), formatYTick(0, metric)],
     [yMax, metric],
@@ -396,7 +477,7 @@ export function TrendChartCard({
   const svgH = isWide ? 148 : isNarrow ? 120 : 134;
   const minimapH = isWide ? 26 : isNarrow ? 22 : 24;
   const padLeft = Math.max(isNarrow ? 28 : 34, Math.ceil(maxYTickChars * 5.8) + 10);
-  const padRight = 10;
+  const padRight = 14;
   const padTop = 14;
   const padBottom = isMultiInView ? 25 : 21;
   const chartH = Math.max(48, svgH - padTop - padBottom);
@@ -1214,29 +1295,80 @@ export function TrendChartCard({
       : null;
   const cacheTargetY = metric === 'cache' ? valY(80) : null;
 
-  // Global OpenRouter 30m P50 reference line for active Gemini model (TTFT / TPS / Cache)
-  const globalRef = useMemo(() => {
-    const models = geminiPulse?.available ? geminiPulse.models : [];
-    if (!models.length) return null;
-    const probe = (activeModel !== 'all' ? activeModel : '') || geminiPulse?.activeFamily || '';
-    const pLower = probe.toLowerCase();
-    const matched =
-      models.find((m) => m.family === probe) ||
-      models.find((m) => pLower && (pLower.includes(m.family.replace('gemini-4-', '')) || pLower.includes(m.label.toLowerCase()))) ||
-      geminiPulse?.activeModel ||
-      null;
-    if (!matched) return null;
-    if (metric === 'ttft' && matched.p50TtftSec !== null && matched.p50TtftSec > 0 && matched.p50TtftSec <= yMax * 0.96) {
-      return { y: valY(matched.p50TtftSec), label: t.trendGlobalRef(fmtSec(matched.p50TtftSec)) };
-    }
-    if (metric === 'tps' && matched.p50Tps !== null && matched.p50Tps > 0 && matched.p50Tps <= yMax * 0.96) {
-      return { y: valY(matched.p50Tps), label: t.trendGlobalRef(fmtTps(matched.p50Tps)) };
-    }
-    if (metric === 'cache' && matched.cacheHitPct !== null && matched.cacheHitPct > 0 && matched.cacheHitPct <= 100) {
-      return { y: valY(matched.cacheHitPct), label: t.trendGlobalRef(`${Math.round(matched.cacheHitPct)}%`) };
-    }
-    return null;
-  }, [geminiPulse, activeModel, metric, yMax, padTop, chartH, t]);
+  // Global OpenRouter 30m P50 reference lines (single active model or multi-model Cyber Cricket overlay)
+  const globalRefs = useMemo(() => {
+    if (!activeArenaFamilies.length) return [];
+    const multi = activeArenaFamilies.length > 1 || (pinnedArenaFamilies !== null && activeArenaFamilies[0] !== defaultArenaFamily);
+    const items: Array<{ family: string; y: number; pillY: number; label: string; color: string; pillW: number; side: 'left' | 'right' }> = [];
+
+    // Existing right-side label Y coordinates so we never overlap SLA / 80% target / EMA5 labels
+    const rightOccupiedYs: number[] = [];
+    if (ttftSla3Y !== null) rightOccupiedYs.push(ttftSla3Y - 6);
+    if (ttftSla10Y !== null) rightOccupiedYs.push(ttftSla10Y - 6);
+    if (cacheTargetY !== null) rightOccupiedYs.push(cacheTargetY - 6);
+    if (metric === 'tps' && emaLastY !== null) rightOccupiedYs.push(emaLastY - 6);
+
+    const leftOccupiedYs: number[] = [];
+    if (ttftP95Y !== null) leftOccupiedYs.push(ttftP95Y - 6);
+
+    activeArenaFamilies.forEach((fam, idx) => {
+      const m = pulseModels.find((x) => x.family === fam);
+      if (!m) return;
+      const val = getPulseMetricVal(m, metric);
+      if (val === null || val > yMax) return;
+      const y = valY(val);
+      const valStr = metric === 'ttft' ? fmtSec(val) : metric === 'tps' ? fmtTps(val) : `${Math.round(val)}%`;
+      const label = multi ? `${shortArenaModelName(m.label)} ${valStr}` : t.trendGlobalRef(valStr);
+      const pillW = Math.min(plotW - 8, Math.max(50, estimateSvgLabelWidth(label)));
+      const color = ARENA_LINE_COLORS[idx % ARENA_LINE_COLORS.length];
+
+      // Pick side (prefer right, fall back to left if colliding with SLA / 80% / EMA5 / previous pills)
+      let desiredY = clamp(y - 11.5, padTop + 1, yBase - 12);
+      const collides = (ys: number[], candidate: number) => ys.some((oy) => Math.abs(oy - candidate) < 12.5);
+      let side: 'left' | 'right' = 'right';
+      if (collides(rightOccupiedYs, desiredY)) {
+        if (!collides(leftOccupiedYs, desiredY)) {
+          side = 'left';
+        } else {
+          // Try below the line on right, then below on left
+          const belowY = clamp(y + 2, padTop + 1, yBase - 12);
+          if (!collides(rightOccupiedYs, belowY)) {
+            desiredY = belowY;
+            side = 'right';
+          } else if (!collides(leftOccupiedYs, belowY)) {
+            desiredY = belowY;
+            side = 'left';
+          } else {
+            side = idx % 2 === 0 ? 'left' : 'right';
+            desiredY = clamp(desiredY + (idx % 2 === 0 ? -12 : 12), padTop + 1, yBase - 12);
+          }
+        }
+      }
+
+      if (side === 'right') rightOccupiedYs.push(desiredY);
+      else leftOccupiedYs.push(desiredY);
+
+      items.push({ family: fam, y, pillY: desiredY, label, color, pillW, side });
+    });
+
+    return items;
+  }, [
+    activeArenaFamilies,
+    pinnedArenaFamilies,
+    defaultArenaFamily,
+    pulseModels,
+    metric,
+    yMax,
+    padTop,
+    yBase,
+    plotW,
+    ttftSla3Y,
+    ttftSla10Y,
+    cacheTargetY,
+    emaLastY,
+    ttftP95Y,
+    t,
+  ]);
   const ctxDangerY = metric === 'ctx' ? valY(80) : null;
   const quotaAvgY =
     metric === 'quota' && visible.length >= 2 && stats.avg !== null && stats.avg > 0 ? valY(stats.avg) : null;
@@ -1455,6 +1587,58 @@ export function TrendChartCard({
         </div>
       )}
 
+      {/* OpenRouter 30m Gemini Overlay / Cyber Cricket multi-line selector */}
+      {pulseModels.length > 0 && (metric === 'ttft' || metric === 'tps' || metric === 'cache') && (
+        <div className="flex flex-wrap items-center gap-1 min-w-0 px-0.5">
+          <span className="font-hud text-[9px] font-semibold uppercase tracking-[0.03em] text-hud-muted mr-0.5 whitespace-nowrap">
+            {resolvedLang === 'zh' ? '大盘参考 30m' : 'Global 30m'}
+          </span>
+          {pulseModels.map((m) => {
+            const val = getPulseMetricVal(m, metric);
+            if (val === null) return null;
+            const activeIdx = activeArenaFamilies.indexOf(m.family);
+            const isSelected = activeIdx >= 0;
+            const lineColor = isSelected ? ARENA_LINE_COLORS[activeIdx % ARENA_LINE_COLORS.length] : undefined;
+            const valStr = metric === 'ttft' ? fmtSec(val) : metric === 'tps' ? fmtTps(val) : `${Math.round(val)}%`;
+            return (
+              <button
+                key={m.family}
+                type="button"
+                onClick={() => toggleArenaFamily(m.family)}
+                className={`inline-flex items-center gap-1 px-1.5 py-[1.5px] rounded-full border font-hud-mono text-[9px] tabular-nums cursor-pointer transition-colors ${
+                  isSelected
+                    ? 'text-hud-fg bg-hud-card font-semibold'
+                    : 'text-hud-muted bg-hud-fill/60 border-transparent hover:text-hud-fg hover:bg-hud-fill'
+                }`}
+                style={isSelected && lineColor ? { borderColor: `color-mix(in srgb, ${lineColor} 58%, transparent)` } : undefined}
+                data-tip={
+                  resolvedLang === 'zh'
+                    ? `点击叠加/取消 ${m.label} 的 OpenRouter 近 30 分钟 P50 参考线（最多同图叠加 3 条斗蛐蛐对比）`
+                    : `Toggle ${m.label} OpenRouter 30m P50 reference line (up to 3 models on chart)`
+                }
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ background: isSelected && lineColor ? lineColor : 'var(--hud-muted)', opacity: isSelected ? 1 : 0.45 }}
+                />
+                <span>{shortArenaModelName(m.label)}</span>
+                <span className="opacity-75">{valStr}</span>
+              </button>
+            );
+          })}
+          {activeArenaFamilies.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setPinnedArenaFamilies([])}
+              className="px-1 py-[1px] rounded font-hud text-[9px] text-hud-muted hover:text-hud-fg cursor-pointer transition-colors"
+              title={resolvedLang === 'zh' ? '隐藏大盘参考线' : 'Hide global reference lines'}
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Row 4: Main SVG Plot Canvas + Zero-Lag Crosshair + Structured Popover */}
       <div ref={boxRef} className="relative w-full min-w-0 select-none">
         {visible.length === 0 ? (
@@ -1659,38 +1843,20 @@ export function TrendChartCard({
               </g>
             )}
 
-            {/* Global OpenRouter 30m P50 reference line (Gemini) */}
-            {globalRef !== null && (
-              <g>
-                <line
-                  x1={padLeft}
-                  y1={globalRef.y.toFixed(1)}
-                  x2={(padLeft + plotW).toFixed(1)}
-                  y2={globalRef.y.toFixed(1)}
-                  stroke="var(--seg-input)"
-                  stroke-width="1"
-                  stroke-dasharray="2 3"
-                  opacity="0.72"
-                />
-                <rect
-                  className="trend-y-pill-bg"
-                  x={(padLeft + plotW - Math.max(54, globalRef.label.length * 5.2 + 8)).toFixed(1)}
-                  y={(Math.max(padTop + 1, globalRef.y - 10.5)).toFixed(1)}
-                  width={Math.max(54, globalRef.label.length * 5.2 + 8)}
-                  height="10"
-                  rx="2.5"
-                />
-                <text
-                  x={(padLeft + plotW - 4).toFixed(1)}
-                  y={(Math.max(padTop + 8.5, globalRef.y - 2.5)).toFixed(1)}
-                  text-anchor="end"
-                  className="trend-ref-label"
-                  fill="var(--seg-input)"
-                >
-                  {globalRef.label}
-                </text>
-              </g>
-            )}
+            {/* Global OpenRouter 30m P50 dashed lines rendered behind curves; pills rendered on top later */}
+            {globalRefs.map((ref) => (
+              <line
+                key={`gref-line-${ref.family}`}
+                x1={padLeft}
+                y1={ref.y.toFixed(1)}
+                x2={(padLeft + plotW).toFixed(1)}
+                y2={ref.y.toFixed(1)}
+                stroke={ref.color}
+                stroke-width="1.1"
+                stroke-dasharray="3 3"
+                opacity="0.72"
+              />
+            ))}
 
             {/* Cache 80% target line */}
             {cacheTargetY !== null && (
@@ -2075,6 +2241,39 @@ export function TrendChartCard({
                 {tk.label}
               </text>
             ))}
+
+            {/* Global OpenRouter 30m P50 pill labels rendered ABOVE curves/bars/dots with anti-overlap & safe right margin */}
+            {globalRefs.map((ref) => {
+              const rectX =
+                ref.side === 'right'
+                  ? Math.max(padLeft + 2, padLeft + plotW - ref.pillW - 2)
+                  : padLeft + 3;
+              const textX = ref.side === 'right' ? rectX + ref.pillW - 4 : rectX + 4;
+              return (
+                <g key={`gref-pill-${ref.family}`} pointer-events="none">
+                  <rect
+                    className="trend-y-pill-bg"
+                    x={rectX.toFixed(1)}
+                    y={ref.pillY.toFixed(1)}
+                    width={ref.pillW.toFixed(1)}
+                    height="11.5"
+                    rx="3"
+                    stroke={ref.color}
+                    stroke-opacity="0.32"
+                    stroke-width="0.75"
+                  />
+                  <text
+                    x={textX.toFixed(1)}
+                    y={(ref.pillY + 8.4).toFixed(1)}
+                    text-anchor={ref.side === 'right' ? 'end' : 'start'}
+                    className="trend-ref-label"
+                    fill={ref.color}
+                  >
+                    {ref.label}
+                  </text>
+                </g>
+              );
+            })}
 
             {/* Zero-lag SVG Crosshair + Horizontal Value Guide + Focus Halo */}
             {hoveredPt && (

@@ -134,14 +134,37 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
     }
   }
 
-  const hasPricedCost = Boolean(found && s && s.pricedCount > 0);
-  const costStr = hasPricedCost ? fmtUsd(s?.totalCostUSD || 0) : '';
-  const savedStr = hasPricedCost && (s?.totalSavedUSD || 0) > 0 ? fmtUsd(s?.totalSavedUSD || 0) : '';
+  const tree = found ? snap?.sessionInfo?.treeTotals : null;
+  const childCount = tree?.descendantCount || 0;
+  const childCost = tree?.childCostUSD || 0;
+  const childSaved = tree?.childSavedUSD || 0;
+  const childPriced = tree?.childPricedCount || 0;
+  const childCalls = tree?.childCalls || 0;
+  const hasChildRollup = childCount > 0 && (childCost > 0 || childCalls > 0);
+
+  const rootCost = s?.totalCostUSD || 0;
+  const rootSaved = s?.totalSavedUSD || 0;
+  const effCost = rootCost + childCost;
+  const effSaved = rootSaved + childSaved;
+  const effPriced = (s?.pricedCount || 0) + childPriced;
+  const effUnpriced = (s?.unpricedCount || 0) + (tree?.childUnpricedCount || 0);
+
+  const hasPricedCost = Boolean(found && (effPriced > 0 || effCost > 0));
+  const costStr = hasPricedCost ? fmtUsd(effCost) : '';
+  const savedStr = hasPricedCost && effSaved > 0 ? fmtUsd(effSaved) : '';
+  const isZh = t.ctxMicroSession === '本会话';
+  const childSplitLine = hasChildRollup
+    ? isZh
+      ? `\n主会话：${fmtUsd(rootCost)}（${s?.count || 0} 次） + ${tree?.swarmWorkerCount ? 'Swarm/子会话' : '子会话'}（${childCount} 个）：${fmtUsd(childCost)}（${childCalls} 次）`
+      : `\nMain: ${fmtUsd(rootCost)} (${s?.count || 0} calls) + ${tree?.swarmWorkerCount ? 'Swarm/subagents' : 'Subagents'} (${childCount}): ${fmtUsd(childCost)} (${childCalls} calls)`
+    : '';
   const costTip = hasPricedCost
-    ? t.sessionCostTip(costStr, savedStr || '$0.00', s?.pricedCount || 0, s?.unpricedCount || 0)
+    ? `${t.sessionCostTip(costStr, savedStr || '$0.00', effPriced, effUnpriced)}${childSplitLine}`
     : undefined;
 
-  const rawSessionQuota = found ? (s?.sessionQuota || snap?.sessionInfo?.quotaUsage || null) : null;
+  const rawSessionQuota = found
+    ? (hasChildRollup && tree?.quotaUsage ? tree.quotaUsage : s?.sessionQuota || snap?.sessionInfo?.quotaUsage || null)
+    : null;
   const sessionQuotaStr = formatSessionQuotaTiny(rawSessionQuota);
   const sessionQuotaTip = sessionQuotaStr ? formatSessionQuotaTip(rawSessionQuota, t) : '';
   const spendQuotaTip = [costTip, sessionQuotaTip].filter(Boolean).join('\n\n') || undefined;
@@ -429,7 +452,10 @@ export function ContextWindowCard({ snap, nowMs, t }: ContextWindowCardProps) {
           className={`l2-well px-2.5 py-1.5 flex flex-col gap-[1px] min-w-0${spendQuotaTip ? ' cursor-help' : ''}`}
           data-tip={spendQuotaTip}
         >
-          <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">{t.ctxMicroSession}</span>
+          <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">
+            {t.ctxMicroSession}
+            {hasChildRollup ? ` · +${childCount}` : ''}
+          </span>
           <span className="font-hud-mono text-[12px] font-bold text-hud-fg tabular-nums truncate">
             {costStr || '--'}
           </span>
