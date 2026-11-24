@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useState } from 'preact/hooks';
-import { BentoGrid } from './components/BentoGrid';
-import { CompareSection } from './components/CompareSection';
-import { CraftSection } from './components/CraftSection';
-import { DocsHub } from './components/DocsHub';
 import { Footer } from './components/Footer';
 import { HeroSection } from './components/HeroSection';
-import { InstallGuideSection } from './components/InstallGuideSection';
+import { HighlightsSection } from './components/HighlightsSection';
 import { Navbar } from './components/Navbar';
 import { COPY, detectInitialLocale, saveLocale, type Locale } from './i18n/content';
 import {
@@ -44,7 +40,7 @@ export function App() {
     document.documentElement.lang = locale === 'zh' ? 'zh-CN' : 'en';
     document.title =
       locale === 'zh'
-        ? 'AGY-HUD — 原生融入 Google Antigravity 的实时遥测驾驶舱'
+        ? 'AGY-HUD — Google Antigravity 原生遥测侧边栏'
         : 'AGY-HUD — Native Telemetry for Google Antigravity';
     saveLocale(locale);
   }, [locale]);
@@ -80,14 +76,10 @@ export function App() {
           copy={copy}
           onCycleTheme={handleCycleTheme}
         />
-        <BentoGrid copy={copy} />
-        <CraftSection copy={copy} />
-        <InstallGuideSection locale={locale} copy={copy} />
-        <CompareSection copy={copy} />
-        <DocsHub copy={copy} />
+        <HighlightsSection copy={copy} />
       </main>
 
-      <Footer copy={copy} />
+      <Footer locale={locale} copy={copy} />
     </div>
   );
 }

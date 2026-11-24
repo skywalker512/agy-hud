@@ -187,8 +187,14 @@ node --test tools/test/trace.test.mjs
 
 ---
 
-## 致谢与开源协议
+## 致谢与参考项目
 
-本项目 Fork 并演进自 [@adahime](https://github.com/adahime) 创建的 [adahime/agy-hud](https://github.com/adahime/agy-hud)，感谢原作者开创性地实现了本地只读 SQLite/WAL Protobuf（`f19` / `gen_metadata`）遥测方案与初代 Antigravity 2.0 侧边栏插件。
+AGY-HUD 的诞生与演进离不开 Antigravity 开源社区的启发与共建，特别致谢以下项目：
+
+- **[adahime/agy-hud](https://github.com/adahime/agy-hud)**（[@adahime](https://github.com/adahime)）—— 上游 Fork 源项目，开创了本地只读 SQLite/WAL Protobuf（`f19` / `gen_metadata`）遥测方案与初代 Antigravity 2.0 侧边栏插件底座。
+- **[ATtacK030130/antigrative-dashboard](https://github.com/ATtacK030130/antigrative-dashboard)** —— 启发了我们的斜纹配额续航进度条（Quota Runway）、单色 Token 冰山图（Iceberg）与极简克制的视觉设计。
+- **[yuhuan-dev/antigravity-usage-monitor](https://github.com/yuhuan-dev/antigravity-usage-monitor)** —— 启发了我们的无边框明度分层卡片、双列对齐上下文构成表与紧凑侧边栏导航。
+- **[WhiteBr1ck/agy-powertools](https://github.com/WhiteBr1ck/agy-powertools)** —— 启发了我们的 Hero 底部通栏渐变曲线与无描边柔和热力图设计。
+- **[AGI-is-going-to-arrive/Antigravity-Context-Window-Monitor](https://github.com/AGI-is-going-to-arrive/Antigravity-Context-Window-Monitor)** —— 启发了我们的 `AGENTS.md` 一句话 AI 助手自动安装体验。
 
 基于 [MIT License](LICENSE) 开源。

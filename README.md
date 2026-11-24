@@ -187,8 +187,14 @@ node --test tools/test/trace.test.mjs
 
 ---
 
-## Acknowledgments & License
+## Acknowledgments & Inspirations
 
-Forked from and built upon [adahime/agy-hud](https://github.com/adahime/agy-hud) by [@adahime](https://github.com/adahime), who pioneered the read-only local SQLite/WAL protobuf (`f19` / `gen_metadata`) telemetry foundation and original Antigravity 2.0 side-pane plugin.
+AGY-HUD stands on the shoulders of the Antigravity open-source community:
+
+- **[adahime/agy-hud](https://github.com/adahime/agy-hud)** by [@adahime](https://github.com/adahime) — Upstream fork origin that pioneered read-only local SQLite/WAL protobuf (`f19` / `gen_metadata`) telemetry and the original Antigravity 2.0 side-pane plugin architecture.
+- **[ATtacK030130/antigrative-dashboard](https://github.com/ATtacK030130/antigrative-dashboard)** — Inspired our hatched diagonal Quota Runway bar, Monochrome Token Iceberg visualization, and restrained editorial aesthetic.
+- **[yuhuan-dev/antigravity-usage-monitor](https://github.com/yuhuan-dev/antigravity-usage-monitor)** — Inspired our borderless layered surface hierarchy, 2-column aligned Context Window table, and concise sidebar navigation.
+- **[WhiteBr1ck/agy-powertools](https://github.com/WhiteBr1ck/agy-powertools)** — Inspired our bottom-anchored Hero sparkline and smooth borderless activity heatmap.
+- **[AGI-is-going-to-arrive/Antigravity-Context-Window-Monitor](https://github.com/AGI-is-going-to-arrive/Antigravity-Context-Window-Monitor)** — Inspired our `AGENTS.md` one-sentence AI-agent installation workflow.
 
 Released under the [MIT License](LICENSE).

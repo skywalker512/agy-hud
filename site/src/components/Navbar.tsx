@@ -1,7 +1,6 @@
-import { useState } from 'preact/hooks';
 import type { Locale, SiteCopy } from '../i18n/content';
 import type { AgyTheme, ContrastMode } from '../themes/agyThemes';
-import { IconGitHub } from './Icons';
+import { IconArrowUpRight, IconGitHub } from './Icons';
 import { ThemePicker } from './ThemePicker';
 
 interface NavbarProps {
@@ -15,7 +14,7 @@ interface NavbarProps {
   onSelectContrast: (contrast: ContrastMode) => void;
 }
 
-export function BrandLogo({ size = 20 }: { size?: number }) {
+export function BrandLogo({ size = 18 }: { size?: number }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -48,47 +47,47 @@ export function Navbar({
   onPreviewTheme,
   onSelectContrast,
 }: NavbarProps) {
-  const [mobileOpen, setMobileOpen] = useState(false);
-
-  const navItems = [
-    { href: '#tour', label: copy.nav.tour },
-    { href: '#craft', label: copy.nav.craft },
-    { href: '#install', label: copy.nav.install },
-    { href: '#docs', label: copy.nav.docs },
-  ];
+  const guideHref =
+    locale === 'zh'
+      ? 'https://github.com/skywalker512/agy-hud/blob/main/docs/GUIDE.zh-CN.md'
+      : 'https://github.com/skywalker512/agy-hud/blob/main/docs/GUIDE.md';
 
   return (
     <header class="glass-nav sticky top-0 z-50">
-      <div class="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
-        {/* Brand */}
-        <a
-          href="#top"
-          class="group flex items-center gap-2.5 text-[var(--fg)] no-underline"
-          onClick={() => setMobileOpen(false)}
-        >
-          <span class="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] transition-colors group-hover:border-[var(--border-strong)]">
-            <BrandLogo size={17} />
-          </span>
-          <span class="text-[14px] font-semibold tracking-tight">AGY-HUD</span>
-          <span class="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-px font-mono text-[10px] font-medium text-[var(--muted)] tabular-nums">
-            v1.2
-          </span>
-        </a>
+      <div class="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+        <div class="flex items-center gap-6">
+          <a href="#top" class="flex items-center gap-2 text-[var(--fg)] no-underline">
+            <span class="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              <BrandLogo size={16} />
+            </span>
+            <span class="text-[14px] font-semibold tracking-tight">AGY-HUD</span>
+          </a>
 
-        {/* Desktop anchors: clean, minimal, 4 clear stops */}
-        <nav aria-label="Primary" class="hidden items-center gap-1 md:flex">
-          {navItems.map((item) => (
+          <nav aria-label="Primary" class="hidden items-center gap-1 md:flex">
             <a
-              key={item.href}
-              href={item.href}
-              class="rounded-md px-3 py-1.5 text-[13px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--fg)]"
+              href="#overview"
+              class="rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
             >
-              {item.label}
+              {copy.nav.overview}
             </a>
-          ))}
-        </nav>
+            <a
+              href="#credits"
+              class="rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
+            >
+              {copy.nav.credits}
+            </a>
+            <a
+              href={guideHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
+            >
+              <span>{copy.nav.docs}</span>
+              <IconArrowUpRight size={12} class="text-[var(--faint)]" />
+            </a>
+          </nav>
+        </div>
 
-        {/* Controls */}
         <div class="flex items-center gap-1.5">
           <ThemePicker
             locale={locale}
@@ -119,41 +118,8 @@ export function Navbar({
             <IconGitHub size={14} />
             <span class="hidden sm:inline">{copy.nav.github}</span>
           </a>
-
-          <button
-            type="button"
-            onClick={() => setMobileOpen((v) => !v)}
-            class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] md:hidden"
-            aria-label="Toggle navigation"
-            aria-expanded={mobileOpen}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              {mobileOpen ? (
-                <path d="M18 6 6 18M6 6l12 12" />
-              ) : (
-                <path d="M4 7h16M4 12h16M4 17h16" />
-              )}
-            </svg>
-          </button>
         </div>
       </div>
-
-      {mobileOpen && (
-        <div class="border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3 md:hidden">
-          <div class="grid grid-cols-2 gap-1.5">
-            {navItems.map((item) => (
-              <a
-                key={item.href}
-                href={item.href}
-                onClick={() => setMobileOpen(false)}
-                class="rounded-md bg-[var(--surface-2)] px-3 py-2 text-[13px] font-medium text-[var(--fg-2)] hover:text-[var(--fg)]"
-              >
-                {item.label}
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
     </header>
   );
 }
