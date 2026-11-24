@@ -26,13 +26,16 @@ npx wrangler deploy
 
 ### Trigger the First Snapshot Immediately (Optional)
 
+The Worker automatically seeds KV on the first `GET /v1/pulse.json` request if empty. To force a manual refresh:
+
 ```bash
 npx wrangler secret put REFRESH_TOKEN
-curl -X POST https://<your-worker>.workers.dev/v1/refresh \
+curl -X POST https://agy-hud.512.pub/v1/refresh \
   -H "Authorization: Bearer <your-token>"
 ```
 
-## Connect to AGY-HUD & Website `/pulse/`
+## Live Production Feed
 
-- **Official Website `/pulse/`**: Click **Worker Feed** in the top bar (or open `?feed=https://<your-worker>.workers.dev`) to unlock 24×7 48h 30m curves, P99 tail latency, and Tool Call error rates.
-- **AGY-HUD Sidecar**: Set environment variable `AGY_HUD_PULSE_FEED_URL=https://<your-worker>.workers.dev` (falls back automatically to direct OpenRouter + local 48h 30m cache if unreachable).
+- **Official Worker Endpoint**: `https://agy-hud.512.pub/v1/pulse.json` (health: `https://agy-hud.512.pub/v1/health`)
+- **Official Website `/pulse/`**: Connected to `https://agy-hud.512.pub` by default (can be overridden via `?feed=...` or switched to direct browser mode).
+- **AGY-HUD Sidecar**: Uses `https://agy-hud.512.pub` by default with automatic fallback to direct OpenRouter + local 48h 30m cache (`AGY_HUD_PULSE_FEED_URL=direct` disables the remote feed).

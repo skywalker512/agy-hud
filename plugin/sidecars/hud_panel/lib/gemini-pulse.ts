@@ -1151,9 +1151,12 @@ async function fetchTextSafe(url: string, fetchImpl: typeof globalThis.fetch, he
   }
 }
 
+export const DEFAULT_GEMINI_PULSE_FEED_URL = 'https://agy-hud.512.pub';
+
 function resolveRemoteFeedEndpoint(rawUrl?: string): string | null {
-  const candidate = String(rawUrl || process.env.AGY_HUD_PULSE_FEED_URL || '').trim();
-  if (!candidate) return null;
+  const envVal = process.env.AGY_HUD_PULSE_FEED_URL;
+  const candidate = (rawUrl !== undefined ? rawUrl : envVal !== undefined ? envVal : DEFAULT_GEMINI_PULSE_FEED_URL).trim();
+  if (!candidate || candidate.toLowerCase() === 'direct' || candidate.toLowerCase() === 'none') return null;
   try {
     const u = new URL(candidate);
     if (u.protocol !== 'https:') return null;

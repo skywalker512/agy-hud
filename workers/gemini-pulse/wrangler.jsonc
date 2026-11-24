@@ -12,10 +12,16 @@
   "triggers": {
     "crons": ["*/30 * * * *"]
   },
+  "routes": [
+    {
+      "pattern": "agy-hud.512.pub",
+      "custom_domain": true
+    }
+  ],
   "kv_namespaces": [
     {
       "binding": "GEMINI_PULSE_KV",
-      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+      "id": "11e314518f7f45acab30772eacad14e0"
     }
   ]
 }

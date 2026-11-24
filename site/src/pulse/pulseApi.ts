@@ -105,6 +105,7 @@ export interface PulseDashboardData {
 
 const CACHE_KEY = 'agy-hud-gemini-pulse-web-v1';
 const FEED_URL_KEY = 'agy-hud-gemini-pulse-feed-url';
+export const DEFAULT_WORKER_FEED_URL = 'https://agy-hud.512.pub';
 const GCP_GEMINI_RE = /vertex|gemini|generative|ai platform|cloud ai|model garden/i;
 
 function roundNum(v: number | null | undefined, digits = 2): number | null {
@@ -137,14 +138,24 @@ function parsePricePerM(raw: unknown): number | null {
 export function getSavedFeedUrl(): string {
   try {
     const qs = new URLSearchParams(window.location.search).get('feed');
-    if (qs && /^https:\/\//i.test(qs.trim())) {
-      const clean = qs.trim().replace(/\/+$/, '');
-      localStorage.setItem(FEED_URL_KEY, clean);
-      return clean;
+    if (qs !== null) {
+      const trimmed = qs.trim();
+      if (trimmed === 'direct' || trimmed === 'none') {
+        localStorage.setItem(FEED_URL_KEY, 'direct');
+        return '';
+      }
+      if (/^https:\/\//i.test(trimmed)) {
+        const clean = trimmed.replace(/\/+$/, '');
+        localStorage.setItem(FEED_URL_KEY, clean);
+        return clean;
+      }
     }
-    return (localStorage.getItem(FEED_URL_KEY) || '').trim();
+    const saved = localStorage.getItem(FEED_URL_KEY);
+    if (saved === null) return DEFAULT_WORKER_FEED_URL;
+    if (saved === 'direct') return '';
+    return saved.trim() || DEFAULT_WORKER_FEED_URL;
   } catch {
-    return '';
+    return DEFAULT_WORKER_FEED_URL;
   }
 }
 
@@ -152,7 +163,7 @@ export function saveFeedUrl(url: string): void {
   try {
     const clean = url.trim().replace(/\/+$/, '');
     if (clean) localStorage.setItem(FEED_URL_KEY, clean);
-    else localStorage.removeItem(FEED_URL_KEY);
+    else localStorage.setItem(FEED_URL_KEY, 'direct');
   } catch {
     /* ignore */
   }

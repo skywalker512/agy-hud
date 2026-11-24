@@ -288,7 +288,7 @@ export function PulseApp() {
                 type="url"
                 value={feedDraft}
                 onInput={(e) => setFeedDraft((e.target as HTMLInputElement).value)}
-                placeholder="https://agy-hud-gemini-pulse.<your-subdomain>.workers.dev"
+                placeholder="https://agy-hud.512.pub"
                 class="h-9 min-w-[240px] flex-1 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-2)] px-3 font-mono text-[12px] text-[var(--fg)] outline-none focus:border-[var(--accent)]"
               />
               <button
@@ -309,7 +309,7 @@ export function PulseApp() {
                   }}
                   class="h-9 cursor-pointer rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-[12px] text-[var(--muted)] hover:text-[var(--fg)]"
                 >
-                  {isZh ? '恢复直连' : 'Reset Direct'}
+                  {isZh ? '切回直连' : 'Use Direct'}
                 </button>
               )}
             </div>

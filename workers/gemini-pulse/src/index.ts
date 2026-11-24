@@ -67,11 +67,14 @@ function formatUtcBucket(ms: number): string {
  */
 function extractModelSsrLite(html: string) {
   let permaslug: string | null = null;
-  const psIdx = html.indexOf('permaslug');
-  if (psIdx >= 0) {
-    const chunk = html.slice(psIdx, psIdx + 120).replace(/\\"/g, '"');
+  let psPos = 0;
+  while (psPos >= 0 && !permaslug) {
+    const psIdx = html.indexOf('permaslug', psPos);
+    if (psIdx < 0) break;
+    const chunk = html.slice(Math.max(0, psIdx - 4), psIdx + 140).replace(/\\"/g, '"');
     const m = /"permaslug":"(google\/[a-zA-Z0-9._-]+)"/.exec(chunk);
     if (m) permaslug = m[1];
+    psPos = psIdx + 12;
   }
 
   let weightedCacheHitPct: number | null = null;
@@ -337,7 +340,15 @@ async function collectAndStore(env: Env): Promise<Record<string, unknown>> {
         .map((e) => normalizeProvider(String(e?.tag || e?.provider_name || ''))),
     )];
 
-    const ps = ssr.permaslug;
+    let ps = ssr.permaslug;
+    if (!ps) {
+      for (const e of rawEps) {
+        if (typeof e?.name === 'string') {
+          const pm = /(google\/[a-zA-Z0-9._-]+)$/.exec(e.name.trim());
+          if (pm) { ps = pm[1]; break; }
+        }
+      }
+    }
     let ttft7d: any[] = [];
     let e2e7d: any[] = [];
     let tps7d: any[] = [];
@@ -522,12 +533,10 @@ export default {
       const cached = await cache.match(cacheKey);
       if (cached) return cached;
 
-      const raw = await env.GEMINI_PULSE_KV.get(KV_KEY_SNAPSHOT, 'text');
+      let raw = await env.GEMINI_PULSE_KV.get(KV_KEY_SNAPSHOT, 'text');
       if (!raw) {
-        return Response.json(
-          { error: 'Snapshot not collected yet. Wait for the first 30m cron tick or trigger manually.' },
-          { status: 503, headers: CORS_HEADERS },
-        );
+        const seeded = await collectAndStore(env);
+        raw = JSON.stringify(seeded);
       }
       const response = new Response(raw, {
         status: 200,
