@@ -1,5 +1,5 @@
 import type { Locale, SiteCopy } from '../i18n/content';
-import { AGY_THEMES, type AgyTheme, type ContrastMode } from '../themes/agyThemes';
+import { AGY_DARK_THEMES, AGY_LIGHT_THEMES, type AgyTheme, type ContrastMode } from '../themes/agyThemes';
 import { InstallSwitcher } from './InstallSwitcher';
 import { LiveHudFrame, type DemoJumpCmd, type DemoJumpRequest } from './LiveHudFrame';
 
@@ -70,42 +70,103 @@ export function HeroSection({
               {copy.hero.meta}
             </p>
 
-            {/* Complete 16 Official Antigravity Themes Quick Swatch Strip */}
-            <div class="mt-6 max-w-xl">
-              <div class="mb-2 flex items-center justify-between gap-2">
-                <span class="text-[11.5px] font-medium text-[var(--muted)]">
-                  {copy.hero.themeStripLabel}
-                </span>
-                <span class="font-mono text-[10.5px] text-[var(--faint)]">
-                  {isZh ? '悬停预览 · 点击应用' : 'Hover preview · Click to apply'}
+            {/* Sleek 1-Row 16-Theme Interactive Swatch Dock (12 Dark | 4 Light, hover-to-preview) */}
+            <div class="mt-6 max-w-xl rounded-xl border border-[var(--border)] bg-[var(--surface)]/75 px-3.5 py-2.5">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2 text-[11.5px]">
+                  <span class="font-medium text-[var(--muted)]">
+                    {isZh ? '16 套官方主题' : '16 Official Themes'}
+                  </span>
+                  <span class="text-[var(--faint)]">·</span>
+                  <span class="inline-flex items-center gap-1.5 font-mono text-[11px] font-semibold text-[var(--fg)]">
+                    <span
+                      class="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: theme.swatches[2] }}
+                    />
+                    <span>{theme.name}</span>
+                    <span class="font-normal text-[var(--faint)]">
+                      {theme.mode === 'dark' ? (isZh ? '深色' : 'Dark') : (isZh ? '浅色' : 'Light')}
+                    </span>
+                  </span>
+                </div>
+                <span class="font-mono text-[10px] text-[var(--faint)]">
+                  {isZh ? '滑过预览 · 点击锁定' : 'Hover · Click'}
                 </span>
               </div>
+
               <div
-                class="flex flex-wrap items-center gap-1.5"
+                class="mt-2.5 flex flex-wrap items-center gap-1.5"
+                role="radiogroup"
+                aria-label={copy.hero.themeStripLabel}
                 onMouseLeave={() => onPreviewTheme(null)}
               >
-                {AGY_THEMES.map((th) => {
+                {AGY_DARK_THEMES.map((th) => {
                   const isActive = activeThemeId === th.id;
+                  const isPreviewed = theme.id === th.id;
                   return (
                     <button
                       key={th.id}
                       type="button"
+                      role="radio"
+                      aria-checked={isActive}
+                      aria-label={`${th.name} (${isZh ? '深色' : 'Dark'})`}
+                      title={th.name}
                       onClick={() => onSelectTheme(th.id)}
                       onMouseEnter={() => onPreviewTheme(th.id)}
-                      title={`${th.name} (${th.mode === 'dark' ? (isZh ? '深色' : 'Dark') : (isZh ? '浅色' : 'Light')})`}
-                      class={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10.5px] font-medium transition-all ${
+                      onFocus={() => onPreviewTheme(th.id)}
+                      onBlur={() => onPreviewTheme(null)}
+                      class={`relative flex h-6 w-6 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                         isActive
-                          ? 'border-[var(--accent)] bg-[var(--tint-accent)] text-[var(--fg)]'
-                          : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--fg)]'
+                          ? 'scale-110 ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--surface)]'
+                          : isPreviewed
+                            ? 'scale-120 ring-1 ring-[var(--border-strong)]'
+                            : 'hover:scale-120'
                       }`}
                     >
                       <span
-                        class="h-2.5 w-2.5 shrink-0 rounded-full border border-black/20"
+                        class="h-[18px] w-[18px] rounded-full border border-white/20 shadow-xs"
                         style={{
-                          background: `linear-gradient(135deg, ${th.swatches[0]} 45%, ${th.swatches[2]} 55%)`,
+                          background: `linear-gradient(135deg, ${th.swatches[0]} 48%, ${th.swatches[2]} 52%)`,
                         }}
                       />
-                      <span>{th.name}</span>
+                    </button>
+                  );
+                })}
+
+                <span
+                  class="mx-1 h-4 w-px shrink-0 bg-[var(--border-strong)]"
+                  aria-hidden="true"
+                />
+
+                {AGY_LIGHT_THEMES.map((th) => {
+                  const isActive = activeThemeId === th.id;
+                  const isPreviewed = theme.id === th.id;
+                  return (
+                    <button
+                      key={th.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={isActive}
+                      aria-label={`${th.name} (${isZh ? '浅色' : 'Light'})`}
+                      title={th.name}
+                      onClick={() => onSelectTheme(th.id)}
+                      onMouseEnter={() => onPreviewTheme(th.id)}
+                      onFocus={() => onPreviewTheme(th.id)}
+                      onBlur={() => onPreviewTheme(null)}
+                      class={`relative flex h-6 w-6 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
+                        isActive
+                          ? 'scale-110 ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--surface)]'
+                          : isPreviewed
+                            ? 'scale-120 ring-1 ring-[var(--border-strong)]'
+                            : 'hover:scale-120'
+                      }`}
+                    >
+                      <span
+                        class="h-[18px] w-[18px] rounded-full border border-black/20 shadow-xs"
+                        style={{
+                          background: `linear-gradient(135deg, ${th.swatches[0]} 48%, ${th.swatches[2]} 52%)`,
+                        }}
+                      />
                     </button>
                   );
                 })}
