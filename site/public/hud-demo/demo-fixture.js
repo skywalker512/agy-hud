@@ -793,11 +793,279 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
     },
   ];
 
+  // Compute recursive treeTotals across root + Swarm childSessions for live demo parity
+  let demoChildCalls = 0;
+  let demoChildOut = 0;
+  let demoChildCost = 0;
+  let demoChildSaved = 0;
+  let demoChildPriced = 0;
+  let demoChildGem5h = 0;
+  let demoChildGem7d = 0;
+  for (const ch of childSessions) {
+    demoChildCalls += ch.calls || 0;
+    demoChildOut += ch.outputTokens || 0;
+    demoChildCost += ch.costUSD || 0;
+    demoChildSaved += ch.savedUSD || 0;
+    demoChildPriced += ch.pricedCount || 0;
+    demoChildGem5h += ch.quotaUsage?.gemini?.pct5h || 0;
+    demoChildGem7d += ch.quotaUsage?.gemini?.pct7d || 0;
+  }
+
+  // Build rich realistic OpenRouter Gemini 30m + 7d/24h time-series pulse for demo
+  const pulseDayDates = [];
+  for (let d = 7; d >= 0; d--) {
+    const dt = new Date(NOW - d * 86_400_000);
+    pulseDayDates.push(dt.toISOString().slice(0, 10));
+  }
+  const mkDailySeries = (baseVertex, baseStudio, jitter, digits, minV, maxV) =>
+    pulseDayDates.map((x, idx) => {
+      const wave = Math.sin(idx * 0.9 + baseVertex) * jitter;
+      const v = clamp(round(baseVertex + wave, digits), minV, maxV);
+      const s = clamp(round(baseStudio + wave * 0.85, digits), minV, maxV);
+      return {
+        x,
+        tsMs: Date.parse(`${x}T12:00:00Z`),
+        value: v,
+        byProvider: { 'Google Vertex': v, 'AI Studio': s },
+      };
+    });
+  const mkUptime24h = (baseAvail, dipIdx, dipDepth) => {
+    const buckets = [];
+    for (let i = 47; i >= 0; i--) {
+      const tsMs = NOW - i * 30 * 60_000;
+      const d = new Date(tsMs);
+      const x = d.toISOString().slice(0, 16).replace('T', ' ');
+      const idx = 47 - i;
+      const dip = dipIdx >= 0 && Math.abs(idx - dipIdx) <= 2 ? dipDepth * (1 - Math.abs(idx - dipIdx) * 0.3) : 0;
+      const avail = clamp(round(baseAvail - dip + (rng() - 0.5) * 0.35, 2), 45, 100);
+      const raw = clamp(round(avail - 0.7 - dip * 0.35, 2), 35, 100);
+      buckets.push({ x, tsMs, availability: avail, rawAvailability: raw });
+    }
+    return buckets;
+  };
+
+  const geminiPulseModels = [
+    {
+      family: 'gemini-4-neon',
+      slug: 'google/gemini-4-neon',
+      permaslug: 'google/gemini-4-neon-20261118',
+      label: 'Gemini 4 Neon',
+      status: 'ok',
+      p50TtftSec: 4.18,
+      p75TtftSec: 6.42,
+      p90TtftSec: 9.85,
+      p50Tps: 84.0,
+      p90Tps: 32.0,
+      cacheHitPct: 83.9,
+      uptime30mPct: 100,
+      requestCount30m: 38420,
+      windowMinutes: 30,
+      primaryProvider: 'Google Vertex',
+      degradedProviders: [],
+      endpoints: [
+        { endpointId: 'ep-neon-v', providerName: 'Google Vertex', providerSlug: 'google-vertex', cacheHitPct: 83.2, p50TtftSec: 4.18, p75TtftSec: 6.42, p90TtftSec: 9.85, p50Tps: 84.0, p90Tps: 32.0, requestCount: 31200, windowMinutes: 30 },
+        { endpointId: 'ep-neon-s', providerName: 'Google AI Studio', providerSlug: 'google-ai-studio', cacheHitPct: 85.6, p50TtftSec: 5.12, p75TtftSec: 7.4, p90TtftSec: 11.4, p50Tps: 76.5, p90Tps: 27.0, requestCount: 7220, windowMinutes: 30 },
+      ],
+      series: {
+        ttft7d: mkDailySeries(3.85, 4.75, 0.75, 2, 1.5, 9),
+        tps7d: mkDailySeries(84, 77, 8, 1, 45, 130),
+        cache7d: mkDailySeries(83.5, 85.2, 4.2, 1, 55, 96),
+        uptime24h: mkUptime24h(99.6, -1, 0),
+      },
+      local: {
+        calls7d: 142,
+        p50TtftSec: 1.82,
+        p90TtftSec: 3.95,
+        hitP50TtftSec: 1.44,
+        missP50TtftSec: 4.6,
+        p50Tps: 98.4,
+        cacheHitPct: 89.2,
+        calls30m: 14,
+        p50Ttft30mSec: 1.56,
+        p50Tps30m: 102.3,
+        cacheHit30mPct: 91.4,
+        calls24h: 48,
+        p50Ttft24hSec: 1.74,
+        p50Tps24h: 99.1,
+        cacheHit24hPct: 89.8,
+      },
+    },
+    {
+      family: 'gemini-4-hydrogen',
+      slug: 'google/gemini-4-hydrogen',
+      permaslug: 'google/gemini-4-hydrogen-20261112',
+      label: 'Gemini 4 Hydrogen',
+      status: 'ok',
+      p50TtftSec: 1.52,
+      p75TtftSec: 2.24,
+      p90TtftSec: 3.31,
+      p50Tps: 142.0,
+      p90Tps: 74.0,
+      cacheHitPct: 79.6,
+      uptime30mPct: 100,
+      requestCount30m: 26180,
+      windowMinutes: 30,
+      primaryProvider: 'Google Vertex',
+      degradedProviders: [],
+      endpoints: [
+        { endpointId: 'ep-hydro-v', providerName: 'Google Vertex', providerSlug: 'google-vertex', cacheHitPct: 79.1, p50TtftSec: 1.52, p75TtftSec: 2.24, p90TtftSec: 3.31, p50Tps: 142.0, p90Tps: 74.0, requestCount: 20400, windowMinutes: 30 },
+        { endpointId: 'ep-hydro-s', providerName: 'Google AI Studio', providerSlug: 'google-ai-studio', cacheHitPct: 81.0, p50TtftSec: 1.88, p75TtftSec: 2.7, p90TtftSec: 3.9, p50Tps: 131.0, p90Tps: 66.0, requestCount: 5780, windowMinutes: 30 },
+      ],
+      series: {
+        ttft7d: mkDailySeries(1.48, 1.84, 0.28, 2, 0.7, 4),
+        tps7d: mkDailySeries(141, 130, 12, 1, 90, 185),
+        cache7d: mkDailySeries(79.4, 81.2, 3.8, 1, 55, 95),
+        uptime24h: mkUptime24h(99.8, -1, 0),
+      },
+      local: {
+        calls7d: 88,
+        p50TtftSec: 0.96,
+        p90TtftSec: 2.1,
+        hitP50TtftSec: 0.84,
+        missP50TtftSec: 2.6,
+        p50Tps: 148.6,
+        cacheHitPct: 84.5,
+        calls30m: 9,
+        p50Ttft30mSec: 0.92,
+        p50Tps30m: 151.2,
+        cacheHit30mPct: 86.1,
+        calls24h: 31,
+        p50Ttft24hSec: 0.95,
+        p50Tps24h: 149.4,
+        cacheHit24hPct: 85.0,
+      },
+    },
+    {
+      family: 'gemini-4-carbon',
+      slug: 'google/gemini-4-carbon',
+      permaslug: 'google/gemini-4-carbon-20261110',
+      label: 'Gemini 4 Carbon',
+      status: 'degraded',
+      p50TtftSec: 6.45,
+      p75TtftSec: 10.8,
+      p90TtftSec: 17.6,
+      p50Tps: 56.0,
+      p90Tps: 21.0,
+      cacheHitPct: 81.8,
+      uptime30mPct: 94.2,
+      requestCount30m: 29470,
+      windowMinutes: 30,
+      primaryProvider: 'Google Vertex',
+      degradedProviders: ['Google Vertex'],
+      endpoints: [
+        { endpointId: 'ep-carb-v', providerName: 'Google Vertex', providerSlug: 'google-vertex', cacheHitPct: 81.4, p50TtftSec: 6.45, p75TtftSec: 10.8, p90TtftSec: 17.6, p50Tps: 56.0, p90Tps: 21.0, requestCount: 23800, windowMinutes: 30 },
+        { endpointId: 'ep-carb-s', providerName: 'Google AI Studio', providerSlug: 'google-ai-studio', cacheHitPct: 83.1, p50TtftSec: 4.92, p75TtftSec: 7.9, p90TtftSec: 12.8, p50Tps: 68.0, p90Tps: 28.0, requestCount: 5670, windowMinutes: 30 },
+      ],
+      series: {
+        ttft7d: mkDailySeries(5.9, 4.8, 1.35, 2, 2.5, 13),
+        tps7d: mkDailySeries(58, 69, 9, 1, 28, 105),
+        cache7d: mkDailySeries(81.5, 83.2, 4.6, 1, 55, 95),
+        uptime24h: mkUptime24h(98.4, 34, 14),
+      },
+      local: {
+        calls7d: 196,
+        p50TtftSec: 1.48,
+        p90TtftSec: 3.42,
+        hitP50TtftSec: 1.32,
+        missP50TtftSec: 4.2,
+        p50Tps: 94.2,
+        cacheHitPct: 88.6,
+        calls30m: 18,
+        p50Ttft30mSec: 1.44,
+        p50Tps30m: 96.8,
+        cacheHit30mPct: 90.2,
+        calls24h: 64,
+        p50Ttft24hSec: 1.46,
+        p50Tps24h: 95.1,
+        cacheHit24hPct: 89.1,
+      },
+    },
+    {
+      family: 'gemini-3.8-flash',
+      slug: 'google/gemini-3.8-flash',
+      permaslug: 'google/gemini-3.8-flash-20260902',
+      label: 'Gemini 3.8 Flash',
+      status: 'ok',
+      p50TtftSec: 1.98,
+      p75TtftSec: 2.74,
+      p90TtftSec: 4.35,
+      p50Tps: 91.0,
+      p90Tps: 42.0,
+      cacheHitPct: 68.4,
+      uptime30mPct: 100,
+      requestCount30m: 268400,
+      windowMinutes: 30,
+      primaryProvider: 'Google Vertex',
+      degradedProviders: [],
+      endpoints: [
+        { endpointId: 'ep-fl-v', providerName: 'Google Vertex', providerSlug: 'google-vertex', cacheHitPct: 67.9, p50TtftSec: 1.98, p75TtftSec: 2.74, p90TtftSec: 4.35, p50Tps: 91.0, p90Tps: 42.0, requestCount: 214000, windowMinutes: 30 },
+        { endpointId: 'ep-fl-s', providerName: 'Google AI Studio', providerSlug: 'google-ai-studio', cacheHitPct: 70.1, p50TtftSec: 2.34, p75TtftSec: 3.25, p90TtftSec: 5.1, p50Tps: 84.0, p90Tps: 37.0, requestCount: 54400, windowMinutes: 30 },
+      ],
+      series: {
+        ttft7d: mkDailySeries(1.94, 2.3, 0.35, 2, 0.9, 5),
+        tps7d: mkDailySeries(90, 84, 7, 1, 55, 130),
+        cache7d: mkDailySeries(68.2, 70.4, 5.0, 1, 45, 88),
+        uptime24h: mkUptime24h(99.9, -1, 0),
+      },
+      local: {
+        calls7d: 210,
+        p50TtftSec: 0.78,
+        p90TtftSec: 1.64,
+        hitP50TtftSec: 0.72,
+        missP50TtftSec: 1.9,
+        p50Tps: 121.4,
+        cacheHitPct: 82.1,
+        calls30m: 12,
+        p50Ttft30mSec: 0.76,
+        p50Tps30m: 124.0,
+        cacheHit30mPct: 84.0,
+        calls24h: 52,
+        p50Ttft24hSec: 0.77,
+        p50Tps24h: 122.5,
+        cacheHit24hPct: 83.2,
+      },
+    },
+  ];
+  const activePulseModel = geminiPulseModels[2]; // gemini-4-carbon matches latest invocation
+  const geminiPulse = {
+    enabled: true,
+    available: true,
+    loading: false,
+    stale: false,
+    fetchedAtMs: NOW - 42_000,
+    overallStatus: 'degraded',
+    models: geminiPulseModels,
+    incidents: [],
+    activeFamily: 'gemini-4-carbon',
+    activeModel: activePulseModel,
+    attribution: {
+      verdict: 'normal',
+      family: 'gemini-4-carbon',
+      label: 'Gemini 4 Carbon',
+      currentTtftSec: latest.ttftSec,
+      currentTps: latest.genTps,
+      currentCachePct: latest.cacheHitPct,
+      currentNewInput: latest.newInput,
+      inFlightCount: 0,
+      localP50TtftSec: 1.32,
+      localP90TtftSec: 3.42,
+      localBucket: 'hit',
+      globalP50TtftSec: activePulseModel.p50TtftSec,
+      globalP90TtftSec: activePulseModel.p90TtftSec,
+      globalP50Tps: activePulseModel.p50Tps,
+      globalCachePct: activePulseModel.cacheHitPct,
+      globalUptime30mPct: activePulseModel.uptime30mPct,
+      globalStatus: activePulseModel.status,
+      globalRequests30m: activePulseModel.requestCount30m,
+      activeIncidentCount: 0,
+    },
+  };
+
   const snapshot = {
     found: true,
-    etag: 'hd-fixture-v2',
-    bootId: 'boot-hd-20261123',
-    assetKey: 'asset-hd-v2',
+    etag: 'hd-fixture-v3',
+    bootId: 'boot-hd-20261124',
+    assetKey: 'asset-hd-v3',
     mode: 'auto',
     conversationId: CONV_ID,
     dbPath: '/Users/sky/.gemini/antigravity/conversations/9a7c4e21.pb',
@@ -828,6 +1096,26 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
       },
       parentSession: null,
       childSessions,
+      treeTotals: {
+        descendantCount: childSessions.length,
+        swarmWorkerCount: childSessions.length,
+        calls: invocations.length + demoChildCalls,
+        outputTokens: totalOutput + demoChildOut,
+        costUSD: totalCostUSD + demoChildCost,
+        savedUSD: totalSavedUSD + demoChildSaved,
+        pricedCount: invocations.length + demoChildPriced,
+        unpricedCount: 0,
+        childCalls: demoChildCalls,
+        childOutputTokens: demoChildOut,
+        childCostUSD: demoChildCost,
+        childSavedUSD: demoChildSaved,
+        childPricedCount: demoChildPriced,
+        childUnpricedCount: 0,
+        quotaUsage: {
+          gemini: { pct5h: gem5h + demoChildGem5h, pct7d: gem7d + demoChildGem7d, isFitted: true },
+          claude_gpt: { pct5h: claude5h, pct7d: claude7d, isFitted: true },
+        },
+      },
       swarm: {
         swarmId: 'swarm-agy-hud-v13',
         coordinatorConvId: CONV_ID,
@@ -1115,6 +1403,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
       },
     },
     cacheTtl,
+    geminiPulse,
   };
 
   const updateStatus = {

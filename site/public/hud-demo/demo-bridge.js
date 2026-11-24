@@ -142,6 +142,10 @@
       return Promise.resolve(jsonResponse({ ok: true, refreshed: true }));
     }
 
+    if (url.pathname.endsWith('/api/gemini-pulse')) {
+      return Promise.resolve(jsonResponse(fx.snapshot.geminiPulse || { enabled: true, available: false, models: [] }));
+    }
+
     return Promise.resolve(jsonResponse({ ok: false, error: 'demo_unknown_route' }, 404));
   }
 
@@ -187,6 +191,50 @@
         } catch (_) {
           /* ignore */
         }
+      }
+    } else if (data.type === 'agy-demo-navigate') {
+      // Allow website tour chips to drive the real embedded HUD tabs & interactive views
+      var tabOrder = { live: 0, calls: 1, account: 2 };
+      var targetIdx = tabOrder[data.tab];
+      if (typeof targetIdx === 'number') {
+        var tabBtns = document.querySelectorAll('.tab-bar [role="tab"], nav [role="tab"]');
+        if (tabBtns[targetIdx]) tabBtns[targetIdx].click();
+      }
+      var action = data.action || '';
+      if (action) {
+        setTimeout(function () {
+          var btns = Array.prototype.slice.call(document.querySelectorAll('button'));
+          if (action === 'global-trend') {
+            var gBtn = btns.find(function (b) {
+              var txt = (b.textContent || '').trim();
+              return txt.indexOf('大盘折线') >= 0 || txt.indexOf('Global') >= 0;
+            });
+            if (gBtn) {
+              gBtn.click();
+              gBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          } else if (action === 'arena') {
+            var aBtn = btns.find(function (b) {
+              var txt = (b.textContent || '').trim();
+              return txt.indexOf('斗蛐蛐') >= 0 || txt.indexOf('Arena PK') >= 0;
+            });
+            if (aBtn) {
+              aBtn.click();
+              aBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          } else if (action === 'wrapped') {
+            var sBtn = btns.find(function (b) {
+              var txt = (b.textContent || '').trim();
+              return txt === '战报' || txt === 'Share';
+            });
+            if (sBtn) {
+              sBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              sBtn.click();
+            }
+          } else if (action === 'live-top') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }, 120);
       }
     }
   });

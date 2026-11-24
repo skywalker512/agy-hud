@@ -14,10 +14,12 @@ export interface SiteCopy {
     github: string;
   };
   hero: {
+    badge: string;
     headline: string;
     subhead: string;
     meta: string;
     interactiveHint: string;
+    themeStripLabel: string;
     copy: string;
     copied: string;
     autoDetected: string;
@@ -32,10 +34,10 @@ export interface SiteCopy {
     licenseTip: string;
   };
   highlights: {
-    items: ReadonlyArray<{
-      title: string;
-      body: string;
-    }>;
+    eyebrow: string;
+    heading: string;
+    subhead: string;
+    tryLive: string;
   };
   credits: {
     heading: string;
@@ -55,17 +57,19 @@ export interface SiteCopy {
 export const COPY: Record<Locale, SiteCopy> = {
   en: {
     nav: {
-      overview: 'Overview',
+      overview: 'Features',
       credits: 'Credits',
       docs: 'Guide',
       github: 'GitHub',
     },
     hero: {
+      badge: 'v1.2 · OpenRouter 7d/24h Curves · Cyber Arena PK · 2x Wrapped Poster',
       headline: 'See what Antigravity is really doing.',
       subhead:
-        'A quiet native side panel for Google Antigravity — real speed, first-token wait, context pressure, prompt cache survival, and quota runway. Local, read-only, and synced to your theme.',
-      meta: 'Official sidecar · Zero CDP · 100% local read-only · Node.js 22.18+',
-      interactiveHint: 'Live HUD embedded above — switch tabs, drag the chart, inspect a call, or try any Antigravity theme.',
+        'A native telemetry cockpit built into Google Antigravity’s side pane — real GEN speed, TTFT root-cause attribution, global Gemini 7d/24h curves & Cyber Arena PK, calibrated Ultra 20x quota runway, recursive Swarm rollup, and 2x PNG Wrapped posters.',
+      meta: 'Pure Official Sidecar · Zero CDP / Zero Patching · 100% Local Read-Only · Node.js 22.18+',
+      interactiveHint: '100% real embedded AGY-HUD above — click the tour bar below the panel to jump directly to Global Curves, Arena PK, or 2x Wrapped Poster.',
+      themeStripLabel: 'Live 16-theme sync',
       copy: 'Copy',
       copied: 'Copied',
       autoDetected: 'Recommended',
@@ -75,29 +79,16 @@ export const COPY: Record<Locale, SiteCopy> = {
         agent: 'AI Agent',
         manual: 'Source',
       },
-      doctorTip: 'Installs to ~/.gemini/config/plugins/agy-hud · zero dependencies',
+      doctorTip: 'Installs to ~/.gemini/config/plugins/agy-hud · zero runtime dependencies',
       agentHint: 'Paste into Antigravity, Claude Code, or Codex — installs and verifies via AGENTS.md',
       licenseTip: 'MIT License',
     },
     highlights: {
-      items: [
-        {
-          title: 'Blends into Antigravity, not on top of it',
-          body: 'Automatically mirrors your active Antigravity theme, font scale, and high-contrast mode. Try any of the 16 built-in themes in the top bar — the live panel adapts on the spot.',
-        },
-        {
-          title: 'Know why a turn felt slow',
-          body: 'Separates steady token throughput from first-token wait, shows which tools fill your context window, and lets you inspect any call’s timing waterfall, thinking, and tool calls.',
-        },
-        {
-          title: 'Stay ahead of cache expiry and compactions',
-          body: 'Models your prompt cache survival window from local history so you know when a pause will trigger a full re-prefill, and estimates how many turns remain before compaction.',
-        },
-        {
-          title: 'Honest quota runway, zero patching',
-          body: 'Combines App, CLI, and IDE usage to project 5-hour and weekly reset headroom. Runs strictly as an official read-only sidecar — no proxy, no debug port, no app modifications.',
-        },
-      ],
+      eyebrow: 'TELEMETRY COCKPIT',
+      heading: 'Every blind spot in Antigravity, made visible.',
+      subhead:
+        'From why a single turn stalled to how your local account stacks up against the global Gemini pool — every chart below runs live in the embedded panel above.',
+      tryLive: 'Try live',
     },
     credits: {
       heading: 'Built with inspiration from the community',
@@ -141,17 +132,19 @@ export const COPY: Record<Locale, SiteCopy> = {
   },
   zh: {
     nav: {
-      overview: '概览',
+      overview: '核心能力',
       credits: '致谢',
       docs: '使用指南',
       github: 'GitHub',
     },
     hero: {
+      badge: 'v1.2 · OpenRouter 7d/24h 大盘折线 · ⚔ 赛博斗蛐蛐 · 2x 战报海报',
       headline: '看清 Antigravity 正在发生的一切。',
       subhead:
-        '为 Google Antigravity 打造的原生侧边栏面板——实时查看生成速度、首字等待、上下文压力、缓存存活倒计时与配额续航。纯本地只读，自动融入你的 Antigravity 主题。',
-      meta: '纯官方 Sidecar · 零 CDP / 零改包 · 100% 本地只读 · Node.js 22.18+',
-      interactiveHint: '上方即真实侧边栏组件——可自由切换标签、拖拽趋势图、点开调用详情，或切换右上角 16 套 Antigravity 主题。',
+        '专为 Google Antigravity 打造的原生遥测驾驶舱——实时生成速度、首字慢归因、Gemini 全球 7 天/24h 大盘折线与赛博斗蛐蛐 PK、Ultra 20x 配额续航、Swarm 递归合并统计，以及一键生成 2x 高清分享战报海报。',
+      meta: '纯官方 Sidecar · 零改包 / 零 CDP · 100% 本地只读 · Node.js 22.18+',
+      interactiveHint: '上方即 100% 真实嵌入的 AGY-HUD 面板——点击底部导览栏，直接体验「大盘折线」「赛博斗蛐蛐」与「2x 战报海报」。',
+      themeStripLabel: '16 套官方主题实时同步',
       copy: '复制',
       copied: '已复制',
       autoDetected: '推荐',
@@ -161,29 +154,16 @@ export const COPY: Record<Locale, SiteCopy> = {
         agent: 'AI 一句话安装',
         manual: '源码安装',
       },
-      doctorTip: '仅安装至 ~/.gemini/config/plugins/agy-hud · 零第三方依赖',
+      doctorTip: '仅安装至 ~/.gemini/config/plugins/agy-hud · 零第三方运行时依赖',
       agentHint: '直接发给 Antigravity / Claude Code / Codex，按仓库 AGENTS.md 自动安装并验收',
       licenseTip: 'MIT 开源',
     },
     highlights: {
-      items: [
-        {
-          title: '自然融入 Antigravity，像原生自带一样',
-          body: '自动同步当前 Antigravity 主题、字号缩放与强对比度模式。你可以直接点击右上角切换 16 套官方主题，右侧真实面板会同步变化。',
-        },
-        {
-          title: '一眼看懂这一轮为什么慢',
-          body: '把持续吐字速度与首字等待清晰分开，展开上下文里每个工具的占用，点开任意一次调用即可回看耗时瀑布、思考与工具记录。',
-        },
-        {
-          title: '在掉缓存和触发压缩之前提前知道',
-          body: '基于本机历史估算提示词缓存的存活窗口，提醒你晾多久会触发重算多花钱，同时估算距离自动压缩大约还剩几轮对话。',
-        },
-        {
-          title: '透明的配额续航，且绝不侵入宿主',
-          body: '汇总桌面端、CLI 与 IDE 用量并结合日常节奏预测 5 小时和周配额余量。严格运行在官方只读 Sidecar 内，不改安装包、不开调试端口、不上传任何数据。',
-        },
-      ],
+      eyebrow: '全链路可观测性',
+      heading: '把 Antigravity 的每个黑盒，变成透明仪表盘。',
+      subhead:
+        '从「这一轮为什么卡首字」到「我的 Ultra 账号跟全球大盘比到底快不快」，下面每项能力都可以直接在上方真实面板中点开体验。',
+      tryLive: '在面板中体验',
     },
     credits: {
       heading: '站在社区的肩膀上',

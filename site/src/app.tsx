@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'preact/hooks';
 import { Footer } from './components/Footer';
 import { HeroSection } from './components/HeroSection';
 import { HighlightsSection } from './components/HighlightsSection';
+import type { DemoJumpCmd, DemoJumpRequest } from './components/LiveHudFrame';
 import { Navbar } from './components/Navbar';
 import { COPY, detectInitialLocale, saveLocale, type Locale } from './i18n/content';
 import {
@@ -20,6 +21,7 @@ export function App() {
   const [previewThemeId, setPreviewThemeId] = useState<string | null>(null);
   const [contrast, setContrast] = useState<ContrastMode>(() => getInitialContrast());
   const [locale, setLocale] = useState<Locale>(() => detectInitialLocale());
+  const [demoJump, setDemoJump] = useState<DemoJumpCmd | null>(null);
 
   const activeTheme = getThemeById(themeId);
   const displayTheme = previewThemeId ? getThemeById(previewThemeId) : activeTheme;
@@ -53,6 +55,21 @@ export function App() {
     });
   }, []);
 
+  const handleJumpDemo = useCallback((req: DemoJumpRequest, scrollIntoView = false) => {
+    setDemoJump((prev) => ({
+      seq: (prev?.seq || 0) + 1,
+      tab: req.tab,
+      action: req.action,
+      id: req.id,
+    }));
+    if (scrollIntoView) {
+      const target = document.getElementById('live-demo');
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, []);
+
   const copy = COPY[locale];
 
   return (
@@ -72,11 +89,19 @@ export function App() {
         <HeroSection
           locale={locale}
           theme={displayTheme}
+          activeThemeId={themeId}
           contrast={contrast}
           copy={copy}
+          demoJump={demoJump}
           onCycleTheme={handleCycleTheme}
+          onSelectTheme={setThemeId}
+          onJumpDemo={(req) => handleJumpDemo(req, false)}
         />
-        <HighlightsSection copy={copy} />
+        <HighlightsSection
+          locale={locale}
+          copy={copy}
+          onJumpDemo={(req) => handleJumpDemo(req, true)}
+        />
       </main>
 
       <Footer locale={locale} copy={copy} />

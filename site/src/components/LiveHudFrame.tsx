@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { Locale } from '../i18n/content';
 import {
   buildHostThemePayload,
@@ -6,16 +6,36 @@ import {
   type ContrastMode,
 } from '../themes/agyThemes';
 
+export interface DemoJumpRequest {
+  id: string;
+  tab: 'live' | 'calls' | 'account';
+  action?: 'live-top' | 'global-trend' | 'arena' | 'wrapped';
+}
+
+export interface DemoJumpCmd extends DemoJumpRequest {
+  seq: number;
+}
+
 interface LiveHudFrameProps {
   locale: Locale;
   theme: AgyTheme;
   contrast: ContrastMode;
+  jumpCmd?: DemoJumpCmd | null;
   onCycleTheme: () => void;
+  onJumpDemo: (req: DemoJumpRequest) => void;
 }
 
-export function LiveHudFrame({ locale, theme, contrast, onCycleTheme }: LiveHudFrameProps) {
+export function LiveHudFrame({
+  locale,
+  theme,
+  contrast,
+  jumpCmd,
+  onCycleTheme,
+  onJumpDemo,
+}: LiveHudFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const initialLangRef = useRef<Locale>(locale);
+  const [activeStop, setActiveStop] = useState<string>('live');
   const isZh = locale === 'zh';
 
   const syncFrame = useCallback(() => {
@@ -36,6 +56,21 @@ export function LiveHudFrame({ locale, theme, contrast, onCycleTheme }: LiveHudF
   }, [syncFrame]);
 
   useEffect(() => {
+    if (!jumpCmd) return;
+    setActiveStop(jumpCmd.id);
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    win.postMessage(
+      {
+        type: 'agy-demo-navigate',
+        tab: jumpCmd.tab,
+        action: jumpCmd.action || '',
+      },
+      '*',
+    );
+  }, [jumpCmd]);
+
+  useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (
         event.source === iframeRef.current?.contentWindow &&
@@ -49,9 +84,17 @@ export function LiveHudFrame({ locale, theme, contrast, onCycleTheme }: LiveHudF
     return () => window.removeEventListener('message', onMessage);
   }, [syncFrame]);
 
+  const tourStops: Array<DemoJumpRequest & { label: string }> = [
+    { id: 'live', tab: 'live', action: 'live-top', label: isZh ? '⚡ 实时归因' : '⚡ Live & TTFT' },
+    { id: 'global-trend', tab: 'calls', action: 'global-trend', label: isZh ? '🌐 大盘折线' : '🌐 7d Curves' },
+    { id: 'arena', tab: 'account', action: 'arena', label: isZh ? '⚔ 斗蛐蛐 PK' : '⚔ Arena PK' },
+    { id: 'wrapped', tab: 'account', action: 'wrapped', label: isZh ? '✨ 战报海报' : '✨ 2x Poster' },
+  ];
+
   return (
     <div
-      class="w-full overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)]"
+      id="live-demo"
+      class="w-full scroll-mt-20 overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)]"
       style={{ boxShadow: 'var(--hud-frame-shadow)' }}
     >
       {/* Antigravity Auxiliary Side-Pane Chrome */}
@@ -62,8 +105,9 @@ export function LiveHudFrame({ locale, theme, contrast, onCycleTheme }: LiveHudF
             <span class="h-2 w-2 rounded-full bg-[var(--border-strong)]" />
             <span class="h-2 w-2 rounded-full bg-[var(--border-strong)]" />
           </span>
-          <span class="truncate font-mono text-[10.5px] font-medium text-[var(--muted)]">
-            {isZh ? '真实侧边栏组件 · 实时联动' : 'Live Sidecar Panel · Real UI'}
+          <span class="inline-flex items-center gap-1.5 truncate font-mono text-[10.5px] font-medium text-[var(--muted)]">
+            <span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-cache)]" />
+            <span class="truncate">{isZh ? '真实侧边栏组件 · 可直接交互' : 'Live Sidecar Panel · Real UI'}</span>
           </span>
         </div>
 
@@ -90,8 +134,29 @@ export function LiveHudFrame({ locale, theme, contrast, onCycleTheme }: LiveHudF
         src={`./hud-demo/index.html?lang=${initialLangRef.current}`}
         title={isZh ? 'AGY-HUD 真实交互面板预览' : 'AGY-HUD Real Interactive Panel Preview'}
         onLoad={syncFrame}
-        class="block h-[690px] w-full border-0 bg-[var(--bg)]"
+        class="block h-[660px] w-full border-0 bg-[var(--bg)]"
       />
+
+      {/* Interactive Feature Jump Tour Bar */}
+      <div class="grid grid-cols-4 gap-1 border-t border-[var(--border)] bg-[var(--bg-subtle)] p-1.5">
+        {tourStops.map((stop) => {
+          const active = activeStop === stop.id;
+          return (
+            <button
+              key={stop.id}
+              type="button"
+              onClick={() => onJumpDemo(stop)}
+              class={`cursor-pointer rounded-lg px-1.5 py-1.5 text-center text-[10.5px] font-semibold transition-all truncate ${
+                active
+                  ? 'border border-[var(--tint-accent-border)] bg-[var(--tint-accent)] text-[var(--accent-ink)]'
+                  : 'border border-transparent bg-transparent text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--fg)]'
+              }`}
+            >
+              {stop.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
