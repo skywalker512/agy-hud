@@ -12,6 +12,11 @@
   "triggers": {
     "crons": ["*/5 * * * *"]
   },
+  "assets": {
+    "directory": "../../site/dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/v1/*"]
+  },
   "routes": [
     {
       "pattern": "agy-hud.512.pub",

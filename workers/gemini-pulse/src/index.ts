@@ -8,6 +8,7 @@
 
 export interface Env {
   GEMINI_PULSE_KV: KVNamespace;
+  ASSETS?: Fetcher;
   REFRESH_TOKEN?: string;
 }
 
@@ -30,7 +31,6 @@ const BUCKET_MS = 5 * 60_000;
 const MAX_AGE_MS = 24 * 3_600_000;
 const MAX_INTRADAY_POINTS = 288;
 const SERIES_7D_TTL_MS = 30 * 60_000;
-const SITE_ORIGIN = 'https://skywalker512.github.io/agy-hud';
 const GCP_GEMINI_RE = /vertex|gemini|generative|ai platform|cloud ai|model garden/i;
 
 const CORS_HEADERS: Record<string, string> = {
@@ -563,29 +563,12 @@ export default {
       return response;
     }
 
-    // Serve the official AGY-HUD website (`/` and `/pulse/`) from GitHub Pages on this custom domain
-    if (request.method === 'GET' || request.method === 'HEAD') {
+    // Serve the official AGY-HUD static website (`/` and `/pulse/`) via Workers Static Assets
+    if (env.ASSETS) {
       if (url.pathname === '/pulse' || url.pathname === '/hud-demo') {
         return Response.redirect(`${url.origin}${url.pathname}/${url.search}`, 301);
       }
-      const upstreamUrl = `${SITE_ORIGIN}${url.pathname}${url.search}`;
-      const upstream = await fetch(upstreamUrl, {
-        method: request.method,
-        headers: { 'User-Agent': 'agy-hud-edge-proxy/1.0' },
-        cf: { cacheTtl: url.pathname.startsWith('/assets/') ? 86400 : 180, cacheEverything: true },
-      } as RequestInit);
-      const headers = new Headers(upstream.headers);
-      headers.delete('content-security-policy');
-      if (url.pathname.startsWith('/assets/')) {
-        headers.set('Cache-Control', 'public, max-age=86400, immutable');
-      } else {
-        headers.set('Cache-Control', 'public, max-age=180, stale-while-revalidate=600');
-      }
-      return new Response(upstream.body, {
-        status: upstream.status,
-        statusText: upstream.statusText,
-        headers,
-      });
+      return env.ASSETS.fetch(request);
     }
 
     return Response.json({ error: 'Not Found' }, { status: 404, headers: CORS_HEADERS });

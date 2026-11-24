@@ -1,0 +1,43 @@
+name: Deploy Website & Gemini Pulse Worker to Cloudflare
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'site/**'
+      - 'plugin/sidecars/hud_panel/ui/**'
+      - 'workers/gemini-pulse/**'
+      - '.github/workflows/deploy-cloudflare.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: cloudflare-agy-hud
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install & build static site
+        run: |
+          npm --prefix site install
+          npm --prefix site run build
+
+      - name: Deploy Worker + Static Assets to agy-hud.512.pub
+        if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+        working-directory: workers/gemini-pulse
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 7f88f6e3631fd4d4b6a8ef5e2771a1a9
+        run: |
+          npm install
+          npx wrangler deploy
