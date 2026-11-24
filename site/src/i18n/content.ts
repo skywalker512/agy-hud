@@ -9,12 +9,14 @@ export interface CreditProject {
 export interface SiteCopy {
   nav: {
     overview: string;
+    pulse: string;
     credits: string;
     docs: string;
     github: string;
   };
   hero: {
     badge: string;
+    pulseCta: string;
     headline: string;
     subhead: string;
     meta: string;
@@ -58,12 +60,14 @@ export const COPY: Record<Locale, SiteCopy> = {
   en: {
     nav: {
       overview: 'Features',
+      pulse: 'Gemini Pulse',
       credits: 'Credits',
       docs: 'Guide',
       github: 'GitHub',
     },
     hero: {
       badge: 'v1.2 · OpenRouter 7d/24h Curves · Cyber Arena PK · 2x Wrapped Poster',
+      pulseCta: 'Live Gemini Pulse Radar',
       headline: 'See what Antigravity is really doing.',
       subhead:
         'A native telemetry cockpit built into Google Antigravity’s side pane — real GEN speed, TTFT root-cause attribution, global Gemini 7d/24h curves & Cyber Arena PK, calibrated Ultra 20x quota runway, recursive Swarm rollup, and 2x PNG Wrapped posters.',
@@ -133,12 +137,14 @@ export const COPY: Record<Locale, SiteCopy> = {
   zh: {
     nav: {
       overview: '核心能力',
+      pulse: 'Gemini 实时雷达',
       credits: '致谢',
       docs: '使用指南',
       github: 'GitHub',
     },
     hero: {
       badge: 'v1.2 · OpenRouter 7d/24h 大盘折线 · ⚔ 赛博斗蛐蛐 · 2x 战报海报',
+      pulseCta: '打开 Gemini 实时雷达',
       headline: '看清 Antigravity 正在发生的一切。',
       subhead:
         '专为 Google Antigravity 打造的原生遥测驾驶舱——实时生成速度、首字慢归因、Gemini 全球 7 天/24h 大盘折线与赛博斗蛐蛐 PK、Ultra 20x 配额续航、Swarm 递归合并统计，以及一键生成 2x 高清分享战报海报。',

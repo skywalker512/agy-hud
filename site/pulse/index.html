@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gemini Pulse — Live Global Gemini Telemetry · AGY-HUD</title>
+    <meta
+      name="description"
+      content="Live global Gemini model telemetry dashboard: TTFT, E2E latency, throughput (TPS), cache hit rate, 5m/30m/1d endpoint uptime across Google Vertex & AI Studio, and Google Cloud Service Health incidents."
+    />
+    <meta name="theme-color" content="#0a0b0e" />
+    <meta property="og:title" content="Gemini Pulse — Live Global Gemini Telemetry · AGY-HUD" />
+    <meta
+      property="og:description"
+      content="Track Gemini 4 Neon, Hydrogen, Carbon, Argon, and 3.8 Flash live TTFT, E2E latency, TPS, cache hit %, Vertex vs AI Studio uptime, and GCP Vertex AI incidents."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://skywalker512.github.io/agy-hud/pulse/" />
+    <link rel="icon" type="image/svg+xml" href="../logo.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      media="print"
+      onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:ROND,opsz,slnt,wdth,wght@0..100,6..144,-10..0,92..100,100..1000&family=Google+Sans+Code:ital,wght@0,300..800;1,300..800&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('agy-hud-site-theme');
+          var theme = saved === 'light' || saved === 'dark' ? saved : 'dark';
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.colorScheme = theme;
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/pulse/main.tsx"></script>
+  </body>
+</html>

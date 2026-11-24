@@ -9,6 +9,7 @@ import {
   buildGeminiPulseSnapshot,
   computeLocalGeminiBaselines,
   evaluateTtftAttribution,
+  mergeIntradayHistory,
   parseGcpGeminiIncidents,
   parseOpenRouterComparisonSeries,
   parseOpenRouterEndpointsJson,
@@ -285,4 +286,52 @@ test('parseOpenRouterComparisonSeries and parseOpenRouterUptimeBuckets extract 7
   assert.equal(buckets[0].availability, 99.71);
   assert.equal(buckets[0].rawAvailability, 99.11);
   assert.equal(buckets[1].x, '2026-11-23 04:00');
+});
+
+test('parseOpenRouterModelHtml extracts P95/P99, tool call error rate, reasoning share & mergeIntradayHistory maintains 48h 30m ring buffer', () => {
+  const html = `
+    <script>self.__next_f.push([1,"{\\"weightedCacheHitRate\\":0.82,\\"providerSummaries\\":[{\\"endpointId\\":\\"ep-v\\",\\"providerName\\":\\"Google Vertex (4)\\",\\"providerSlug\\":\\"google-vertex\\",\\"cacheHitRate\\":0.82,\\"effectiveInputPrice\\":0.66,\\"effectiveOutputPrice\\":15,\\"totalTokens\\":44000000000}]}"])</script>
+    <script>self.__next_f.push([1,"{\\"stats\\":{\\"endpoint_id\\":\\"ep-v\\",\\"p50_latency\\":4300,\\"p75_latency\\":7400,\\"p90_latency\\":13900,\\"p95_latency\\":20600,\\"p99_latency\\":40290,\\"mean_latency\\":7080,\\"p50_throughput\\":67,\\"p90_throughput\\":18,\\"request_count\\":22476,\\"window_minutes\\":30}}"])</script>
+    <script>self.__next_f.push([1,"{\\"total_completion_tokens\\":200000,\\"total_native_tokens_reasoning\\":84000,\\"total_tool_calls\\":10000,\\"requests_with_tool_call_errors\\":125}"])</script>
+  `;
+  const parsed = parseOpenRouterModelHtml(html);
+  assert.equal(parsed.endpoints[0].p95TtftSec, 20.6);
+  assert.equal(parsed.endpoints[0].p99TtftSec, 40.29);
+  assert.equal(parsed.endpoints[0].meanTtftSec, 7.08);
+  assert.equal(parsed.endpoints[0].effectiveInputPrice, 0.66);
+  assert.equal(parsed.toolCalls24h, 10000);
+  assert.equal(parsed.toolCallErrorPct, 1.25);
+  assert.equal(parsed.reasoningSharePct, 42);
+
+  const e2eSeries = parseOpenRouterComparisonSeries(
+    { data: [{ x: '2026-11-23', y: { 'ep-v': 10200 } }] },
+    'e2e',
+    parsed.endpoints,
+  );
+  assert.equal(e2eSeries[0].value, 10.2);
+
+  const t0 = Date.UTC(2026, 10, 24, 10, 5, 0);
+  const tOld = t0 - 50 * 3_600_000;
+  const model = summarizeModelPulse(
+    GEMINI_PULSE_MODELS[0],
+    parsed,
+    { uptime5mPct: 100, uptime30mPct: 99.8, uptime1dPct: 99.9, degradedProviders: [] },
+    [],
+  );
+  assert.equal(model.p99TtftSec, 40.29);
+  assert.equal(model.toolCallErrorPct, 1.25);
+  assert.equal(model.uptime5mPct, 100);
+
+  const merged = mergeIntradayHistory(
+    [
+      { bucketMs: tOld, x: '2026-11-22 08:00', p50TtftSec: 9.9, p50Tps: 40, cacheHitPct: 70, uptime30mPct: 99 },
+      { bucketMs: Date.UTC(2026, 10, 24, 9, 30, 0), x: '2026-11-24 09:30', p50TtftSec: 4.1, p50Tps: 70, cacheHitPct: 81, uptime30mPct: 100 },
+    ],
+    model,
+    t0,
+  );
+  assert.equal(merged.length, 2); // pruned >48h old bucket, kept 09:30 + added 10:00
+  assert.equal(merged[1].x, '2026-11-24 10:00');
+  assert.equal(merged[1].p50TtftSec, 4.3);
+  assert.equal(merged[1].p99TtftSec, 40.29);
 });

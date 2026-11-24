@@ -48,13 +48,22 @@ export function HeroSection({
         <div class="grid items-center gap-10 lg:grid-cols-[minmax(0,1.06fr)_minmax(380px,432px)] lg:gap-14">
           {/* Left column: Confident release pitch + immediate install + 16-theme quick swatch bar */}
           <div class="min-w-0">
-            <a
-              href="#overview"
-              class="mb-5 inline-flex max-w-full items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-1 text-[11.5px] font-medium text-[var(--fg-2)] no-underline transition-colors hover:border-[var(--accent)]"
-            >
-              <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--seg-cache)]" />
-              <span class="truncate font-mono">{copy.hero.badge}</span>
-            </a>
+            <div class="mb-5 flex flex-wrap items-center gap-2">
+              <a
+                href="#overview"
+                class="inline-flex max-w-full items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-1 text-[11.5px] font-medium text-[var(--fg-2)] no-underline transition-colors hover:border-[var(--accent)]"
+              >
+                <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--seg-cache)]" />
+                <span class="truncate font-mono">{copy.hero.badge}</span>
+              </a>
+              <a
+                href="./pulse/"
+                class="inline-flex items-center gap-1.5 rounded-full border border-[var(--seg-cache)]/45 bg-[var(--seg-cache)]/10 px-3 py-1 text-[11.5px] font-semibold text-[var(--fg)] no-underline transition-colors hover:border-[var(--seg-cache)]"
+              >
+                <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--seg-cache)]" />
+                <span>{copy.hero.pulseCta} →</span>
+              </a>
+            </div>
 
             <h1 class="display-heading text-[36px] leading-[1.08] font-bold text-[var(--fg)] sm:text-[48px] lg:text-[54px] lg:leading-[1.05]">
               {copy.hero.headline}

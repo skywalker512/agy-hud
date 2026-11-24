@@ -71,6 +71,13 @@ export function Navbar({
               {copy.nav.overview}
             </a>
             <a
+              href="./pulse/"
+              class="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[var(--fg)] transition-colors hover:bg-[var(--surface)]"
+            >
+              <span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-cache)]" />
+              <span>{copy.nav.pulse}</span>
+            </a>
+            <a
               href="#credits"
               class="rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
             >
@@ -89,6 +96,13 @@ export function Navbar({
         </div>
 
         <div class="flex items-center gap-1.5">
+          <a
+            href="./pulse/"
+            class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 text-[11.5px] font-medium text-[var(--fg)] no-underline transition-colors hover:border-[var(--border-strong)] md:hidden"
+          >
+            <span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-cache)]" />
+            <span>Pulse</span>
+          </a>
           <ThemePicker
             locale={locale}
             activeTheme={activeTheme}

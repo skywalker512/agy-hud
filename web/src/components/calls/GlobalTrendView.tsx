@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import type { GeminiModelGlobalPulse, GeminiPulseSnapshot, Lang } from '../../types/telemetry';
+import type { GeminiIntradayPoint, GeminiModelGlobalPulse, GeminiPulseSnapshot, Lang } from '../../types/telemetry';
 import { fmtClock, fmtSec, fmtTps } from '../../utils/format';
 import { buildMonotonePath, clamp, niceMax } from './trendMath';
 
-export type GlobalTrendMetric = 'ttft' | 'tps' | 'cache' | 'uptime';
+export type GlobalTrendMetric = 'ttft' | 'e2e' | 'tps' | 'cache' | 'uptime';
 
 interface GlobalTrendViewProps {
   geminiPulse?: GeminiPulseSnapshot;
@@ -59,21 +59,21 @@ function shortName(label: string): string {
 }
 
 function fmtVal(val: number, metric: GlobalTrendMetric): string {
-  if (metric === 'ttft') return fmtSec(val);
+  if (metric === 'ttft' || metric === 'e2e') return fmtSec(val);
   if (metric === 'tps') return `${fmtTps(val)} t/s`;
   if (metric === 'uptime') return `${val.toFixed(1)}%`;
   return `${Math.round(val)}%`;
 }
 
 function fmtAxisTick(val: number, metric: GlobalTrendMetric): string {
-  if (metric === 'ttft') return val >= 10 ? `${Math.round(val)}s` : `${val.toFixed(1)}s`;
+  if (metric === 'ttft' || metric === 'e2e') return val >= 10 ? `${Math.round(val)}s` : `${val.toFixed(1)}s`;
   if (metric === 'tps') return `${Math.round(val)}`;
   return `${Math.round(val)}%`;
 }
 
-function fmtShortX(xLabel: string, metric: GlobalTrendMetric, isZh: boolean): string {
+function fmtShortX(xLabel: string, metric: GlobalTrendMetric, isZh: boolean, isIntraday = false): string {
   if (xLabel === '__live30m__') return isZh ? '近30m' : '30m';
-  if (metric === 'uptime') {
+  if (metric === 'uptime' || isIntraday) {
     const ms = Date.parse(`${xLabel.replace(' ', 'T')}:00Z`);
     if (Number.isFinite(ms)) {
       const d = new Date(ms);
@@ -97,6 +97,7 @@ export function GlobalTrendView({
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [splitProviders, setSplitProviders] = useState<boolean>(false);
   const [showLocalOverlay, setShowLocalOverlay] = useState<boolean>(true);
+  const [granularity, setGranularity] = useState<'7d' | '30m'>('7d');
   const [selectedFamilies, setSelectedFamilies] = useState<string[] | null>(null);
 
   useEffect(() => {
@@ -156,29 +157,45 @@ export function GlobalTrendView({
   const singleSelectedModel: GeminiModelGlobalPulse | null =
     activeFamilies.length === 1 ? models.find((m) => m.family === activeFamilies[0]) || null : null;
 
+  const maxIntradayPoints = useMemo(
+    () => models.reduce((acc, m) => Math.max(acc, m.series?.intraday30m?.length || 0), 0),
+    [models],
+  );
+  const canUseIntraday = metric !== 'e2e' && metric !== 'uptime' && maxIntradayPoints >= 2;
+  const effectiveIntraday = granularity === '30m' && canUseIntraday;
+
   const canSplitProviders = useMemo(() => {
     if (!singleSelectedModel?.series) return false;
     if (metric === 'uptime') {
       return singleSelectedModel.series.uptime24h.some((b) => b.rawAvailability !== null);
     }
+    if (effectiveIntraday) {
+      const provs = new Set<string>();
+      for (const pt of singleSelectedModel.series.intraday30m || []) {
+        for (const k of Object.keys(pt.byProvider || {})) provs.add(k);
+      }
+      return provs.size >= 2;
+    }
     const arr =
       metric === 'ttft'
         ? singleSelectedModel.series.ttft7d
-        : metric === 'tps'
-          ? singleSelectedModel.series.tps7d
-          : singleSelectedModel.series.cache7d;
+        : metric === 'e2e'
+          ? singleSelectedModel.series.e2e7d || []
+          : metric === 'tps'
+            ? singleSelectedModel.series.tps7d
+            : singleSelectedModel.series.cache7d;
     const provs = new Set<string>();
     for (const pt of arr) {
       for (const k of Object.keys(pt.byProvider || {})) provs.add(k);
     }
     return provs.size >= 2;
-  }, [singleSelectedModel, metric]);
+  }, [singleSelectedModel, metric, effectiveIntraday]);
 
   const effectiveSplit = splitProviders && canSplitProviders && singleSelectedModel !== null;
 
   const hasAnyLocalCurve = useMemo(
-    () => metric !== 'uptime' && models.some((m) => (m.local?.calls7d || 0) > 0),
-    [metric, models],
+    () => metric !== 'uptime' && metric !== 'e2e' && !effectiveIntraday && models.some((m) => (m.local?.calls7d || 0) > 0),
+    [metric, effectiveIntraday, models],
   );
 
   // Build unified X-axis labels & plotted SeriesLine[]
@@ -190,6 +207,69 @@ export function GlobalTrendView({
     const targetModels = activeFamilies
       .map((f) => models.find((m) => m.family === f))
       .filter((m): m is GeminiModelGlobalPulse => Boolean(m));
+
+    // True 30-minute intraday mode (populated from local 48h ring buffer or Cloudflare Worker feed)
+    if (effectiveIntraday) {
+      const labelSet = new Set<string>();
+      for (const m of targetModels) {
+        for (const b of m.series?.intraday30m || []) labelSet.add(b.x);
+      }
+      const sortedX = [...labelSet].sort();
+      const idxMap = new Map(sortedX.map((x, i) => [x, i]));
+
+      const pickIntradayVal = (pt: GeminiIntradayPoint) =>
+        metric === 'ttft' ? pt.p50TtftSec : metric === 'tps' ? pt.p50Tps : pt.cacheHitPct;
+
+      if (effectiveSplit && singleSelectedModel) {
+        const buckets = singleSelectedModel.series?.intraday30m || [];
+        const provs = new Set<string>();
+        for (const b of buckets) {
+          for (const k of Object.keys(b.byProvider || {})) provs.add(k);
+        }
+        const lines: SeriesLine[] = [];
+        let ci = 0;
+        for (const prov of provs) {
+          const pts: SeriesLine['points'] = [];
+          for (const b of buckets) {
+            const pObj = b.byProvider?.[prov];
+            const v = metric === 'ttft' ? pObj?.ttft : metric === 'tps' ? pObj?.tps : pObj?.cache;
+            if (typeof v === 'number' && v > 0 && idxMap.has(b.x)) {
+              pts.push({ xIdx: idxMap.get(b.x)!, xLabel: b.x, val: v });
+            }
+          }
+          if (!pts.length) continue;
+          lines.push({
+            id: prov,
+            label: prov,
+            color: stableProviderColor(prov, ci),
+            points: pts,
+            latestVal: pts[pts.length - 1].val,
+          });
+          ci += 1;
+        }
+        return { xLabels: sortedX, seriesLines: lines };
+      }
+
+      const lines: SeriesLine[] = [];
+      for (const m of targetModels) {
+        const pts: SeriesLine['points'] = [];
+        for (const b of m.series?.intraday30m || []) {
+          const v = pickIntradayVal(b);
+          if (typeof v === 'number' && v > 0 && idxMap.has(b.x)) {
+            pts.push({ xIdx: idxMap.get(b.x)!, xLabel: b.x, val: v });
+          }
+        }
+        if (!pts.length) continue;
+        lines.push({
+          id: m.family,
+          label: shortName(m.label),
+          color: stableGeminiModelColor(m.family, modelIndexMap.get(m.family) || 0),
+          points: pts,
+          latestVal: pts[pts.length - 1].val,
+        });
+      }
+      return { xLabels: sortedX, seriesLines: lines };
+    }
 
     if (metric === 'uptime') {
       const labelSet = new Set<string>();
@@ -262,17 +342,21 @@ export function GlobalTrendView({
     const getArr = (m: GeminiModelGlobalPulse) =>
       metric === 'ttft'
         ? m.series?.ttft7d || []
-        : metric === 'tps'
-          ? m.series?.tps7d || []
-          : m.series?.cache7d || [];
+        : metric === 'e2e'
+          ? m.series?.e2e7d || []
+          : metric === 'tps'
+            ? m.series?.tps7d || []
+            : m.series?.cache7d || [];
     const getLive30m = (m: GeminiModelGlobalPulse): number | null =>
-      metric === 'ttft' ? m.p50TtftSec : metric === 'tps' ? m.p50Tps : m.cacheHitPct;
+      metric === 'ttft' ? m.p50TtftSec : metric === 'tps' ? m.p50Tps : metric === 'cache' ? m.cacheHitPct : null;
     const getLocalDailyVal = (pt: {
       p50TtftSec: number | null;
       p50Tps: number | null;
       cacheHitPct: number | null;
-    }): number | null => (metric === 'ttft' ? pt.p50TtftSec : metric === 'tps' ? pt.p50Tps : pt.cacheHitPct);
+    }): number | null =>
+      metric === 'ttft' ? pt.p50TtftSec : metric === 'tps' ? pt.p50Tps : metric === 'cache' ? pt.cacheHitPct : null;
     const getLocalLive30m = (m: GeminiModelGlobalPulse): number | null => {
+      if (metric === 'e2e') return null;
       const loc = m.local;
       if (!loc) return null;
       const v30 = metric === 'ttft' ? loc.p50Ttft30mSec : metric === 'tps' ? loc.p50Tps30m : loc.cacheHit30mPct;
@@ -301,7 +385,7 @@ export function GlobalTrendView({
     const idxMap = new Map(finalX.map((x, i) => [x, i]));
 
     const buildLocalSeriesLine = (m: GeminiModelGlobalPulse | null): SeriesLine | null => {
-      if (!showLocalOverlay || !m?.local) return null;
+      if (!showLocalOverlay || metric === 'e2e' || !m?.local) return null;
       const pts: SeriesLine['points'] = [];
       for (const dp of m.local.daily7d || []) {
         const v = getLocalDailyVal(dp);
@@ -362,7 +446,9 @@ export function GlobalTrendView({
             ? epMatch.p50TtftSec
             : metric === 'tps'
               ? epMatch.p50Tps
-              : epMatch.cacheHitPct
+              : metric === 'cache'
+                ? epMatch.cacheHitPct
+                : null
           : null;
         if (epLive !== null && epLive > 0 && idxMap.has('__live30m__')) {
           pts.push({ xIdx: idxMap.get('__live30m__')!, xLabel: '__live30m__', val: epLive, isLive30m: true });
@@ -411,6 +497,7 @@ export function GlobalTrendView({
     activeFamilies,
     metric,
     effectiveSplit,
+    effectiveIntraday,
     singleSelectedModel,
     showLocalOverlay,
     geminiPulse?.activeFamily,
@@ -462,7 +549,7 @@ export function GlobalTrendView({
     if (!seriesLines.length) return [];
     const globalLines = seriesLines.filter((s) => !s.isLocal);
     const poolForBest = globalLines.length ? globalLines : seriesLines;
-    const lowerIsBetter = metric === 'ttft';
+    const lowerIsBetter = metric === 'ttft' || metric === 'e2e';
     const sorted = [...poolForBest].sort((a, b) =>
       lowerIsBetter ? a.latestVal - b.latestVal : b.latestVal - a.latestVal,
     );
@@ -488,6 +575,23 @@ export function GlobalTrendView({
               : null
         : null);
 
+    const fourthCell =
+      metric === 'e2e' && refModel?.p99TtftSec != null
+        ? {
+            k: 'P99 TTFT',
+            v: fmtSec(refModel.p99TtftSec),
+            sub: refModel.toolCallErrorPct != null
+              ? `Tool Err ${refModel.toolCallErrorPct}%`
+              : shortName(refModel.label),
+            tone: refModel.p99TtftSec >= 30 ? 'text-hud-warn' : 'text-hud-fg',
+          }
+        : {
+            k: isZh ? '我的实测' : 'MY LOCAL',
+            v: localVal !== null ? fmtVal(localVal, metric) : '--',
+            sub: localLine ? localLine.label : refModel ? shortName(refModel.label) : '--',
+            tone: 'text-hud-accent-ink',
+          };
+
     return [
       {
         k: isZh ? '🏆 大盘最优' : '🏆 LEADER',
@@ -498,23 +602,28 @@ export function GlobalTrendView({
       {
         k: focusLine.label,
         v: fmtVal(focusLine.latestVal, metric),
-        sub: metric === 'uptime' ? (isZh ? '近 24h 最新' : 'Latest 24h') : isZh ? '近 30m 实时' : 'Live 30m',
+        sub: effectiveIntraday
+          ? isZh ? '30m 实时' : 'Live 30m'
+          : metric === 'uptime'
+            ? (isZh ? '近 24h 最新' : 'Latest 24h')
+            : metric === 'e2e'
+              ? (isZh ? '最新日均' : 'Latest Day')
+              : isZh ? '近 30m 实时' : 'Live 30m',
         tone: 'text-hud-fg',
       },
       {
         k: isZh ? '区间波动' : 'RANGE',
         v: `${fmtAxisTick(minV, metric)}–${fmtAxisTick(maxV, metric)}`,
-        sub: metric === 'uptime' ? '24h' : isZh ? '近 7 天' : '7d',
+        sub: effectiveIntraday
+          ? `${xLabels.length}×30m`
+          : metric === 'uptime'
+            ? '24h'
+            : isZh ? '近 7 天' : '7d',
         tone: 'text-hud-fg',
       },
-      {
-        k: isZh ? '我的实测' : 'MY LOCAL',
-        v: localVal !== null ? fmtVal(localVal, metric) : '--',
-        sub: localLine ? localLine.label : refModel ? shortName(refModel.label) : '--',
-        tone: 'text-hud-accent-ink',
-      },
+      fourthCell,
     ];
-  }, [seriesLines, metric, geminiPulse?.activeFamily, models, singleSelectedModel, activeFamilies, isZh]);
+  }, [seriesLines, metric, effectiveIntraday, xLabels.length, geminiPulse?.activeFamily, models, singleSelectedModel, activeFamilies, isZh]);
 
   const safeHoverIdx = hoveredIdx !== null && hoveredIdx >= 0 && hoveredIdx < xLabels.length ? hoveredIdx : null;
   const hoverRows = useMemo(() => {
@@ -525,7 +634,7 @@ export function GlobalTrendView({
         return pt ? { label: s.label, color: s.color, isLocal: s.isLocal, val: pt.val } : null;
       })
       .filter((r): r is { label: string; color: string; isLocal: boolean | undefined; val: number } => Boolean(r));
-    rows.sort((a, b) => (metric === 'ttft' ? a.val - b.val : b.val - a.val));
+    rows.sort((a, b) => (metric === 'ttft' || metric === 'e2e' ? a.val - b.val : b.val - a.val));
     return rows;
   }, [safeHoverIdx, seriesLines, metric]);
 
@@ -541,14 +650,14 @@ export function GlobalTrendView({
   const xTicks = useMemo(() => {
     const n = xLabels.length;
     if (n === 0) return [];
-    if (n === 1) return [{ idx: 0, label: fmtShortX(xLabels[0], metric, isZh), anchor: 'middle' as const }];
+    if (n === 1) return [{ idx: 0, label: fmtShortX(xLabels[0], metric, isZh, effectiveIntraday), anchor: 'middle' as const }];
     const mid = Math.floor((n - 1) / 2);
     return [
-      { idx: 0, label: fmtShortX(xLabels[0], metric, isZh), anchor: 'start' as const },
-      { idx: mid, label: fmtShortX(xLabels[mid], metric, isZh), anchor: 'middle' as const },
-      { idx: n - 1, label: fmtShortX(xLabels[n - 1], metric, isZh), anchor: 'end' as const },
+      { idx: 0, label: fmtShortX(xLabels[0], metric, isZh, effectiveIntraday), anchor: 'start' as const },
+      { idx: mid, label: fmtShortX(xLabels[mid], metric, isZh, effectiveIntraday), anchor: 'middle' as const },
+      { idx: n - 1, label: fmtShortX(xLabels[n - 1], metric, isZh, effectiveIntraday), anchor: 'end' as const },
     ];
-  }, [xLabels, metric, isZh]);
+  }, [xLabels, metric, isZh, effectiveIntraday]);
 
   const handlePointerMove = (e: PointerEvent) => {
     if (!boxRef.current || xLabels.length === 0) return;
@@ -572,7 +681,7 @@ export function GlobalTrendView({
       {/* Global Metric Tabs + Local Overlay + Provider Split toggle */}
       <div className="flex flex-wrap items-center justify-between gap-1.5 min-w-0">
         <div className="metric-tabs" role="tablist" aria-label="Global metric">
-          {(['ttft', 'tps', 'cache', 'uptime'] as const).map((gm) => (
+          {(['ttft', 'e2e', 'tps', 'cache', 'uptime'] as const).map((gm) => (
             <button
               key={gm}
               type="button"
@@ -586,16 +695,39 @@ export function GlobalTrendView({
             >
               {gm === 'ttft'
                 ? isZh ? '首字' : 'TTFT'
-                : gm === 'tps'
-                  ? isZh ? '速度' : 'TPS'
-                  : gm === 'cache'
-                    ? isZh ? '缓存' : 'Cache'
-                    : isZh ? '可用率' : 'Uptime'}
+                : gm === 'e2e'
+                  ? isZh ? '总耗' : 'E2E'
+                  : gm === 'tps'
+                    ? isZh ? '速度' : 'TPS'
+                    : gm === 'cache'
+                      ? isZh ? '缓存' : 'Cache'
+                      : isZh ? '可用率' : 'Uptime'}
             </button>
           ))}
         </div>
 
         <div className="flex items-center gap-1">
+          {canUseIntraday && (
+            <button
+              type="button"
+              onClick={() => {
+                setGranularity((g) => (g === '30m' ? '7d' : '30m'));
+                setHoveredIdx(null);
+              }}
+              className={`px-1.5 py-[2px] rounded-full border font-hud-mono text-[9px] cursor-pointer transition-colors ${
+                effectiveIntraday
+                  ? 'bg-tint-accent border-tint-accent-border text-hud-accent-ink font-semibold'
+                  : 'bg-hud-fill border-transparent text-hud-muted hover:text-hud-fg'
+              }`}
+              data-tip={
+                isZh
+                  ? `切换 30 分钟实时采集折线（已缓存 ${maxIntradayPoints} 个 30m 节点，最多 48h）`
+                  : `Toggle true 30m intraday series (${maxIntradayPoints} buckets cached, up to 48h)`
+              }
+            >
+              {effectiveIntraday ? `30m (${maxIntradayPoints})` : '30m'}
+            </button>
+          )}
           {hasAnyLocalCurve && (
             <button
               type="button"
@@ -637,7 +769,7 @@ export function GlobalTrendView({
             </button>
           )}
           <span className="font-hud-mono text-[9px] text-hud-muted">
-            {metric === 'uptime' ? '24h' : '7d + 30m'}
+            {effectiveIntraday ? '48h·30m' : metric === 'uptime' ? '24h' : metric === 'e2e' ? '7d' : '7d + 30m'}
           </span>
         </div>
       </div>
@@ -829,13 +961,15 @@ export function GlobalTrendView({
             style={{ left: `${popoverLeftPx}px`, width: `${isNarrow ? 182 : 204}px` }}
           >
             <div className="flex items-center justify-between gap-2 font-hud-mono text-[9.5px] font-semibold text-hud-muted border-b border-hud-hairline pb-0.5">
-              <span>{fmtShortX(xLabels[safeHoverIdx], metric, isZh)}</span>
+              <span>{fmtShortX(xLabels[safeHoverIdx], metric, isZh, effectiveIntraday)}</span>
               <span>
-                {xLabels[safeHoverIdx] === '__live30m__'
-                  ? isZh ? '实时 30m' : 'Live 30m'
-                  : metric === 'uptime'
-                    ? '24h'
-                    : isZh ? '日均 P50' : 'Daily P50'}
+                {effectiveIntraday
+                  ? isZh ? '30m 快照' : '30m Bucket'
+                  : xLabels[safeHoverIdx] === '__live30m__'
+                    ? isZh ? '实时 30m' : 'Live 30m'
+                    : metric === 'uptime'
+                      ? '24h'
+                      : isZh ? '日均 P50' : 'Daily P50'}
               </span>
             </div>
             {hoverRows.map((row, ri) => (

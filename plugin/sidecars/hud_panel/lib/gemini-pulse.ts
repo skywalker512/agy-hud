@@ -55,8 +55,17 @@ export interface GeminiEndpointPulse {
   p50TtftSec: number | null;
   p75TtftSec: number | null;
   p90TtftSec: number | null;
+  p95TtftSec?: number | null;
+  p99TtftSec?: number | null;
+  meanTtftSec?: number | null;
   p50Tps: number | null;
+  p75Tps?: number | null;
   p90Tps: number | null;
+  p95Tps?: number | null;
+  p99Tps?: number | null;
+  effectiveInputPrice?: number | null;
+  effectiveOutputPrice?: number | null;
+  totalTokens?: number;
   requestCount: number;
   windowMinutes: number;
 }
@@ -75,11 +84,27 @@ export interface GeminiUptimeBucket {
   rawAvailability: number | null;
 }
 
+export interface GeminiIntradayPoint {
+  bucketMs: number;
+  x: string;
+  p50TtftSec: number | null;
+  p90TtftSec?: number | null;
+  p99TtftSec?: number | null;
+  p50Tps: number | null;
+  cacheHitPct: number | null;
+  uptime30mPct: number | null;
+  requestCount30m?: number;
+  byProvider?: Record<string, { ttft?: number | null; tps?: number | null; cache?: number | null }>;
+}
+
 export interface GeminiModelTimeSeries {
   ttft7d: GeminiTimeSeriesPoint[];
+  e2e7d?: GeminiTimeSeriesPoint[];
   tps7d: GeminiTimeSeriesPoint[];
   cache7d: GeminiTimeSeriesPoint[];
+  uptime7d?: GeminiTimeSeriesPoint[];
   uptime24h: GeminiUptimeBucket[];
+  intraday30m?: GeminiIntradayPoint[];
 }
 
 export interface GeminiModelGlobalPulse {
@@ -91,17 +116,27 @@ export interface GeminiModelGlobalPulse {
   p50TtftSec: number | null;
   p75TtftSec: number | null;
   p90TtftSec: number | null;
+  p95TtftSec?: number | null;
+  p99TtftSec?: number | null;
+  meanTtftSec?: number | null;
   p50Tps: number | null;
   p90Tps: number | null;
   cacheHitPct: number | null;
+  uptime5mPct?: number | null;
   uptime30mPct: number | null;
+  uptime1dPct?: number | null;
+  toolCallErrorPct?: number | null;
+  toolCalls24h?: number;
+  reasoningSharePct?: number | null;
+  effectiveInputPrice?: number | null;
+  effectiveOutputPrice?: number | null;
   requestCount30m: number;
   windowMinutes: number;
   primaryProvider: string;
   degradedProviders: string[];
   /** Individual OpenRouter upstream provider endpoints (30m window) for Arena comparison */
   endpoints?: GeminiEndpointPulse[];
-  /** OpenRouter historical time-series (7d TTFT/TPS/Cache + 24h 10m-20m Uptime) */
+  /** OpenRouter historical time-series (7d TTFT/E2E/TPS/Cache/Uptime + 24h Uptime + 48h 30m ring buffer) */
   series?: GeminiModelTimeSeries;
   /** Present when local history exists for this family */
   local?: GeminiLocalBaseline | null;
@@ -289,7 +324,7 @@ export function parseOpenRouterUptimeBuckets(unescHtml: string): GeminiUptimeBuc
  */
 export function parseOpenRouterComparisonSeries(
   raw: any,
-  kind: 'ttft' | 'tps' | 'cache',
+  kind: 'ttft' | 'e2e' | 'tps' | 'cache' | 'uptime',
   endpoints: GeminiEndpointPulse[],
 ): GeminiTimeSeriesPoint[] {
   const rows = Array.isArray(raw?.data) ? raw.data : [];
@@ -313,11 +348,13 @@ export function parseOpenRouterComparisonSeries(
       .map(([epId, v]) => {
         const num = v as number;
         const scaled =
-          kind === 'ttft'
+          kind === 'ttft' || kind === 'e2e'
             ? roundNum(num / 1000, 2) ?? 0
             : kind === 'cache'
               ? Math.max(0, Math.min(100, roundNum(num, 1) ?? 0))
-              : roundNum(num, 1) ?? 0;
+              : kind === 'uptime'
+                ? Math.max(0, Math.min(100, roundNum(num, 2) ?? 0))
+                : roundNum(num, 1) ?? 0;
         return {
           epId,
           val: scaled,
@@ -371,6 +408,9 @@ export function parseOpenRouterModelHtml(html: string): {
   weightedCacheHitPct: number | null;
   endpoints: GeminiEndpointPulse[];
   uptime24h: GeminiUptimeBucket[];
+  toolCallErrorPct?: number | null;
+  toolCalls24h?: number;
+  reasoningSharePct?: number | null;
 } {
   if (!html || typeof html !== 'string') {
     return { permaslug: null, weightedCacheHitPct: null, endpoints: [], uptime24h: [] };
@@ -380,7 +420,17 @@ export function parseOpenRouterModelHtml(html: string): {
   const permaslug = psMatch ? psMatch[1] : null;
 
   let weightedCacheHitPct: number | null = null;
-  const providerMeta = new Map<string, { providerName?: string; providerSlug?: string; cacheHitRate?: number; totalTokens?: number }>();
+  const providerMeta = new Map<
+    string,
+    {
+      providerName?: string;
+      providerSlug?: string;
+      cacheHitRate?: number;
+      totalTokens?: number;
+      effectiveInputPrice?: number;
+      effectiveOutputPrice?: number;
+    }
+  >();
   const cacheRe = /"weightedCacheHitRate":([0-9.]+|null),"providerSummaries":(\[[^\]]*\])/g;
   let cm: RegExpExecArray | null;
   while ((cm = cacheRe.exec(unesc)) !== null) {
@@ -404,6 +454,27 @@ export function parseOpenRouterModelHtml(html: string): {
     }
   }
 
+  // Extract latest daily aggregate stats embedded in SSR (tool-call error rate & reasoning share)
+  let toolCallErrorPct: number | null = null;
+  let toolCalls24h = 0;
+  let reasoningSharePct: number | null = null;
+  const dailyRe =
+    /"total_completion_tokens":(\d+)[^}]*?"total_native_tokens_reasoning":(\d+)[^}]*?"total_tool_calls":(\d+),"requests_with_tool_call_errors":(\d+)/g;
+  let dm: RegExpExecArray | null;
+  while ((dm = dailyRe.exec(unesc)) !== null) {
+    const compTok = Number(dm[1]);
+    const reasonTok = Number(dm[2]);
+    const toolCalls = Number(dm[3]);
+    const toolErrs = Number(dm[4]);
+    if (Number.isFinite(toolCalls) && toolCalls > 0) {
+      toolCalls24h = toolCalls;
+      toolCallErrorPct = roundNum((toolErrs / toolCalls) * 100, 2);
+    }
+    if (Number.isFinite(compTok) && compTok > 0 && Number.isFinite(reasonTok) && reasonTok >= 0) {
+      reasoningSharePct = Math.max(0, Math.min(100, roundNum((reasonTok / compTok) * 100, 1) ?? 0));
+    }
+  }
+
   const byEp = new Map<string, GeminiEndpointPulse>();
   const statsRe = /"stats":(\{"endpoint_id":"[^"]+"[^}]+\})/g;
   let sm: RegExpExecArray | null;
@@ -415,10 +486,22 @@ export function parseOpenRouterModelHtml(html: string): {
       const p50Ms = typeof st.p50_latency === 'number' && st.p50_latency > 0 ? st.p50_latency : null;
       const p75Ms = typeof st.p75_latency === 'number' && st.p75_latency > 0 ? st.p75_latency : null;
       const p90Ms = typeof st.p90_latency === 'number' && st.p90_latency > 0 ? st.p90_latency : null;
+      const p95Ms = typeof st.p95_latency === 'number' && st.p95_latency > 0 ? st.p95_latency : null;
+      const p99Ms = typeof st.p99_latency === 'number' && st.p99_latency > 0 ? st.p99_latency : null;
+      const meanMs = typeof st.mean_latency === 'number' && st.mean_latency > 0 ? st.mean_latency : null;
       const p50Tps = typeof st.p50_throughput === 'number' && st.p50_throughput > 0 ? st.p50_throughput : null;
+      const p75Tps = typeof st.p75_throughput === 'number' && st.p75_throughput > 0 ? st.p75_throughput : null;
       const p90Tps = typeof st.p90_throughput === 'number' && st.p90_throughput > 0 ? st.p90_throughput : null;
+      const p95Tps = typeof st.p95_throughput === 'number' && st.p95_throughput > 0 ? st.p95_throughput : null;
+      const p99Tps = typeof st.p99_throughput === 'number' && st.p99_throughput > 0 ? st.p99_throughput : null;
       const cacheHitPct = typeof meta?.cacheHitRate === 'number' && meta.cacheHitRate >= 0 && meta.cacheHitRate <= 1
         ? roundNum(meta.cacheHitRate * 100, 1)
+        : null;
+      const effIn = typeof meta?.effectiveInputPrice === 'number' && Number.isFinite(meta.effectiveInputPrice)
+        ? roundNum(meta.effectiveInputPrice, 3)
+        : null;
+      const effOut = typeof meta?.effectiveOutputPrice === 'number' && Number.isFinite(meta.effectiveOutputPrice)
+        ? roundNum(meta.effectiveOutputPrice, 2)
         : null;
       byEp.set(st.endpoint_id, {
         endpointId: st.endpoint_id,
@@ -428,8 +511,17 @@ export function parseOpenRouterModelHtml(html: string): {
         p50TtftSec: p50Ms !== null ? roundNum(p50Ms / 1000, 2) : null,
         p75TtftSec: p75Ms !== null ? roundNum(p75Ms / 1000, 2) : null,
         p90TtftSec: p90Ms !== null ? roundNum(p90Ms / 1000, 2) : null,
+        ...(p95Ms !== null ? { p95TtftSec: roundNum(p95Ms / 1000, 2) } : {}),
+        ...(p99Ms !== null ? { p99TtftSec: roundNum(p99Ms / 1000, 2) } : {}),
+        ...(meanMs !== null ? { meanTtftSec: roundNum(meanMs / 1000, 2) } : {}),
         p50Tps: p50Tps !== null ? roundNum(p50Tps, 1) : null,
+        ...(p75Tps !== null ? { p75Tps: roundNum(p75Tps, 1) } : {}),
         p90Tps: p90Tps !== null ? roundNum(p90Tps, 1) : null,
+        ...(p95Tps !== null ? { p95Tps: roundNum(p95Tps, 1) } : {}),
+        ...(p99Tps !== null ? { p99Tps: roundNum(p99Tps, 1) } : {}),
+        ...(effIn !== null ? { effectiveInputPrice: effIn } : {}),
+        ...(effOut !== null ? { effectiveOutputPrice: effOut } : {}),
+        ...(typeof meta?.totalTokens === 'number' && meta.totalTokens > 0 ? { totalTokens: Math.round(meta.totalTokens) } : {}),
         requestCount: typeof st.request_count === 'number' && st.request_count > 0 ? Math.round(st.request_count) : 0,
         windowMinutes: typeof st.window_minutes === 'number' && st.window_minutes > 0 ? st.window_minutes : 30,
       });
@@ -440,18 +532,28 @@ export function parseOpenRouterModelHtml(html: string): {
 
   const endpoints = [...byEp.values()].sort((a, b) => b.requestCount - a.requestCount);
   const uptime24h = parseOpenRouterUptimeBuckets(unesc);
-  return { permaslug, weightedCacheHitPct, endpoints, uptime24h };
+  return {
+    permaslug,
+    weightedCacheHitPct,
+    endpoints,
+    uptime24h,
+    ...(toolCallErrorPct !== null ? { toolCallErrorPct } : {}),
+    ...(toolCalls24h > 0 ? { toolCalls24h } : {}),
+    ...(reasoningSharePct !== null ? { reasoningSharePct } : {}),
+  };
 }
 
 /**
- * Parse OpenRouter `/api/v1/models/<slug>/endpoints` JSON for 30m uptime & provider status flags.
+ * Parse OpenRouter `/api/v1/models/<slug>/endpoints` JSON for 5m/30m/1d uptime & provider status flags.
  */
 export function parseOpenRouterEndpointsJson(raw: any): {
+  uptime5mPct?: number | null;
   uptime30mPct: number | null;
+  uptime1dPct?: number | null;
   degradedProviders: string[];
 } {
   const eps = Array.isArray(raw?.data?.endpoints) ? raw.data.endpoints : [];
-  if (!eps.length) return { uptime30mPct: null, degradedProviders: [] };
+  if (!eps.length) return { uptime5mPct: null, uptime30mPct: null, uptime1dPct: null, degradedProviders: [] };
 
   // Prefer primary standard endpoints (google-vertex/global, google-ai-studio) over low-traffic flex/priority tiers.
   const isStandard = (tag: string) => {
@@ -461,23 +563,35 @@ export function parseOpenRouterEndpointsJson(raw: any): {
   const stdEps = eps.filter((e: any) => isStandard(e?.tag));
   const pool = stdEps.length > 0 ? stdEps : eps;
 
-  const uptimes: number[] = [];
+  const uptimes5m: number[] = [];
+  const uptimes30m: number[] = [];
+  const uptimes1d: number[] = [];
   const degradedProviders: string[] = [];
   for (const e of pool) {
     const tag = String(e?.tag || e?.provider_name || 'provider');
-    const up = typeof e?.uptime_last_30m === 'number' && Number.isFinite(e.uptime_last_30m)
+    const up5 = typeof e?.uptime_last_5m === 'number' && Number.isFinite(e.uptime_last_5m)
+      ? Math.max(0, Math.min(100, e.uptime_last_5m))
+      : null;
+    const up30 = typeof e?.uptime_last_30m === 'number' && Number.isFinite(e.uptime_last_30m)
       ? Math.max(0, Math.min(100, e.uptime_last_30m))
       : null;
-    if (up !== null) uptimes.push(up);
+    const up1d = typeof e?.uptime_last_1d === 'number' && Number.isFinite(e.uptime_last_1d)
+      ? Math.max(0, Math.min(100, e.uptime_last_1d))
+      : null;
+    if (up5 !== null) uptimes5m.push(up5);
+    if (up30 !== null) uptimes30m.push(up30);
+    if (up1d !== null) uptimes1d.push(up1d);
     const st = typeof e?.status === 'number' ? e.status : 0;
-    if (st < 0 || (up !== null && up < 95)) {
+    if (st < 0 || (up30 !== null && up30 < 95)) {
       const label = tag.includes('vertex') ? 'Google Vertex' : (tag.includes('ai-studio') ? 'AI Studio' : tag);
       if (!degradedProviders.includes(label)) degradedProviders.push(label);
     }
   }
 
-  const uptime30mPct = uptimes.length > 0 ? roundNum(Math.min(...uptimes), 1) : null;
-  return { uptime30mPct, degradedProviders };
+  const uptime5mPct = uptimes5m.length > 0 ? roundNum(Math.min(...uptimes5m), 1) : null;
+  const uptime30mPct = uptimes30m.length > 0 ? roundNum(Math.min(...uptimes30m), 1) : null;
+  const uptime1dPct = uptimes1d.length > 0 ? roundNum(Math.min(...uptimes1d), 1) : null;
+  return { uptime5mPct, uptime30mPct, uptime1dPct, degradedProviders };
 }
 
 /**
@@ -537,6 +651,68 @@ export function classifyModelPulseStatus(
   return 'ok';
 }
 
+const INTRADAY_BUCKET_MS = 30 * 60_000;
+const INTRADAY_MAX_AGE_MS = 48 * 3_600_000;
+
+export function formatUtcBucketLabel(ms: number): string {
+  const iso = new Date(ms).toISOString();
+  return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
+}
+
+/**
+ * Append a live 30m snapshot into a 48-hour ring buffer (deduplicated per 30m UTC bucket).
+ */
+export function mergeIntradayHistory(
+  existing: GeminiIntradayPoint[] | undefined,
+  current: GeminiModelGlobalPulse,
+  nowMs = Date.now(),
+  extraPoints?: GeminiIntradayPoint[],
+): GeminiIntradayPoint[] {
+  const cutoff = nowMs - INTRADAY_MAX_AGE_MS;
+  const byBucket = new Map<number, GeminiIntradayPoint>();
+  for (const list of [existing || [], extraPoints || []]) {
+    for (const pt of list) {
+      if (!pt || typeof pt.bucketMs !== 'number' || !Number.isFinite(pt.bucketMs) || pt.bucketMs < cutoff) continue;
+      byBucket.set(pt.bucketMs, pt);
+    }
+  }
+
+  if (
+    current.p50TtftSec !== null ||
+    current.p50Tps !== null ||
+    current.cacheHitPct !== null ||
+    current.uptime30mPct !== null
+  ) {
+    const bucketMs = Math.floor(nowMs / INTRADAY_BUCKET_MS) * INTRADAY_BUCKET_MS;
+    const byProvider: Record<string, { ttft?: number | null; tps?: number | null; cache?: number | null }> = {};
+    for (const ep of current.endpoints || []) {
+      const prov = normalizeProviderLabel(ep.providerName || ep.providerSlug);
+      if (!prov || prov in byProvider) continue;
+      byProvider[prov] = {
+        ttft: ep.p50TtftSec,
+        tps: ep.p50Tps,
+        cache: ep.cacheHitPct,
+      };
+    }
+    byBucket.set(bucketMs, {
+      bucketMs,
+      x: formatUtcBucketLabel(bucketMs),
+      p50TtftSec: current.p50TtftSec,
+      ...(current.p90TtftSec !== null ? { p90TtftSec: current.p90TtftSec } : {}),
+      ...(current.p99TtftSec !== null && current.p99TtftSec !== undefined ? { p99TtftSec: current.p99TtftSec } : {}),
+      p50Tps: current.p50Tps,
+      cacheHitPct: current.cacheHitPct,
+      uptime30mPct: current.uptime30mPct,
+      ...(current.requestCount30m > 0 ? { requestCount30m: current.requestCount30m } : {}),
+      ...(Object.keys(byProvider).length > 0 ? { byProvider } : {}),
+    });
+  }
+
+  return [...byBucket.values()]
+    .sort((a, b) => a.bucketMs - b.bucketMs)
+    .slice(-96);
+}
+
 export function summarizeModelPulse(
   spec: GeminiPulseModelSpec,
   htmlParsed: {
@@ -544,8 +720,16 @@ export function summarizeModelPulse(
     weightedCacheHitPct: number | null;
     endpoints: GeminiEndpointPulse[];
     uptime24h?: GeminiUptimeBucket[];
+    toolCallErrorPct?: number | null;
+    toolCalls24h?: number;
+    reasoningSharePct?: number | null;
   },
-  epParsed: { uptime30mPct: number | null; degradedProviders: string[] },
+  epParsed: {
+    uptime5mPct?: number | null;
+    uptime30mPct: number | null;
+    uptime1dPct?: number | null;
+    degradedProviders: string[];
+  },
   activeIncidents: GcpActiveIncident[],
   seriesOverride?: Partial<GeminiModelTimeSeries>,
 ): GeminiModelGlobalPulse {
@@ -557,6 +741,9 @@ export function summarizeModelPulse(
   const p50TtftSec = primary?.p50TtftSec ?? null;
   const p75TtftSec = primary?.p75TtftSec ?? null;
   const p90TtftSec = primary?.p90TtftSec ?? null;
+  const p95TtftSec = primary?.p95TtftSec ?? null;
+  const p99TtftSec = primary?.p99TtftSec ?? null;
+  const meanTtftSec = primary?.meanTtftSec ?? null;
   const p50Tps = primary?.p50Tps ?? null;
   const p90Tps = primary?.p90Tps ?? null;
   const cacheHitPct = htmlParsed.weightedCacheHitPct ?? primary?.cacheHitPct ?? null;
@@ -579,15 +766,21 @@ export function summarizeModelPulse(
 
   const series: GeminiModelTimeSeries = {
     ttft7d: seriesOverride?.ttft7d || [],
+    ...(seriesOverride?.e2e7d?.length ? { e2e7d: seriesOverride.e2e7d } : {}),
     tps7d: seriesOverride?.tps7d || [],
     cache7d: seriesOverride?.cache7d || [],
+    ...(seriesOverride?.uptime7d?.length ? { uptime7d: seriesOverride.uptime7d } : {}),
     uptime24h: seriesOverride?.uptime24h || htmlParsed.uptime24h || [],
+    ...(seriesOverride?.intraday30m?.length ? { intraday30m: seriesOverride.intraday30m } : {}),
   };
   const hasSeries =
     series.ttft7d.length > 0 ||
+    (series.e2e7d?.length || 0) > 0 ||
     series.tps7d.length > 0 ||
     series.cache7d.length > 0 ||
-    series.uptime24h.length > 0;
+    (series.uptime7d?.length || 0) > 0 ||
+    series.uptime24h.length > 0 ||
+    (series.intraday30m?.length || 0) > 0;
 
   return {
     family: spec.family,
@@ -598,10 +791,20 @@ export function summarizeModelPulse(
     p50TtftSec,
     p75TtftSec,
     p90TtftSec,
+    ...(p95TtftSec !== null ? { p95TtftSec } : {}),
+    ...(p99TtftSec !== null ? { p99TtftSec } : {}),
+    ...(meanTtftSec !== null ? { meanTtftSec } : {}),
     p50Tps,
     p90Tps,
     cacheHitPct,
+    ...(epParsed.uptime5mPct !== null && epParsed.uptime5mPct !== undefined ? { uptime5mPct: epParsed.uptime5mPct } : {}),
     uptime30mPct: epParsed.uptime30mPct,
+    ...(epParsed.uptime1dPct !== null && epParsed.uptime1dPct !== undefined ? { uptime1dPct: epParsed.uptime1dPct } : {}),
+    ...(htmlParsed.toolCallErrorPct !== null && htmlParsed.toolCallErrorPct !== undefined ? { toolCallErrorPct: htmlParsed.toolCallErrorPct } : {}),
+    ...(htmlParsed.toolCalls24h ? { toolCalls24h: htmlParsed.toolCalls24h } : {}),
+    ...(htmlParsed.reasoningSharePct !== null && htmlParsed.reasoningSharePct !== undefined ? { reasoningSharePct: htmlParsed.reasoningSharePct } : {}),
+    ...(primary?.effectiveInputPrice !== null && primary?.effectiveInputPrice !== undefined ? { effectiveInputPrice: primary.effectiveInputPrice } : {}),
+    ...(primary?.effectiveOutputPrice !== null && primary?.effectiveOutputPrice !== undefined ? { effectiveOutputPrice: primary.effectiveOutputPrice } : {}),
     requestCount30m: totalReq,
     windowMinutes: primary?.windowMinutes || 30,
     primaryProvider,
@@ -892,7 +1095,7 @@ function loadDiskCache(cachePath: string): GeminiPulseCacheFile {
   try {
     if (cachePath && existsSync(cachePath)) {
       const raw = JSON.parse(readFileSync(cachePath, 'utf-8'));
-      if (raw && typeof raw === 'object' && (raw.version === 1 || raw.version === 2 || raw.version === 3)) {
+      if (raw && typeof raw === 'object' && raw.version >= 1 && raw.version <= 4) {
         loaded = {
           version: raw.version,
           enabled: raw.enabled !== false,
@@ -906,7 +1109,7 @@ function loadDiskCache(cachePath: string): GeminiPulseCacheFile {
   } catch {
     /* ignore corrupt cache */
   }
-  memCache = loaded || { version: 3, enabled: true, fetchedAtMs: 0, models: [], incidents: [] };
+  memCache = loaded || { version: 4, enabled: true, fetchedAtMs: 0, models: [], incidents: [] };
   memCachePath = cachePath;
   return memCache;
 }
@@ -948,11 +1151,52 @@ async function fetchTextSafe(url: string, fetchImpl: typeof globalThis.fetch, he
   }
 }
 
+function resolveRemoteFeedEndpoint(rawUrl?: string): string | null {
+  const candidate = String(rawUrl || process.env.AGY_HUD_PULSE_FEED_URL || '').trim();
+  if (!candidate) return null;
+  try {
+    const u = new URL(candidate);
+    if (u.protocol !== 'https:') return null;
+    if (u.pathname.endsWith('.json')) return u.toString();
+    u.pathname = `${u.pathname.replace(/\/+$/, '')}/v1/pulse.json`;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+async function tryFetchRemotePulseFeed(
+  feedUrl: string,
+  fetchImpl: typeof globalThis.fetch,
+): Promise<{ fetchedAtMs: number; models: GeminiModelGlobalPulse[]; incidents: GcpActiveIncident[] } | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PULSE_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetchImpl(feedUrl, {
+      headers: { 'User-Agent': 'agy-hud/1.2.0', Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (!json || !Array.isArray(json.models) || json.models.length === 0) return null;
+    return {
+      fetchedAtMs: typeof json.fetchedAtMs === 'number' && json.fetchedAtMs > 0 ? json.fetchedAtMs : Date.now(),
+      models: json.models as GeminiModelGlobalPulse[],
+      incidents: Array.isArray(json.incidents) ? (json.incidents as GcpActiveIncident[]) : [],
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function refreshGeminiPulse(opts: {
   appDataDir?: string;
   cachePath?: string;
   force?: boolean;
   fetchImpl?: typeof globalThis.fetch;
+  feedUrl?: string;
   nowMs?: number;
 } = {}): Promise<GeminiPulseCacheFile> {
   const cachePath = opts.cachePath || resolveGeminiPulsePath(opts.appDataDir);
@@ -964,9 +1208,52 @@ export async function refreshGeminiPulse(opts: {
   }
   if (fetchInFlight && !opts.force) return fetchInFlight;
 
+  const prevByFamily = new Map<string, GeminiModelGlobalPulse>(
+    cur.models.map((m) => [m.family, m]),
+  );
+
   const fetchImpl = opts.fetchImpl || globalThis.fetch;
   const run = (async (): Promise<GeminiPulseCacheFile> => {
     try {
+      // Optional remote Cloudflare Worker Gemini Pulse feed (auto-falls back to direct OpenRouter on failure)
+      const feedEndpoint = resolveRemoteFeedEndpoint(opts.feedUrl);
+      if (feedEndpoint) {
+        const remote = await tryFetchRemotePulseFeed(feedEndpoint, fetchImpl);
+        if (remote) {
+          const mergedModels = remote.models.map((rm) => {
+            const prev = prevByFamily.get(rm.family);
+            const intraday30m = mergeIntradayHistory(
+              prev?.series?.intraday30m,
+              rm,
+              remote.fetchedAtMs,
+              rm.series?.intraday30m,
+            );
+            return {
+              ...rm,
+              series: {
+                ttft7d: rm.series?.ttft7d || prev?.series?.ttft7d || [],
+                ...(rm.series?.e2e7d?.length ? { e2e7d: rm.series.e2e7d } : {}),
+                tps7d: rm.series?.tps7d || prev?.series?.tps7d || [],
+                cache7d: rm.series?.cache7d || prev?.series?.cache7d || [],
+                ...(rm.series?.uptime7d?.length ? { uptime7d: rm.series.uptime7d } : {}),
+                uptime24h: rm.series?.uptime24h || prev?.series?.uptime24h || [],
+                ...(intraday30m.length ? { intraday30m } : {}),
+              },
+            };
+          });
+          const next: GeminiPulseCacheFile = {
+            version: 4,
+            enabled: cur.enabled,
+            fetchedAtMs: Date.now(),
+            models: mergedModels,
+            incidents: remote.incidents,
+          };
+          saveDiskCache(cachePath, next);
+          pulseSeq += 1;
+          return next;
+        }
+      }
+
       const gcpPromise = fetchTextSafe(
         'https://status.cloud.google.com/incidents.json',
         fetchImpl,
@@ -991,7 +1278,12 @@ export async function refreshGeminiPulse(opts: {
         const htmlParsed = htmlRes.status === 'fulfilled'
           ? parseOpenRouterModelHtml(htmlRes.value)
           : { permaslug: null, weightedCacheHitPct: null, endpoints: [], uptime24h: [] };
-        let epParsed = { uptime30mPct: null as number | null, degradedProviders: [] as string[] };
+        let epParsed: {
+          uptime5mPct?: number | null;
+          uptime30mPct: number | null;
+          uptime1dPct?: number | null;
+          degradedProviders: string[];
+        } = { uptime5mPct: null, uptime30mPct: null, uptime1dPct: null, degradedProviders: [] };
         if (epRes.status === 'fulfilled') {
           try {
             epParsed = parseOpenRouterEndpointsJson(JSON.parse(epRes.value));
@@ -1000,22 +1292,31 @@ export async function refreshGeminiPulse(opts: {
           }
         }
 
-        // Fetch public OpenRouter 7d comparison time-series (TTFT / TPS / Cache) via permaslug
+        // Fetch public OpenRouter 7d comparison time-series (TTFT / E2E / TPS / Cache / Uptime) via permaslug
         let ttft7d: GeminiTimeSeriesPoint[] = [];
+        let e2e7d: GeminiTimeSeriesPoint[] = [];
         let tps7d: GeminiTimeSeriesPoint[] = [];
         let cache7d: GeminiTimeSeriesPoint[] = [];
+        let uptime7d: GeminiTimeSeriesPoint[] = [];
         const ps = htmlParsed.permaslug;
         if (ps) {
           const qs = `permaslug=${encodeURIComponent(ps)}`;
           const hdrs = { 'User-Agent': 'Mozilla/5.0 (compatible; agy-hud/1.2.0)', Accept: 'application/json' };
-          const [latRes, tpsRes, cacheRes] = await Promise.allSettled([
+          const [latRes, e2eRes, tpsRes, cacheRes, upRes] = await Promise.allSettled([
             fetchTextSafe(`https://openrouter.ai/api/frontend/v1/stats/latency-comparison?${qs}`, fetchImpl, hdrs),
+            fetchTextSafe(`https://openrouter.ai/api/frontend/v1/stats/latency-e2e-comparison?${qs}`, fetchImpl, hdrs),
             fetchTextSafe(`https://openrouter.ai/api/frontend/v1/stats/throughput-comparison?${qs}`, fetchImpl, hdrs),
             fetchTextSafe(`https://openrouter.ai/api/frontend/v1/stats/cache-hit-rate-comparison?${qs}`, fetchImpl, hdrs),
+            fetchTextSafe(`https://openrouter.ai/api/frontend/v1/stats/uptime-comparison?${qs}`, fetchImpl, hdrs),
           ]);
           if (latRes.status === 'fulfilled') {
             try {
               ttft7d = parseOpenRouterComparisonSeries(JSON.parse(latRes.value), 'ttft', htmlParsed.endpoints);
+            } catch { /* ignore */ }
+          }
+          if (e2eRes.status === 'fulfilled') {
+            try {
+              e2e7d = parseOpenRouterComparisonSeries(JSON.parse(e2eRes.value), 'e2e', htmlParsed.endpoints);
             } catch { /* ignore */ }
           }
           if (tpsRes.status === 'fulfilled') {
@@ -1028,13 +1329,18 @@ export async function refreshGeminiPulse(opts: {
               cache7d = parseOpenRouterComparisonSeries(JSON.parse(cacheRes.value), 'cache', htmlParsed.endpoints);
             } catch { /* ignore */ }
           }
+          if (upRes.status === 'fulfilled') {
+            try {
+              uptime7d = parseOpenRouterComparisonSeries(JSON.parse(upRes.value), 'uptime', htmlParsed.endpoints);
+            } catch { /* ignore */ }
+          }
         }
 
         return {
           spec,
           htmlParsed,
           epParsed,
-          series: { ttft7d, tps7d, cache7d, uptime24h: htmlParsed.uptime24h },
+          series: { ttft7d, e2e7d, tps7d, cache7d, uptime7d, uptime24h: htmlParsed.uptime24h },
           ok: htmlRes.status === 'fulfilled' || epRes.status === 'fulfilled',
         };
       });
@@ -1051,14 +1357,31 @@ export async function refreshGeminiPulse(opts: {
         return failed;
       }
 
+      const snapMs = opts.nowMs ?? Date.now();
       const models = results
         .filter((r) => r.ok)
-        .map((r) => summarizeModelPulse(r.spec, r.htmlParsed, r.epParsed, incidents, r.series));
+        .map((r) => {
+          const base = summarizeModelPulse(r.spec, r.htmlParsed, r.epParsed, incidents, r.series);
+          const prev = prevByFamily.get(base.family);
+          const intraday30m = mergeIntradayHistory(prev?.series?.intraday30m, base, snapMs);
+          if (intraday30m.length > 0) {
+            base.series = {
+              ttft7d: base.series?.ttft7d || [],
+              ...(base.series?.e2e7d?.length ? { e2e7d: base.series.e2e7d } : {}),
+              tps7d: base.series?.tps7d || [],
+              cache7d: base.series?.cache7d || [],
+              ...(base.series?.uptime7d?.length ? { uptime7d: base.series.uptime7d } : {}),
+              uptime24h: base.series?.uptime24h || [],
+              intraday30m,
+            };
+          }
+          return base;
+        });
 
       const next: GeminiPulseCacheFile = {
-        version: 3,
+        version: 4,
         enabled: cur.enabled,
-        fetchedAtMs: Date.now(),
+        fetchedAtMs: snapMs,
         models,
         incidents,
       };
@@ -1108,7 +1431,10 @@ export function buildGeminiPulseSnapshot({
 }): GeminiPulseSnapshot {
   const path = cachePath || resolveGeminiPulsePath(appDataDir);
   const cache = loadDiskCache(path);
-  const needsSeriesUpgrade = cache.version < 3 && cache.models.length > 0 && !cache.models.some((m) => m.series && (m.series.ttft7d.length > 0 || m.series.uptime24h.length > 0));
+  const needsSeriesUpgrade =
+    cache.version < 4 &&
+    cache.models.length > 0 &&
+    !cache.models.some((m) => m.series && ((m.series.e2e7d?.length || 0) > 0 || (m.series.intraday30m?.length || 0) > 0));
   const isStale = !(cache.fetchedAtMs > 0) || (nowMs - cache.fetchedAtMs >= PULSE_TTL_MS) || needsSeriesUpgrade;
 
   if (triggerRefresh && cache.enabled && isStale && !fetchInFlight) {

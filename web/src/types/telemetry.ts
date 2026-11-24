@@ -593,8 +593,17 @@ export interface GeminiEndpointPulse {
   p50TtftSec: number | null;
   p75TtftSec: number | null;
   p90TtftSec: number | null;
+  p95TtftSec?: number | null;
+  p99TtftSec?: number | null;
+  meanTtftSec?: number | null;
   p50Tps: number | null;
+  p75Tps?: number | null;
   p90Tps: number | null;
+  p95Tps?: number | null;
+  p99Tps?: number | null;
+  effectiveInputPrice?: number | null;
+  effectiveOutputPrice?: number | null;
+  totalTokens?: number;
   requestCount: number;
   windowMinutes: number;
 }
@@ -640,11 +649,27 @@ export interface GeminiUptimeBucket {
   rawAvailability: number | null;
 }
 
+export interface GeminiIntradayPoint {
+  bucketMs: number;
+  x: string;
+  p50TtftSec: number | null;
+  p90TtftSec?: number | null;
+  p99TtftSec?: number | null;
+  p50Tps: number | null;
+  cacheHitPct: number | null;
+  uptime30mPct: number | null;
+  requestCount30m?: number;
+  byProvider?: Record<string, { ttft?: number | null; tps?: number | null; cache?: number | null }>;
+}
+
 export interface GeminiModelTimeSeries {
   ttft7d: GeminiTimeSeriesPoint[];
+  e2e7d?: GeminiTimeSeriesPoint[];
   tps7d: GeminiTimeSeriesPoint[];
   cache7d: GeminiTimeSeriesPoint[];
+  uptime7d?: GeminiTimeSeriesPoint[];
   uptime24h: GeminiUptimeBucket[];
+  intraday30m?: GeminiIntradayPoint[];
 }
 
 export interface GeminiModelGlobalPulse {
@@ -656,10 +681,20 @@ export interface GeminiModelGlobalPulse {
   p50TtftSec: number | null;
   p75TtftSec: number | null;
   p90TtftSec: number | null;
+  p95TtftSec?: number | null;
+  p99TtftSec?: number | null;
+  meanTtftSec?: number | null;
   p50Tps: number | null;
   p90Tps: number | null;
   cacheHitPct: number | null;
+  uptime5mPct?: number | null;
   uptime30mPct: number | null;
+  uptime1dPct?: number | null;
+  toolCallErrorPct?: number | null;
+  toolCalls24h?: number;
+  reasoningSharePct?: number | null;
+  effectiveInputPrice?: number | null;
+  effectiveOutputPrice?: number | null;
   requestCount30m: number;
   windowMinutes: number;
   primaryProvider: string;

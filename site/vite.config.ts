@@ -50,5 +50,11 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     target: 'es2022',
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        pulse: path.resolve(__dirname, 'pulse/index.html'),
+      },
+    },
   },
 });
