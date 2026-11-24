@@ -280,7 +280,10 @@ export function App() {
           updateApplyResult={store.updateApplyResult}
           updateError={store.updateError}
           highlightUpdates={highlightUpdates}
+          pulseRefreshing={store.pulseRefreshing}
           onRefreshQuota={store.refreshQuota}
+          onRefreshPulse={store.refreshGeminiPulse}
+          onTogglePulse={store.toggleGeminiPulse}
           onCheckUpdates={store.checkForUpdates}
           onApplyUpdate={store.applyUpdate}
         />

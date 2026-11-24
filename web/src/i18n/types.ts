@@ -472,4 +472,64 @@ export interface Translations {
   kpiTimeLabel: string;
   kpiAvgSpeedTip: (avgGen: string, avgE2e: string, peakGen: string) => string;
   kpiOutputCacheTip: (totalOut: string, avgCache: string) => string;
+
+  // Gemini Global Pulse & TTFT Attribution
+  pulseTitle: string;
+  pulseStatusOk: string;
+  pulseStatusDegraded: string;
+  pulseStatusOutage: string;
+  pulseStatusOff: string;
+  pulseStatusUnknown: string;
+  pulseLoading: string;
+  pulseToggleOn: string;
+  pulseToggleOff: string;
+  pulseDisableTip: string;
+  pulseEnableTip: string;
+  pulseDisabledNote: string;
+  pulseRefreshTip: (clock: string) => string;
+  pulseErrorNote: (err: string) => string;
+  pulseColModel: string;
+  pulseColCache: string;
+  pulseColUp: string;
+  pulseFootnote: (clock: string) => string;
+  pulseRowLocalTip: (p50Ttft: string, p90Ttft: string, p50Tps: string, cachePct: string, calls: number) => string;
+  pulseRowNoLocal: string;
+  pulseRowTip: (info: {
+    label: string;
+    provider: string;
+    req30m: string;
+    p50Ttft: string;
+    p90Ttft: string;
+    p50Tps: string;
+    cachePct: string;
+    uptimePct: string;
+    degraded: string;
+    localLine: string;
+  }) => string;
+  ttftVerdictUpstream: (globalP50: string) => string;
+  ttftVerdictCacheMiss: (newTok: string) => string;
+  ttftVerdictConcurrency: (n: number) => string;
+  ttftVerdictLocalSlow: (globalP50: string) => string;
+  ttftGlobalInline: (globalP50: string) => string;
+  ttftAttributionTip: (info: {
+    headline: string;
+    model: string;
+    curTtft: string;
+    curTps: string;
+    curCache: string;
+    curNewIn: string;
+    localP50: string;
+    localP90: string;
+    localBucketLabel: string;
+    globalP50: string;
+    globalP90: string;
+    globalTps: string;
+    globalCache: string;
+    globalUptime: string;
+    globalReq30m: string;
+    inFlight: number;
+  }) => string;
+  ttftVerdictHeadline: (verdict: string) => string;
+  ttftBucketLabel: (bucket: 'hit' | 'miss' | 'all') => string;
+  trendGlobalRef: (val: string) => string;
 }

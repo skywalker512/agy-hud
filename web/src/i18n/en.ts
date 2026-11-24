@@ -493,4 +493,50 @@ export const en: Translations = {
     `Output-token-weighted generation speed: ${avgGen} tok/s (Peak: ${peakGen} tok/s)\nWeighted E2E (incl. TTFT): ${avgE2e} tok/s\nComputed as Σ outputTokens / Σ genSec across sustained calls so tiny replies don't distort throughput.`,
   kpiOutputCacheTip: (totalOut, avgCache) =>
     `Total generated output (thinking + visible): ${totalOut} tok\nSession average prompt cache hit rate: ${avgCache}`,
+
+  pulseTitle: 'GEMINI GLOBAL PULSE',
+  pulseStatusOk: 'Healthy',
+  pulseStatusDegraded: 'Elevated',
+  pulseStatusOutage: 'Outage',
+  pulseStatusOff: 'Offline',
+  pulseStatusUnknown: 'Checking',
+  pulseLoading: 'Loading OpenRouter 30m Gemini stats…',
+  pulseToggleOn: 'Live',
+  pulseToggleOff: 'Off',
+  pulseDisableTip: 'Switch Gemini Global Pulse to offline mode (no external GET requests)',
+  pulseEnableTip: 'Enable read-only OpenRouter 30m + Google Cloud Status checks',
+  pulseDisabledNote: 'Offline mode enabled. No external requests are made; TTFT attribution uses your local 7d baseline only.',
+  pulseRefreshTip: (clock) => `Refresh Gemini 30m global stats${clock ? ` (last: ${clock})` : ''}`,
+  pulseErrorNote: (err) => `Unable to fetch global Gemini telemetry (${err}). Falling back to local 7d baseline.`,
+  pulseColModel: 'Model',
+  pulseColCache: 'Cache',
+  pulseColUp: '30m Up',
+  pulseFootnote: (clock) => `OpenRouter 30m P50 + Google Cloud Status · Read-only${clock ? ` · ${clock}` : ''}`,
+  pulseRowLocalTip: (p50Ttft, p90Ttft, p50Tps, cachePct, calls) =>
+    `Your 7d local (${calls} calls): TTFT P50 ${p50Ttft} (P90 ${p90Ttft}) · TPS ${p50Tps} · Cache ${cachePct}`,
+  pulseRowNoLocal: 'Your 7d local: no calls yet',
+  pulseRowTip: (i) =>
+    `${i.label} · Global 30m (${i.provider}, ${i.req30m} reqs)\n` +
+    `Global TTFT: P50 ${i.p50Ttft} · P90 ${i.p90Ttft}\n` +
+    `Global TPS: ${i.p50Tps} tok/s · Cache: ${i.cachePct} · Uptime: ${i.uptimePct}` +
+    `${i.degraded ? `\nDegraded endpoints: ${i.degraded}` : ''}\n${i.localLine}`,
+  ttftVerdictUpstream: (globalP50) => `Upstream slow${globalP50 ? ` · ${globalP50}` : ''}`,
+  ttftVerdictCacheMiss: (newTok) => `Cold prefill ${newTok}`,
+  ttftVerdictConcurrency: (n) => `${n}× parallel`,
+  ttftVerdictLocalSlow: (globalP50) => `Local slow${globalP50 ? ` · glb ${globalP50}` : ''}`,
+  ttftGlobalInline: (globalP50) => `Glb ${globalP50}`,
+  ttftVerdictHeadline: (v) => {
+    if (v === 'upstream_degraded') return 'Upstream Gemini pool is slow or degraded';
+    if (v === 'cache_miss') return 'Slow due to cold prompt prefill (cache miss)';
+    if (v === 'local_concurrency') return 'Slow due to local parallel sessions / workers queuing';
+    if (v === 'account_or_network') return 'Local / account / proxy slow (global Gemini pool is fast)';
+    return 'TTFT within expected range';
+  },
+  ttftBucketLabel: (b) => (b === 'hit' ? 'cached' : b === 'miss' ? 'cold' : 'all'),
+  ttftAttributionTip: (i) =>
+    `${i.headline} (${i.model})\n` +
+    `Current: TTFT ${i.curTtft} · GEN ${i.curTps} · Cache ${i.curCache} (new ${i.curNewIn})${i.inFlight >= 2 ? ` · ${i.inFlight} active` : ''}\n` +
+    `Your 7d (${i.localBucketLabel}): P50 ${i.localP50} · P90 ${i.localP90}\n` +
+    `Global 30m (${i.globalReq30m} reqs): P50 ${i.globalP50} · P90 ${i.globalP90} · TPS ${i.globalTps} · Cache ${i.globalCache} · Up ${i.globalUptime}`,
+  trendGlobalRef: (val) => `Global P50 ${val}`,
 };

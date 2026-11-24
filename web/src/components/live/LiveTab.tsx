@@ -158,6 +158,7 @@ export function LiveTab({
         invocations={invocations}
         avgGenTps={found ? snap?.summary?.avgGenTps : undefined}
         avgTtftSec={found ? snap?.summary?.avgTtftSec : undefined}
+        geminiPulse={snap?.geminiPulse}
         t={t}
       />
 

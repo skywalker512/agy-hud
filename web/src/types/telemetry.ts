@@ -557,6 +557,91 @@ export interface CacheTtlOverview {
   currentSession: CurrentSessionCachePrediction | null;
 }
 
+export type PulseHealthStatus = 'ok' | 'degraded' | 'outage';
+
+export type TtftVerdictKind =
+  | 'normal'
+  | 'upstream_degraded'
+  | 'cache_miss'
+  | 'local_concurrency'
+  | 'account_or_network';
+
+export interface GeminiLocalBaseline {
+  calls7d: number;
+  p50TtftSec: number | null;
+  p90TtftSec: number | null;
+  hitP50TtftSec: number | null;
+  missP50TtftSec: number | null;
+  p50Tps: number | null;
+  cacheHitPct: number | null;
+}
+
+export interface GeminiModelGlobalPulse {
+  family: string;
+  slug: string;
+  label: string;
+  status: PulseHealthStatus;
+  p50TtftSec: number | null;
+  p75TtftSec: number | null;
+  p90TtftSec: number | null;
+  p50Tps: number | null;
+  p90Tps: number | null;
+  cacheHitPct: number | null;
+  uptime30mPct: number | null;
+  requestCount30m: number;
+  windowMinutes: number;
+  primaryProvider: string;
+  degradedProviders: string[];
+  local?: GeminiLocalBaseline | null;
+}
+
+export interface GcpActiveIncident {
+  id: string;
+  service: string;
+  severity: string;
+  impact: string;
+  summary: string;
+  begin: string;
+  url: string;
+}
+
+export interface TtftAttribution {
+  verdict: TtftVerdictKind;
+  family: string;
+  label: string;
+  currentTtftSec: number;
+  currentTps: number;
+  currentCachePct: number | null;
+  currentNewInput: number;
+  inFlightCount: number;
+  localP50TtftSec: number | null;
+  localP90TtftSec: number | null;
+  localBucket: 'hit' | 'miss' | 'all';
+  globalP50TtftSec: number | null;
+  globalP90TtftSec: number | null;
+  globalP50Tps: number | null;
+  globalCachePct: number | null;
+  globalUptime30mPct: number | null;
+  globalStatus: PulseHealthStatus | 'unknown';
+  globalRequests30m: number;
+  activeIncidentCount: number;
+}
+
+export interface GeminiPulseSnapshot {
+  enabled: boolean;
+  available: boolean;
+  loading: boolean;
+  stale: boolean;
+  fetchedAtMs: number;
+  overallStatus: PulseHealthStatus | 'unknown';
+  models: GeminiModelGlobalPulse[];
+  incidents: GcpActiveIncident[];
+  activeFamily: string;
+  activeModel: GeminiModelGlobalPulse | null;
+  attribution: TtftAttribution | null;
+  error?: string;
+}
+
 export interface StatsSnapshot {
   unchanged?: boolean;
   found?: boolean;
@@ -577,6 +662,7 @@ export interface StatsSnapshot {
   accountHistory?: AccountHistory;
   accountQuota?: AccountQuota;
   cacheTtl?: CacheTtlOverview;
+  geminiPulse?: GeminiPulseSnapshot;
   invocations?: Invocation[];
   latest?: Invocation | null;
   latestSustained?: Invocation | null;

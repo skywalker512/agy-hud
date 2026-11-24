@@ -526,6 +526,14 @@ export function resolveQuotaFitPath(appDataDir = resolveAppDataDir()) {
   return join(appDataDir, 'sidecar_data', 'agy-hud', 'hud_panel', 'quota-model-fit.json');
 }
 
+export function resolveGeminiPulsePath(appDataDir = resolveAppDataDir()) {
+  const envPath = process.env.AGY_HUD_GEMINI_PULSE_PATH;
+  if (envPath) return envPath;
+  const execData = process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR;
+  if (execData) return join(execData, 'gemini-pulse-cache.json');
+  return join(appDataDir, 'sidecar_data', 'agy-hud', 'hud_panel', 'data', 'gemini-pulse-cache.json');
+}
+
 export function resolveTranscriptPaths(
   appDataDir: string,
   convId: string,

@@ -493,4 +493,50 @@ export const zh: Translations = {
     `按输出 Token 加权的持续生成均速：${avgGen} tok/s（峰值 ${peakGen} tok/s）\n加权端到端均速（含 TTFT）：${avgE2e} tok/s\n按 Σ输出Token / Σ生成耗时 计算（排除单包缓冲），避免极短回复拉偏真实速度。`,
   kpiOutputCacheTip: (totalOut, avgCache) =>
     `本会话累计生成输出（含思考 + 可见回复）：${totalOut} tok\n本会话平均提示词缓存命中率：${avgCache}`,
+
+  pulseTitle: 'GEMINI 全局大盘',
+  pulseStatusOk: '正常',
+  pulseStatusDegraded: '偏慢/波动',
+  pulseStatusOutage: '故障',
+  pulseStatusOff: '离线',
+  pulseStatusUnknown: '检测中',
+  pulseLoading: '正在拉取 OpenRouter 30m Gemini 大盘数据…',
+  pulseToggleOn: '在线',
+  pulseToggleOff: '关闭',
+  pulseDisableTip: '切换为纯离线模式（不发起任何外部大盘 GET 请求）',
+  pulseEnableTip: '开启只读 OpenRouter 30m + Google Cloud 状态大盘对比',
+  pulseDisabledNote: '已切换为纯离线模式，不请求外部大盘，首字归因仅参考你本机 7 天历史基线。',
+  pulseRefreshTip: (clock) => `刷新 Gemini 30 分钟全局大盘${clock ? `（上次 ${clock}）` : ''}`,
+  pulseErrorNote: (err) => `暂时无法获取外部 Gemini 大盘（${err}），当前已回退至本机 7 天基线。`,
+  pulseColModel: '模型',
+  pulseColCache: '缓存',
+  pulseColUp: '可用',
+  pulseFootnote: (clock) => `OpenRouter 30m P50 + Google Cloud Status · 纯只读${clock ? ` · ${clock}` : ''}`,
+  pulseRowLocalTip: (p50Ttft, p90Ttft, p50Tps, cachePct, calls) =>
+    `你的 7 天本机（${calls} 次）：首字 P50 ${p50Ttft}（P90 ${p90Ttft}）· 速度 ${p50Tps} · 缓存 ${cachePct}`,
+  pulseRowNoLocal: '你的 7 天本机：暂无该模型记录',
+  pulseRowTip: (i) =>
+    `${i.label} · 全球 30 分钟大盘（${i.provider}，${i.req30m} 次请求）\n` +
+    `大盘首字：P50 ${i.p50Ttft} · P90 ${i.p90Ttft}\n` +
+    `大盘速度：${i.p50Tps} tok/s · 全局缓存：${i.cachePct} · 30m 可用率：${i.uptimePct}` +
+    `${i.degraded ? `\n异常节点：${i.degraded}` : ''}\n${i.localLine}`,
+  ttftVerdictUpstream: (globalP50) => `大盘偏慢${globalP50 ? ` · ${globalP50}` : ''}`,
+  ttftVerdictCacheMiss: (newTok) => `冷预填充 ${newTok}`,
+  ttftVerdictConcurrency: (n) => `${n} 路并发`,
+  ttftVerdictLocalSlow: (globalP50) => `仅本地慢${globalP50 ? ` · 大盘 ${globalP50}` : ''}`,
+  ttftGlobalInline: (globalP50) => `大盘 ${globalP50}`,
+  ttftVerdictHeadline: (v) => {
+    if (v === 'upstream_degraded') return '结论：上游 Gemini 大盘当前整体偏慢或存在波动';
+    if (v === 'cache_miss') return '结论：本次为大上下文冷预填充（缓存未命中），非账号/大盘问题';
+    if (v === 'local_concurrency') return '结论：当前本机多会话/Worker 并发排队导致首字变慢';
+    if (v === 'account_or_network') return '结论：全局大盘正常，疑似当前账号限速或本地网络/代理偏慢';
+    return '结论：首字延迟处于正常区间';
+  },
+  ttftBucketLabel: (b) => (b === 'hit' ? '高命中' : b === 'miss' ? '冷启动' : '全部'),
+  ttftAttributionTip: (i) =>
+    `${i.headline}（${i.model}）\n` +
+    `本次请求：首字 ${i.curTtft} · 生成 ${i.curTps} · 缓存 ${i.curCache}（新入 ${i.curNewIn}）${i.inFlight >= 2 ? ` · ${i.inFlight} 路并发` : ''}\n` +
+    `你的 7d（${i.localBucketLabel}）：P50 ${i.localP50} · P90 ${i.localP90}\n` +
+    `全球 30m（${i.globalReq30m} 次）：P50 ${i.globalP50} · P90 ${i.globalP90} · 速度 ${i.globalTps} · 缓存 ${i.globalCache} · 可用 ${i.globalUptime}`,
+  trendGlobalRef: (val) => `大盘 P50 ${val}`,
 };

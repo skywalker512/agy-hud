@@ -70,6 +70,9 @@ export interface HudStore {
   selectConversationOption: (val: string) => void;
   jumpToConversation: (convId: string) => void;
   refreshQuota: () => void;
+  pulseRefreshing: boolean;
+  refreshGeminiPulse: () => Promise<void>;
+  toggleGeminiPulse: (enabled: boolean) => Promise<void>;
   toggleRecentOpen: () => void;
   toggleCompactOnly: () => void;
   setCompactOnlyValue: (val: boolean) => void;
@@ -120,6 +123,7 @@ export function useHudStore(): HudStore {
   const [updateApplying, setUpdateApplying] = useState<boolean>(false);
   const [updateApplyResult, setUpdateApplyResult] = useState<UpdateApplyResponse | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [pulseRefreshing, setPulseRefreshing] = useState<boolean>(false);
 
   const etagRef = useRef<string>('');
   const bootIdRef = useRef<string>('');
@@ -460,6 +464,41 @@ export function useHudStore(): HudStore {
     triggerImmediatePoll(true);
   }, [triggerImmediatePoll]);
 
+  const refreshGeminiPulse = useCallback(async () => {
+    setPulseRefreshing(true);
+    try {
+      const fetcher = getSidecarFetch();
+      await fetcher('/api/gemini-pulse?refresh=1', { method: 'GET' });
+      etagRef.current = '';
+      triggerImmediatePoll(true);
+    } catch {
+      /* non-fatal */
+    } finally {
+      setPulseRefreshing(false);
+    }
+  }, [triggerImmediatePoll]);
+
+  const toggleGeminiPulse = useCallback(
+    async (enabled: boolean) => {
+      setPulseRefreshing(true);
+      try {
+        const fetcher = getSidecarFetch();
+        await fetcher('/api/gemini-pulse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled }),
+        });
+        etagRef.current = '';
+        triggerImmediatePoll(true);
+      } catch {
+        /* non-fatal */
+      } finally {
+        setPulseRefreshing(false);
+      }
+    },
+    [triggerImmediatePoll],
+  );
+
   const toggleRecentOpen = useCallback(() => {
     setRecentOpen((p) => {
       const next = !p;
@@ -668,6 +707,9 @@ export function useHudStore(): HudStore {
     selectConversationOption,
     jumpToConversation,
     refreshQuota,
+    pulseRefreshing,
+    refreshGeminiPulse,
+    toggleGeminiPulse,
     toggleRecentOpen,
     toggleCompactOnly,
     setCompactOnlyValue,

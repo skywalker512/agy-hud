@@ -10,6 +10,7 @@ import { fmtClock, fmtNum, fmtUsdWithBand } from '../../utils/format';
 import { IconArrowRight, IconCheck, IconCopy, IconExternalLink, IconRefresh } from '../common/Icons';
 import { ActivityHeatmapCard } from './ActivityHeatmapCard';
 import { CacheTtlCard } from './CacheTtlCard';
+import { GeminiPulseCard } from './GeminiPulseCard';
 import { QuotaPoolsList } from './QuotaPoolsList';
 import { QuotaRulesCard } from './QuotaRulesCard';
 import { SpendGrid } from './SpendGrid';
@@ -24,7 +25,10 @@ interface AccountTabProps {
   updateApplyResult: UpdateApplyResponse | null;
   updateError: string | null;
   highlightUpdates?: boolean;
+  pulseRefreshing: boolean;
   onRefreshQuota: () => void;
+  onRefreshPulse: () => void;
+  onTogglePulse: (enabled: boolean) => void;
   onCheckUpdates: (force?: boolean) => Promise<UpdateStatusResponse | null>;
   onApplyUpdate: (force?: boolean) => Promise<UpdateApplyResponse | null>;
 }
@@ -49,7 +53,10 @@ export function AccountTab({
   updateApplyResult,
   updateError,
   highlightUpdates = false,
+  pulseRefreshing,
   onRefreshQuota,
+  onRefreshPulse,
+  onTogglePulse,
   onCheckUpdates,
   onApplyUpdate,
 }: AccountTabProps) {
@@ -161,6 +168,13 @@ export function AccountTab({
 
       <QuotaRulesCard quota={q} t={t} />
       <CacheTtlCard cacheTtl={snap?.cacheTtl} t={t} />
+      <GeminiPulseCard
+        pulse={snap?.geminiPulse}
+        refreshing={pulseRefreshing}
+        onRefresh={onRefreshPulse}
+        onToggleEnabled={onTogglePulse}
+        t={t}
+      />
       <ActivityHeatmapCard history={h} t={t} />
 
       {/* Compact Plugin & Updates Card */}

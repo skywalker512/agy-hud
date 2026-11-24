@@ -97,6 +97,12 @@ import {
   getCacheTtlPrior,
   solveTimeForSurvival,
 } from './lib/cache-ttl.ts';
+import {
+  buildGeminiPulseSnapshot,
+  getGeminiPulseVersion,
+  refreshGeminiPulse,
+  setGeminiPulseEnabled,
+} from './lib/gemini-pulse.ts';
 import { detectLocale } from './lib/locale.ts';
 import {
   applySelfUpdate,
@@ -339,7 +345,7 @@ async function startServer() {
     const quotaSig = accountQuota?.deferred
       ? `${quotaCache.updatedSeq}:d`
       : `${quotaCache.updatedSeq}:${quotaCache.fetchedAtMs}`;
-    const etag = `${mode}|${target.id}|${target.key}|${target.annoKey}|${childKeys}|${swarmSig || graph.swarmIndex?.sig || ''}|${recentList[0]?.id || ''}|${quotaSig}|${histSig}|${liveSig}|${getLsModelCatalogVersion()}`;
+    const etag = `${mode}|${target.id}|${target.key}|${target.annoKey}|${childKeys}|${swarmSig || graph.swarmIndex?.sig || ''}|${recentList[0]?.id || ''}|${quotaSig}|${histSig}|${liveSig}|${getLsModelCatalogVersion()}|${getGeminiPulseVersion()}`;
     if (data.etag && data.etag === etag) {
       return { unchanged: true, etag, bootId: BOOT_ID, assetKey, serverTimeMs: Date.now() };
     }
@@ -403,6 +409,13 @@ async function startServer() {
       const fittedQuota = attachQuotaBudgetEstimates(accountQuota, graph);
       const decoratedTelemetry = attachTelemetryQuotaPredictions(telemetry, fittedQuota);
       const cacheTtl = buildCacheTtlOverview(graph.summaries, decoratedTelemetry, fittedQuota);
+      const geminiPulse = buildGeminiPulseSnapshot({
+        appDataDir,
+        summaries: graph.summaries,
+        latest: decoratedTelemetry?.latest || null,
+        currentModel: decoratedTelemetry?.currentModel || null,
+        inFlightCount: graph.inFlightCount || 0,
+      });
       const enrichedGraph = attachGraphQuotaSummaries({
         conversations: recentList,
         sessionInfo,
@@ -424,6 +437,7 @@ async function startServer() {
         accountHistory,
         accountQuota: fittedQuota,
         cacheTtl,
+        geminiPulse,
         ...decoratedTelemetry,
       };
     } catch (err: any) {
@@ -480,6 +494,26 @@ async function startServer() {
     const force = data?.force === '1' || data?.force === 'true' || data?.force === true;
     return checkForUpdates({ appDataDir, force });
   }, 'GET');
+
+  app.api('/api/gemini-pulse', async (data) => {
+    const force = data?.refresh === '1' || data?.refresh === 'true' || data?.refresh === true;
+    if (force) {
+      await refreshGeminiPulse({ appDataDir, force: true });
+    }
+    return buildGeminiPulseSnapshot({ appDataDir, triggerRefresh: !force });
+  }, 'GET');
+
+  app.api('/api/gemini-pulse', async (data) => {
+    if (typeof data?.enabled === 'boolean') {
+      setGeminiPulseEnabled(data.enabled, { appDataDir });
+      if (data.enabled) {
+        await refreshGeminiPulse({ appDataDir, force: true });
+      }
+    } else if (data?.refresh === true || data?.refresh === '1') {
+      await refreshGeminiPulse({ appDataDir, force: true });
+    }
+    return buildGeminiPulseSnapshot({ appDataDir, triggerRefresh: false });
+  }, 'POST');
 
   app.api('/api/update-apply', async (data) => {
     const force = data?.force === '1' || data?.force === 'true' || data?.force === true;

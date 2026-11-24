@@ -202,7 +202,7 @@ export function summarizeConversationDb(conv) {
 
     latestTsMs = stepLatestTsMs;
 
-    const recordSpend = ({ modelId, modelDisplay, model, newIn, cachedIn, outTok, ts, genUncertainStartTs = ts, countStats }) => {
+    const recordSpend = ({ modelId, modelDisplay, model, newIn, cachedIn, outTok, ts, genUncertainStartTs = ts, countStats, ttftSec = 0, genTps = 0 }) => {
       const cost = computeCallCost(modelId, modelDisplay, model, newIn, cachedIn, outTok, ts);
       if (countStats) {
         calls += 1;
@@ -242,6 +242,8 @@ export function summarizeConversationDb(conv) {
           baseUSD: ref.baseUSD,
           costUSD: cost.costUSD,
           priced: cost.priced,
+          ...(ttftSec > 0 ? { ttftSec } : {}),
+          ...(genTps > 0 ? { genTps } : {}),
         });
       }
       const dk = localDayKey(ts);
@@ -398,6 +400,8 @@ export function summarizeConversationDb(conv) {
           ts: completedTs,
           genUncertainStartTs,
           countStats: true,
+          ttftSec: parsed.ttftSec || 0,
+          genTps: parsed.isBuffered ? 0 : (parsed.genTps || 0),
         });
       }
     } catch { /* table missing */ }

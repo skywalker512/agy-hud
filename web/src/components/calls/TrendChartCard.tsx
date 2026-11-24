@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Translations } from '../../i18n';
 import { getTrendTranslations, resolveTrendLang } from '../../i18n/trend';
-import type { ChartMetric, Compaction, Invocation, Lang } from '../../types/telemetry';
+import type { ChartMetric, Compaction, GeminiPulseSnapshot, Invocation, Lang } from '../../types/telemetry';
 import {
   cacheTier,
   fmtCachePct,
@@ -54,6 +54,7 @@ export interface TrendChartCardProps {
   onInspectCall?: (invIdx: number) => void;
   selectedModel?: string;
   onSelectModel?: (modelKey: string) => void;
+  geminiPulse?: GeminiPulseSnapshot;
 }
 
 interface Pt {
@@ -227,6 +228,7 @@ export function TrendChartCard({
   onInspectCall,
   selectedModel: selectedModelProp,
   onSelectModel,
+  geminiPulse,
 }: TrendChartCardProps) {
   const resolvedLang = resolveTrendLang(lang, t);
   const tt = useMemo(() => getTrendTranslations(resolvedLang), [resolvedLang]);
@@ -1211,6 +1213,30 @@ export function TrendChartCard({
       ? valY(stats.p95)
       : null;
   const cacheTargetY = metric === 'cache' ? valY(80) : null;
+
+  // Global OpenRouter 30m P50 reference line for active Gemini model (TTFT / TPS / Cache)
+  const globalRef = useMemo(() => {
+    const models = geminiPulse?.available ? geminiPulse.models : [];
+    if (!models.length) return null;
+    const probe = (activeModel !== 'all' ? activeModel : '') || geminiPulse?.activeFamily || '';
+    const pLower = probe.toLowerCase();
+    const matched =
+      models.find((m) => m.family === probe) ||
+      models.find((m) => pLower && (pLower.includes(m.family.replace('gemini-4-', '')) || pLower.includes(m.label.toLowerCase()))) ||
+      geminiPulse?.activeModel ||
+      null;
+    if (!matched) return null;
+    if (metric === 'ttft' && matched.p50TtftSec !== null && matched.p50TtftSec > 0 && matched.p50TtftSec <= yMax * 0.96) {
+      return { y: valY(matched.p50TtftSec), label: t.trendGlobalRef(fmtSec(matched.p50TtftSec)) };
+    }
+    if (metric === 'tps' && matched.p50Tps !== null && matched.p50Tps > 0 && matched.p50Tps <= yMax * 0.96) {
+      return { y: valY(matched.p50Tps), label: t.trendGlobalRef(fmtTps(matched.p50Tps)) };
+    }
+    if (metric === 'cache' && matched.cacheHitPct !== null && matched.cacheHitPct > 0 && matched.cacheHitPct <= 100) {
+      return { y: valY(matched.cacheHitPct), label: t.trendGlobalRef(`${Math.round(matched.cacheHitPct)}%`) };
+    }
+    return null;
+  }, [geminiPulse, activeModel, metric, yMax, padTop, chartH, t]);
   const ctxDangerY = metric === 'ctx' ? valY(80) : null;
   const quotaAvgY =
     metric === 'quota' && visible.length >= 2 && stats.avg !== null && stats.avg > 0 ? valY(stats.avg) : null;
@@ -1629,6 +1655,39 @@ export function TrendChartCard({
                   fill="var(--hud-muted)"
                 >
                   {tt.refP95} {fmtSec(stats.p95)}
+                </text>
+              </g>
+            )}
+
+            {/* Global OpenRouter 30m P50 reference line (Gemini) */}
+            {globalRef !== null && (
+              <g>
+                <line
+                  x1={padLeft}
+                  y1={globalRef.y.toFixed(1)}
+                  x2={(padLeft + plotW).toFixed(1)}
+                  y2={globalRef.y.toFixed(1)}
+                  stroke="var(--seg-input)"
+                  stroke-width="1"
+                  stroke-dasharray="2 3"
+                  opacity="0.72"
+                />
+                <rect
+                  className="trend-y-pill-bg"
+                  x={(padLeft + plotW - Math.max(54, globalRef.label.length * 5.2 + 8)).toFixed(1)}
+                  y={(Math.max(padTop + 1, globalRef.y - 10.5)).toFixed(1)}
+                  width={Math.max(54, globalRef.label.length * 5.2 + 8)}
+                  height="10"
+                  rx="2.5"
+                />
+                <text
+                  x={(padLeft + plotW - 4).toFixed(1)}
+                  y={(Math.max(padTop + 8.5, globalRef.y - 2.5)).toFixed(1)}
+                  text-anchor="end"
+                  className="trend-ref-label"
+                  fill="var(--seg-input)"
+                >
+                  {globalRef.label}
                 </text>
               </g>
             )}

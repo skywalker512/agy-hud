@@ -113,6 +113,7 @@ export function CallsTab({
         onInspectCall={handleInspectCall}
         selectedModel={selectedModel}
         onSelectModel={handleSelectModel}
+        geminiPulse={snap?.geminiPulse}
       />
       <CallLogCard
         snap={snap}

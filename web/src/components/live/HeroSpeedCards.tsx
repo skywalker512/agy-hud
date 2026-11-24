@@ -1,7 +1,7 @@
 import { useId, useMemo } from 'preact/hooks';
 import type { Translations } from '../../i18n';
-import type { ActiveStep, Invocation } from '../../types/telemetry';
-import { cacheTier, fmtCachePct, fmtSec, fmtTps } from '../../utils/format';
+import type { ActiveStep, GeminiPulseSnapshot, Invocation } from '../../types/telemetry';
+import { cacheTier, fmtCachePct, fmtNum, fmtSec, fmtTps } from '../../utils/format';
 
 interface HeroSpeedCardsProps {
   found: boolean;
@@ -11,6 +11,7 @@ interface HeroSpeedCardsProps {
   invocations?: Invocation[];
   avgGenTps?: number;
   avgTtftSec?: number;
+  geminiPulse?: GeminiPulseSnapshot;
   t: Translations;
 }
 
@@ -75,6 +76,7 @@ export function HeroSpeedCards({
   invocations = [],
   avgGenTps = 0,
   avgTtftSec = 0,
+  geminiPulse,
   t,
 }: HeroSpeedCardsProps) {
   const gradId = useId();
@@ -211,6 +213,52 @@ export function HeroSpeedCards({
     return { w, h, bars, avgY, tip };
   }, [found, invocations, avgTtftSec, latest, t]);
 
+  const pulseIndicator = useMemo(() => {
+    const attr = geminiPulse?.attribution;
+    if (!found || !attr) return null;
+    const gP50 = attr.globalP50TtftSec !== null ? fmtSec(attr.globalP50TtftSec) : '';
+    const gP90 = attr.globalP90TtftSec !== null ? fmtSec(attr.globalP90TtftSec) : '--';
+    const tip = t.ttftAttributionTip({
+      headline: t.ttftVerdictHeadline(attr.verdict),
+      model: attr.label,
+      curTtft: fmtSec(attr.currentTtftSec),
+      curTps: attr.currentTps > 0 ? fmtTps(attr.currentTps) : '--',
+      curCache: attr.currentCachePct !== null ? `${attr.currentCachePct.toFixed(0)}%` : '--',
+      curNewIn: fmtNum(attr.currentNewInput),
+      localP50: attr.localP50TtftSec !== null ? fmtSec(attr.localP50TtftSec) : '--',
+      localP90: attr.localP90TtftSec !== null ? fmtSec(attr.localP90TtftSec) : '--',
+      localBucketLabel: t.ttftBucketLabel(attr.localBucket),
+      globalP50: gP50 || '--',
+      globalP90: gP90,
+      globalTps: attr.globalP50Tps !== null ? fmtTps(attr.globalP50Tps) : '--',
+      globalCache: attr.globalCachePct !== null ? `${attr.globalCachePct.toFixed(0)}%` : '--',
+      globalUptime: attr.globalUptime30mPct !== null ? `${attr.globalUptime30mPct.toFixed(0)}%` : '--',
+      globalReq30m: attr.globalRequests30m > 0 ? fmtNum(attr.globalRequests30m) : '--',
+      inFlight: attr.inFlightCount,
+    });
+
+    if (attr.verdict === 'upstream_degraded') {
+      return { isAlert: true, dotCls: 'bg-hud-bad', pillCls: 'text-hud-bad bg-tint-bad', text: t.ttftVerdictUpstream(gP50), tip };
+    }
+    if (attr.verdict === 'cache_miss') {
+      return { isAlert: true, dotCls: 'bg-seg-out', pillCls: 'text-seg-out bg-tint-out', text: t.ttftVerdictCacheMiss(fmtNum(attr.currentNewInput)), tip };
+    }
+    if (attr.verdict === 'local_concurrency') {
+      return { isAlert: true, dotCls: 'bg-hud-warn', pillCls: 'text-hud-warn bg-tint-warn', text: t.ttftVerdictConcurrency(attr.inFlightCount), tip };
+    }
+    if (attr.verdict === 'account_or_network') {
+      return { isAlert: true, dotCls: 'bg-seg-input', pillCls: 'text-seg-input bg-tint-input', text: t.ttftVerdictLocalSlow(gP50), tip };
+    }
+    if (!gP50) return null;
+    const dotCls =
+      attr.globalStatus === 'outage'
+        ? 'bg-hud-bad'
+        : attr.globalStatus === 'degraded'
+          ? 'bg-hud-warn'
+          : 'bg-hud-ok';
+    return { isAlert: false, dotCls, pillCls: 'text-hud-muted', text: t.ttftGlobalInline(gP50), tip };
+  }, [found, geminiPulse?.attribution, t]);
+
   return (
     <div className="hero-speed-grid grid grid-cols-2 gap-2">
       {/* Left Hero: Sustained Generation Speed (Gen TPS) */}
@@ -300,9 +348,24 @@ export function HeroSpeedCards({
               </span>
             )}
           </div>
-          <div className="hero-v mt-1.5 flex items-baseline gap-1 font-hud-mono text-[24px] font-bold leading-[1.08] tabular-nums min-w-0">
-            <span className="truncate">{ttftDisp.num}</span>
-            {ttftDisp.unit && <span className="hud-unit text-[11px] shrink-0">{ttftDisp.unit}</span>}
+          <div className="hero-v mt-1.5 flex items-baseline justify-between gap-1 font-hud-mono text-[24px] font-bold leading-[1.08] tabular-nums min-w-0">
+            <div className="flex items-baseline gap-1 min-w-0">
+              <span className="truncate">{ttftDisp.num}</span>
+              {ttftDisp.unit && <span className="hud-unit text-[11px] shrink-0">{ttftDisp.unit}</span>}
+            </div>
+            {pulseIndicator && (
+              <span
+                className={`inline-flex items-center gap-1 cursor-help font-hud text-[9.5px] leading-none shrink-0 max-w-[110px] truncate ${
+                  pulseIndicator.isAlert
+                    ? `px-1.5 py-[2.5px] rounded-full font-semibold ${pulseIndicator.pillCls}`
+                    : `font-medium ${pulseIndicator.pillCls}`
+                }`}
+                data-tip={pulseIndicator.tip}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${pulseIndicator.dotCls}`} />
+                <span className="truncate">{pulseIndicator.text}</span>
+              </span>
+            )}
           </div>
           <div className="card-sub truncate whitespace-nowrap" data-tip={ttftSub}>{ttftSub}</div>
         </div>

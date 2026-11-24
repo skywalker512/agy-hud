@@ -1,0 +1,821 @@
+/**
+ * Gemini Global Pulse & TTFT Attribution.
+ *
+ * Fetches read-only public Gemini telemetry from:
+ * - OpenRouter public model pages & endpoint status (30m P50/P75/P90 TTFT, P50/P90 TPS,
+ *   global cache hit rate, 30m uptime & provider degradation flags; zero API key required)
+ * - Google Cloud Service Health incidents.json (active Vertex AI / Gemini outages)
+ *
+ * Combines global upstream telemetry with the user's 7-day local per-model baseline
+ * (stratified by cache hit vs cold prefill) and local concurrency (`inFlightCount`)
+ * to attribute slow TTFT to:
+ * - `upstream_degraded`: whole Gemini upstream / OpenRouter global pool is slow or degraded
+ * - `cache_miss`: cold prompt prefill (large uncached newInput / low cache hit)
+ * - `local_concurrency`: multiple concurrent chats / Swarm workers / subagents queuing
+ * - `account_or_network`: local/account/proxy slow while global Gemini pool is fast & healthy
+ * - `normal`: within expected latency bounds
+ */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { resolveGeminiPulsePath } from './constants.ts';
+import { median, resolveModelFamily } from './quota-solver.ts';
+
+export const PULSE_TTL_MS = 5 * 60_000;
+const PULSE_FETCH_TIMEOUT_MS = 8_000;
+const LOCAL_BASELINE_DAYS = 7;
+
+export interface GeminiPulseModelSpec {
+  family: string;
+  slug: string;
+  label: string;
+}
+
+export const GEMINI_PULSE_MODELS: readonly GeminiPulseModelSpec[] = Object.freeze([
+  { family: 'gemini-4-neon', slug: 'google/gemini-4-neon', label: 'Gemini 4 Neon' },
+  { family: 'gemini-4-hydrogen', slug: 'google/gemini-4-hydrogen', label: 'Gemini 4 Hydrogen' },
+  { family: 'gemini-4-carbon', slug: 'google/gemini-4-carbon', label: 'Gemini 4 Carbon' },
+  { family: 'gemini-4-argon', slug: 'google/gemini-4-argon', label: 'Gemini 4 Argon' },
+  { family: 'gemini-3.8-flash', slug: 'google/gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
+]);
+
+export type PulseHealthStatus = 'ok' | 'degraded' | 'outage';
+
+export type TtftVerdictKind =
+  | 'normal'
+  | 'upstream_degraded'
+  | 'cache_miss'
+  | 'local_concurrency'
+  | 'account_or_network';
+
+export interface GeminiEndpointPulse {
+  endpointId: string;
+  providerName: string;
+  providerSlug: string;
+  cacheHitPct: number | null;
+  p50TtftSec: number | null;
+  p75TtftSec: number | null;
+  p90TtftSec: number | null;
+  p50Tps: number | null;
+  p90Tps: number | null;
+  requestCount: number;
+  windowMinutes: number;
+}
+
+export interface GeminiModelGlobalPulse {
+  family: string;
+  slug: string;
+  label: string;
+  status: PulseHealthStatus;
+  p50TtftSec: number | null;
+  p75TtftSec: number | null;
+  p90TtftSec: number | null;
+  p50Tps: number | null;
+  p90Tps: number | null;
+  cacheHitPct: number | null;
+  uptime30mPct: number | null;
+  requestCount30m: number;
+  windowMinutes: number;
+  primaryProvider: string;
+  degradedProviders: string[];
+  /** Present when local 7d history exists for this family */
+  local?: GeminiLocalBaseline | null;
+}
+
+export interface GeminiLocalBaseline {
+  calls7d: number;
+  p50TtftSec: number | null;
+  p90TtftSec: number | null;
+  hitP50TtftSec: number | null;
+  missP50TtftSec: number | null;
+  p50Tps: number | null;
+  cacheHitPct: number | null;
+}
+
+export interface GcpActiveIncident {
+  id: string;
+  service: string;
+  severity: string;
+  impact: string;
+  summary: string;
+  begin: string;
+  url: string;
+}
+
+export interface TtftAttribution {
+  verdict: TtftVerdictKind;
+  family: string;
+  label: string;
+  currentTtftSec: number;
+  currentTps: number;
+  currentCachePct: number | null;
+  currentNewInput: number;
+  inFlightCount: number;
+  localP50TtftSec: number | null;
+  localP90TtftSec: number | null;
+  localBucket: 'hit' | 'miss' | 'all';
+  globalP50TtftSec: number | null;
+  globalP90TtftSec: number | null;
+  globalP50Tps: number | null;
+  globalCachePct: number | null;
+  globalUptime30mPct: number | null;
+  globalStatus: PulseHealthStatus | 'unknown';
+  globalRequests30m: number;
+  activeIncidentCount: number;
+}
+
+export interface GeminiPulseCacheFile {
+  version: number;
+  enabled: boolean;
+  fetchedAtMs: number;
+  models: GeminiModelGlobalPulse[];
+  incidents: GcpActiveIncident[];
+  error?: string;
+}
+
+export interface GeminiPulseSnapshot {
+  enabled: boolean;
+  available: boolean;
+  loading: boolean;
+  stale: boolean;
+  fetchedAtMs: number;
+  overallStatus: PulseHealthStatus | 'unknown';
+  models: GeminiModelGlobalPulse[];
+  incidents: GcpActiveIncident[];
+  activeFamily: string;
+  activeModel: GeminiModelGlobalPulse | null;
+  attribution: TtftAttribution | null;
+  error?: string;
+}
+
+const ALLOWED_PULSE_HOSTS = new Set(['openrouter.ai', 'status.cloud.google.com']);
+const GCP_GEMINI_RE = /vertex|gemini|generative|ai platform|cloud ai|model garden/i;
+
+function isAllowedPulseUrl(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl);
+    return u.protocol === 'https:' && ALLOWED_PULSE_HOSTS.has(u.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function quantile(sortedAsc: number[], q: number): number | null {
+  if (!sortedAsc.length) return null;
+  const idx = Math.min(sortedAsc.length - 1, Math.max(0, Math.floor((sortedAsc.length - 1) * q)));
+  return sortedAsc[idx];
+}
+
+function roundNum(v: number | null | undefined, digits = 2): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  const f = 10 ** digits;
+  return Math.round(v * f) / f;
+}
+
+/**
+ * Parse OpenRouter public model page SSR payload for 30m endpoint latency/throughput stats
+ * and weighted global cache hit rate.
+ */
+export function parseOpenRouterModelHtml(html: string): {
+  weightedCacheHitPct: number | null;
+  endpoints: GeminiEndpointPulse[];
+} {
+  if (!html || typeof html !== 'string') {
+    return { weightedCacheHitPct: null, endpoints: [] };
+  }
+  const unesc = html.replace(/\\"/g, '"');
+
+  let weightedCacheHitPct: number | null = null;
+  const providerMeta = new Map<string, { providerName?: string; providerSlug?: string; cacheHitRate?: number; totalTokens?: number }>();
+  const cacheRe = /"weightedCacheHitRate":([0-9.]+|null),"providerSummaries":(\[[^\]]*\])/g;
+  let cm: RegExpExecArray | null;
+  while ((cm = cacheRe.exec(unesc)) !== null) {
+    if (cm[1] !== 'null') {
+      const rate = Number(cm[1]);
+      if (Number.isFinite(rate) && rate >= 0 && rate <= 1) {
+        weightedCacheHitPct = roundNum(rate * 100, 1);
+      }
+    }
+    try {
+      const arr = JSON.parse(cm[2]);
+      if (Array.isArray(arr)) {
+        for (const p of arr) {
+          if (p && typeof p.endpointId === 'string') {
+            providerMeta.set(p.endpointId, p);
+          }
+        }
+      }
+    } catch {
+      /* ignore malformed chunk */
+    }
+  }
+
+  const byEp = new Map<string, GeminiEndpointPulse>();
+  const statsRe = /"stats":(\{"endpoint_id":"[^"]+"[^}]+\})/g;
+  let sm: RegExpExecArray | null;
+  while ((sm = statsRe.exec(unesc)) !== null) {
+    try {
+      const st = JSON.parse(sm[1]);
+      if (!st || typeof st.endpoint_id !== 'string' || byEp.has(st.endpoint_id)) continue;
+      const meta = providerMeta.get(st.endpoint_id);
+      const p50Ms = typeof st.p50_latency === 'number' && st.p50_latency > 0 ? st.p50_latency : null;
+      const p75Ms = typeof st.p75_latency === 'number' && st.p75_latency > 0 ? st.p75_latency : null;
+      const p90Ms = typeof st.p90_latency === 'number' && st.p90_latency > 0 ? st.p90_latency : null;
+      const p50Tps = typeof st.p50_throughput === 'number' && st.p50_throughput > 0 ? st.p50_throughput : null;
+      const p90Tps = typeof st.p90_throughput === 'number' && st.p90_throughput > 0 ? st.p90_throughput : null;
+      const cacheHitPct = typeof meta?.cacheHitRate === 'number' && meta.cacheHitRate >= 0 && meta.cacheHitRate <= 1
+        ? roundNum(meta.cacheHitRate * 100, 1)
+        : null;
+      byEp.set(st.endpoint_id, {
+        endpointId: st.endpoint_id,
+        providerName: typeof meta?.providerName === 'string' ? meta.providerName : '',
+        providerSlug: typeof meta?.providerSlug === 'string' ? meta.providerSlug : '',
+        cacheHitPct,
+        p50TtftSec: p50Ms !== null ? roundNum(p50Ms / 1000, 2) : null,
+        p75TtftSec: p75Ms !== null ? roundNum(p75Ms / 1000, 2) : null,
+        p90TtftSec: p90Ms !== null ? roundNum(p90Ms / 1000, 2) : null,
+        p50Tps: p50Tps !== null ? roundNum(p50Tps, 1) : null,
+        p90Tps: p90Tps !== null ? roundNum(p90Tps, 1) : null,
+        requestCount: typeof st.request_count === 'number' && st.request_count > 0 ? Math.round(st.request_count) : 0,
+        windowMinutes: typeof st.window_minutes === 'number' && st.window_minutes > 0 ? st.window_minutes : 30,
+      });
+    } catch {
+      /* ignore malformed stats object */
+    }
+  }
+
+  const endpoints = [...byEp.values()].sort((a, b) => b.requestCount - a.requestCount);
+  return { weightedCacheHitPct, endpoints };
+}
+
+/**
+ * Parse OpenRouter `/api/v1/models/<slug>/endpoints` JSON for 30m uptime & provider status flags.
+ */
+export function parseOpenRouterEndpointsJson(raw: any): {
+  uptime30mPct: number | null;
+  degradedProviders: string[];
+} {
+  const eps = Array.isArray(raw?.data?.endpoints) ? raw.data.endpoints : [];
+  if (!eps.length) return { uptime30mPct: null, degradedProviders: [] };
+
+  // Prefer primary standard endpoints (google-vertex/global, google-ai-studio) over low-traffic flex/priority tiers.
+  const isStandard = (tag: string) => {
+    const t = String(tag || '').toLowerCase();
+    return t === 'google-vertex/global' || t === 'google-ai-studio';
+  };
+  const stdEps = eps.filter((e: any) => isStandard(e?.tag));
+  const pool = stdEps.length > 0 ? stdEps : eps;
+
+  const uptimes: number[] = [];
+  const degradedProviders: string[] = [];
+  for (const e of pool) {
+    const tag = String(e?.tag || e?.provider_name || 'provider');
+    const up = typeof e?.uptime_last_30m === 'number' && Number.isFinite(e.uptime_last_30m)
+      ? Math.max(0, Math.min(100, e.uptime_last_30m))
+      : null;
+    if (up !== null) uptimes.push(up);
+    const st = typeof e?.status === 'number' ? e.status : 0;
+    if (st < 0 || (up !== null && up < 95)) {
+      const label = tag.includes('vertex') ? 'Google Vertex' : (tag.includes('ai-studio') ? 'AI Studio' : tag);
+      if (!degradedProviders.includes(label)) degradedProviders.push(label);
+    }
+  }
+
+  const uptime30mPct = uptimes.length > 0 ? roundNum(Math.min(...uptimes), 1) : null;
+  return { uptime30mPct, degradedProviders };
+}
+
+/**
+ * Filter Google Cloud Service Health incidents.json for active Gemini / Vertex AI disruptions.
+ */
+export function parseGcpGeminiIncidents(raw: any): GcpActiveIncident[] {
+  if (!Array.isArray(raw)) return [];
+  const out: GcpActiveIncident[] = [];
+  for (const inc of raw) {
+    if (!inc || inc.end) continue; // Only active unresolved incidents
+    const service = String(inc.service_name || '');
+    const desc = String(inc.external_desc || inc.most_recent_update?.text || '');
+    const products = Array.isArray(inc.affected_products)
+      ? inc.affected_products.map((p: any) => String(p?.title || '')).join(' ')
+      : '';
+    const matchesGemini = GCP_GEMINI_RE.test(`${service} ${desc} ${products}`);
+    const isMajorMulti = /multiple products/i.test(service) && String(inc.severity || '').toLowerCase() === 'high';
+    if (!matchesGemini && !isMajorMulti) continue;
+    const uri = typeof inc.uri === 'string' && inc.uri
+      ? (inc.uri.startsWith('http') ? inc.uri : `https://status.cloud.google.com/${inc.uri.replace(/^\/+/, '')}`)
+      : 'https://status.cloud.google.com/';
+    out.push({
+      id: String(inc.id || inc.number || ''),
+      service: service || 'Google Cloud AI',
+      severity: String(inc.severity || 'medium').toLowerCase(),
+      impact: String(inc.status_impact || 'SERVICE_DISRUPTION'),
+      summary: desc.slice(0, 180),
+      begin: String(inc.begin || inc.created || ''),
+      url: uri,
+    });
+  }
+  return out;
+}
+
+export function classifyModelPulseStatus(
+  params: {
+    uptime30mPct: number | null;
+    degradedProviders: string[];
+    p50TtftSec: number | null;
+    p90TtftSec: number | null;
+  },
+  activeIncidents: GcpActiveIncident[],
+): PulseHealthStatus {
+  const hasHighIncident = activeIncidents.some((i) => i.severity === 'high' || /OUTAGE/i.test(i.impact));
+  if (hasHighIncident || (params.uptime30mPct !== null && params.uptime30mPct < 85)) {
+    return 'outage';
+  }
+  if (
+    activeIncidents.length > 0
+    || (params.uptime30mPct !== null && params.uptime30mPct < 98)
+    || params.degradedProviders.length > 0
+    || (params.p90TtftSec !== null && params.p90TtftSec >= 20)
+    || (params.p50TtftSec !== null && params.p50TtftSec >= 9)
+  ) {
+    return 'degraded';
+  }
+  return 'ok';
+}
+
+export function summarizeModelPulse(
+  spec: GeminiPulseModelSpec,
+  htmlParsed: { weightedCacheHitPct: number | null; endpoints: GeminiEndpointPulse[] },
+  epParsed: { uptime30mPct: number | null; degradedProviders: string[] },
+  activeIncidents: GcpActiveIncident[],
+): GeminiModelGlobalPulse {
+  const eps = htmlParsed.endpoints.filter((e) => e.p50TtftSec !== null || e.p50Tps !== null);
+  // Primary endpoint is the highest-volume active provider (e.g. Google Vertex 30k req/30m).
+  const primary = eps[0] || null;
+  const totalReq = eps.reduce((acc, e) => acc + (e.requestCount || 0), 0);
+
+  const p50TtftSec = primary?.p50TtftSec ?? null;
+  const p75TtftSec = primary?.p75TtftSec ?? null;
+  const p90TtftSec = primary?.p90TtftSec ?? null;
+  const p50Tps = primary?.p50Tps ?? null;
+  const p90Tps = primary?.p90Tps ?? null;
+  const cacheHitPct = htmlParsed.weightedCacheHitPct ?? primary?.cacheHitPct ?? null;
+  const rawProv = primary?.providerName || primary?.providerSlug || '';
+  const primaryProvider = /vertex/i.test(rawProv)
+    ? 'Google Vertex'
+    : /ai[- ]?studio/i.test(rawProv)
+      ? 'AI Studio'
+      : rawProv;
+
+  const status = classifyModelPulseStatus(
+    {
+      uptime30mPct: epParsed.uptime30mPct,
+      degradedProviders: epParsed.degradedProviders,
+      p50TtftSec,
+      p90TtftSec,
+    },
+    activeIncidents,
+  );
+
+  return {
+    family: spec.family,
+    slug: spec.slug,
+    label: spec.label,
+    status,
+    p50TtftSec,
+    p75TtftSec,
+    p90TtftSec,
+    p50Tps,
+    p90Tps,
+    cacheHitPct,
+    uptime30mPct: epParsed.uptime30mPct,
+    requestCount30m: totalReq,
+    windowMinutes: primary?.windowMinutes || 30,
+    primaryProvider,
+    degradedProviders: epParsed.degradedProviders,
+  };
+}
+
+/**
+ * Compute the user's own 7-day local baseline per Gemini family from graph summaries,
+ * stratified into high-cache-hit vs cold-prefill buckets.
+ */
+export function computeLocalGeminiBaselines(
+  summaries: any[],
+  nowMs = Date.now(),
+): Record<string, GeminiLocalBaseline> {
+  const cutoffMs = nowMs - LOCAL_BASELINE_DAYS * 86_400_000;
+  const acc = new Map<string, {
+    ttfts: number[];
+    hitTtfts: number[];
+    missTtfts: number[];
+    tps: number[];
+    cachedSum: number;
+    promptSum: number;
+    calls: number;
+  }>();
+
+  for (const s of summaries || []) {
+    if (s.latestTsMs && s.latestTsMs < cutoffMs) continue;
+    for (const c of s.recentCalls || []) {
+      if (c.ts < cutoffMs || c.poolKey !== 'gemini') continue;
+      const fam = c.family || '';
+      if (!fam || !fam.startsWith('gemini')) continue;
+      let b = acc.get(fam);
+      if (!b) {
+        b = { ttfts: [], hitTtfts: [], missTtfts: [], tps: [], cachedSum: 0, promptSum: 0, calls: 0 };
+        acc.set(fam, b);
+      }
+      b.calls += 1;
+      const newIn = c.newInput || 0;
+      const cachedIn = c.cachedInput || 0;
+      const totIn = newIn + cachedIn;
+      b.cachedSum += cachedIn;
+      b.promptSum += totIn;
+      const cachePct = totIn > 0 ? (cachedIn / totIn) * 100 : null;
+      if (typeof c.ttftSec === 'number' && Number.isFinite(c.ttftSec) && c.ttftSec > 0 && c.ttftSec < 300) {
+        b.ttfts.push(c.ttftSec);
+        if (newIn >= 25_000 || (cachePct !== null && cachePct < 60)) {
+          b.missTtfts.push(c.ttftSec);
+        } else {
+          b.hitTtfts.push(c.ttftSec);
+        }
+      }
+      if (typeof c.genTps === 'number' && Number.isFinite(c.genTps) && c.genTps > 0 && c.genTps < 2000) {
+        b.tps.push(c.genTps);
+      }
+    }
+  }
+
+  const out: Record<string, GeminiLocalBaseline> = Object.create(null);
+  for (const [fam, b] of acc.entries()) {
+    b.ttfts.sort((a, x) => a - x);
+    b.hitTtfts.sort((a, x) => a - x);
+    b.missTtfts.sort((a, x) => a - x);
+    b.tps.sort((a, x) => a - x);
+    out[fam] = {
+      calls7d: b.calls,
+      p50TtftSec: roundNum(quantile(b.ttfts, 0.5), 2),
+      p90TtftSec: roundNum(quantile(b.ttfts, 0.9), 2),
+      hitP50TtftSec: b.hitTtfts.length >= 3 ? roundNum(quantile(b.hitTtfts, 0.5), 2) : null,
+      missP50TtftSec: b.missTtfts.length >= 3 ? roundNum(quantile(b.missTtfts, 0.5), 2) : null,
+      p50Tps: roundNum(quantile(b.tps, 0.5), 1),
+      cacheHitPct: b.promptSum > 0 ? roundNum((b.cachedSum / b.promptSum) * 100, 1) : null,
+    };
+  }
+  return out;
+}
+
+/**
+ * Attribute the latest Gemini invocation's TTFT latency into 4 actionable root causes
+ * (plus `normal`), comparing current request vs local 7d bucketed baseline vs OpenRouter 30m global stats.
+ */
+export function evaluateTtftAttribution({
+  latest,
+  globalModel,
+  localBaseline,
+  activeIncidents,
+  inFlightCount = 0,
+}: {
+  latest: any;
+  globalModel: GeminiModelGlobalPulse | null;
+  localBaseline: GeminiLocalBaseline | null;
+  activeIncidents: GcpActiveIncident[];
+  inFlightCount?: number;
+}): TtftAttribution | null {
+  if (!latest || typeof latest.ttftSec !== 'number' || !Number.isFinite(latest.ttftSec) || latest.ttftSec < 0) {
+    return null;
+  }
+  const family = resolveModelFamily(latest.modelId, latest.modelDisplay, latest.model);
+  if (!family.startsWith('gemini')) return null;
+
+  const spec = GEMINI_PULSE_MODELS.find((m) => m.family === family);
+  const label = globalModel?.label || spec?.label || latest.modelDisplay || family;
+  const ttft = latest.ttftSec;
+  const newIn = latest.newInput || 0;
+  const cachedIn = latest.cachedInput || 0;
+  const totIn = newIn + cachedIn;
+  const currentCachePct = totIn > 0 ? roundNum((cachedIn / totIn) * 100, 1) : null;
+  const isColdPrefill = newIn >= 25_000 && (currentCachePct === null || currentCachePct < 60);
+
+  let localBucket: 'hit' | 'miss' | 'all' = 'all';
+  let localRefP50 = localBaseline?.p50TtftSec ?? null;
+  if (isColdPrefill && localBaseline?.missP50TtftSec !== null && localBaseline?.missP50TtftSec !== undefined) {
+    localBucket = 'miss';
+    localRefP50 = localBaseline.missP50TtftSec;
+  } else if (!isColdPrefill && localBaseline?.hitP50TtftSec !== null && localBaseline?.hitP50TtftSec !== undefined) {
+    localBucket = 'hit';
+    localRefP50 = localBaseline.hitP50TtftSec;
+  }
+
+  const gP50 = globalModel?.p50TtftSec ?? null;
+  const gP90 = globalModel?.p90TtftSec ?? null;
+  const gStatus: PulseHealthStatus | 'unknown' = globalModel?.status ?? (activeIncidents.length > 0 ? 'degraded' : 'unknown');
+
+  const slowThreshold = Math.max(
+    4.0,
+    localRefP50 !== null ? localRefP50 * 1.85 : 4.5,
+  );
+  const isSlow = ttft >= slowThreshold;
+
+  let verdict: TtftVerdictKind = 'normal';
+  if (isSlow) {
+    const upstreamUnhealthy = activeIncidents.length > 0 || gStatus === 'outage' || gStatus === 'degraded';
+    // Even if uptime is 100%, if global P50 itself is elevated (>=4s) and user's TTFT sits within
+    // the global P50..P90 band, the whole upstream pool is running slow right now.
+    const withinElevatedGlobalBand = gP50 !== null
+      && gP50 >= 4.0
+      && ttft <= Math.max(gP90 ?? gP50 * 2.2, gP50 * 2.0) * 1.15;
+
+    if (upstreamUnhealthy || withinElevatedGlobalBand) {
+      verdict = 'upstream_degraded';
+    } else if (isColdPrefill) {
+      verdict = 'cache_miss';
+    } else if (inFlightCount >= 2) {
+      verdict = 'local_concurrency';
+    } else if (
+      gP50 !== null
+      && gStatus === 'ok'
+      && ttft > Math.max(4.5, (gP90 ?? gP50 * 2.4) * 1.15)
+    ) {
+      verdict = 'account_or_network';
+    } else if (localRefP50 !== null && ttft >= Math.max(5.0, localRefP50 * 2.5)) {
+      verdict = 'account_or_network';
+    }
+  }
+
+  return {
+    verdict,
+    family,
+    label,
+    currentTtftSec: roundNum(ttft, 2) ?? 0,
+    currentTps: roundNum(latest.isBuffered ? latest.e2eTps : latest.genTps, 1) ?? 0,
+    currentCachePct,
+    currentNewInput: newIn,
+    inFlightCount,
+    localP50TtftSec: localRefP50,
+    localP90TtftSec: localBaseline?.p90TtftSec ?? null,
+    localBucket,
+    globalP50TtftSec: gP50,
+    globalP90TtftSec: gP90,
+    globalP50Tps: globalModel?.p50Tps ?? null,
+    globalCachePct: globalModel?.cacheHitPct ?? null,
+    globalUptime30mPct: globalModel?.uptime30mPct ?? null,
+    globalStatus: gStatus,
+    globalRequests30m: globalModel?.requestCount30m ?? 0,
+    activeIncidentCount: activeIncidents.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Cache & background fetcher (non-blocking, disk-persisted, strict allowlist)
+// ---------------------------------------------------------------------------
+
+let memCache: GeminiPulseCacheFile | null = null;
+let memCachePath = '';
+let fetchInFlight: Promise<GeminiPulseCacheFile> | null = null;
+let pulseSeq = 0;
+
+export function getGeminiPulseVersion(): number {
+  return pulseSeq;
+}
+
+function loadDiskCache(cachePath: string): GeminiPulseCacheFile {
+  if (memCache && memCachePath === cachePath) return memCache;
+  let loaded: GeminiPulseCacheFile | null = null;
+  try {
+    if (cachePath && existsSync(cachePath)) {
+      const raw = JSON.parse(readFileSync(cachePath, 'utf-8'));
+      if (raw && typeof raw === 'object' && raw.version === 1) {
+        loaded = {
+          version: 1,
+          enabled: raw.enabled !== false,
+          fetchedAtMs: typeof raw.fetchedAtMs === 'number' ? raw.fetchedAtMs : 0,
+          models: Array.isArray(raw.models) ? raw.models : [],
+          incidents: Array.isArray(raw.incidents) ? raw.incidents : [],
+          ...(typeof raw.error === 'string' && raw.error ? { error: raw.error } : {}),
+        };
+      }
+    }
+  } catch {
+    /* ignore corrupt cache */
+  }
+  memCache = loaded || { version: 1, enabled: true, fetchedAtMs: 0, models: [], incidents: [] };
+  memCachePath = cachePath;
+  return memCache;
+}
+
+function saveDiskCache(cachePath: string, data: GeminiPulseCacheFile): void {
+  memCache = data;
+  memCachePath = cachePath;
+  if (!cachePath) return;
+  try {
+    mkdirSync(dirname(cachePath), { recursive: true });
+    writeFileSync(cachePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch {
+    /* non-fatal cache write error */
+  }
+}
+
+export function setGeminiPulseEnabled(
+  enabled: boolean,
+  opts: { appDataDir?: string; cachePath?: string } = {},
+): GeminiPulseCacheFile {
+  const cachePath = opts.cachePath || resolveGeminiPulsePath(opts.appDataDir);
+  const cur = loadDiskCache(cachePath);
+  const next: GeminiPulseCacheFile = { ...cur, enabled: Boolean(enabled) };
+  saveDiskCache(cachePath, next);
+  pulseSeq += 1;
+  return next;
+}
+
+async function fetchTextSafe(url: string, fetchImpl: typeof globalThis.fetch, headers: Record<string, string>) {
+  if (!isAllowedPulseUrl(url)) throw new Error(`Disallowed pulse URL: ${url}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PULSE_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetchImpl(url, { headers, signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function refreshGeminiPulse(opts: {
+  appDataDir?: string;
+  cachePath?: string;
+  force?: boolean;
+  fetchImpl?: typeof globalThis.fetch;
+  nowMs?: number;
+} = {}): Promise<GeminiPulseCacheFile> {
+  const cachePath = opts.cachePath || resolveGeminiPulsePath(opts.appDataDir);
+  const cur = loadDiskCache(cachePath);
+  const nowMs = opts.nowMs ?? Date.now();
+  if (!cur.enabled && !opts.force) return cur;
+  if (!opts.force && cur.fetchedAtMs > 0 && nowMs - cur.fetchedAtMs < PULSE_TTL_MS && cur.models.length > 0) {
+    return cur;
+  }
+  if (fetchInFlight && !opts.force) return fetchInFlight;
+
+  const fetchImpl = opts.fetchImpl || globalThis.fetch;
+  const run = (async (): Promise<GeminiPulseCacheFile> => {
+    try {
+      const gcpPromise = fetchTextSafe(
+        'https://status.cloud.google.com/incidents.json',
+        fetchImpl,
+        { 'User-Agent': 'agy-hud/1.2.0', Accept: 'application/json' },
+      )
+        .then((txt) => parseGcpGeminiIncidents(JSON.parse(txt)))
+        .catch(() => [] as GcpActiveIncident[]);
+
+      const modelPromises = GEMINI_PULSE_MODELS.map(async (spec) => {
+        const [htmlRes, epRes] = await Promise.allSettled([
+          fetchTextSafe(
+            `https://openrouter.ai/${spec.slug}`,
+            fetchImpl,
+            { 'User-Agent': 'Mozilla/5.0 (compatible; agy-hud/1.2.0)', Accept: 'text/html' },
+          ),
+          fetchTextSafe(
+            `https://openrouter.ai/api/v1/models/${spec.slug}/endpoints`,
+            fetchImpl,
+            { 'User-Agent': 'agy-hud/1.2.0', Accept: 'application/json' },
+          ),
+        ]);
+        const htmlParsed = htmlRes.status === 'fulfilled'
+          ? parseOpenRouterModelHtml(htmlRes.value)
+          : { weightedCacheHitPct: null, endpoints: [] };
+        let epParsed = { uptime30mPct: null as number | null, degradedProviders: [] as string[] };
+        if (epRes.status === 'fulfilled') {
+          try {
+            epParsed = parseOpenRouterEndpointsJson(JSON.parse(epRes.value));
+          } catch {
+            /* ignore */
+          }
+        }
+        return { spec, htmlParsed, epParsed, ok: htmlRes.status === 'fulfilled' || epRes.status === 'fulfilled' };
+      });
+
+      const [incidents, results] = await Promise.all([gcpPromise, Promise.all(modelPromises)]);
+      const anyOk = results.some((r) => r.ok);
+      if (!anyOk) {
+        const failed: GeminiPulseCacheFile = {
+          ...cur,
+          error: 'Unable to reach OpenRouter Gemini stats',
+        };
+        saveDiskCache(cachePath, failed);
+        pulseSeq += 1;
+        return failed;
+      }
+
+      const models = results
+        .filter((r) => r.ok)
+        .map((r) => summarizeModelPulse(r.spec, r.htmlParsed, r.epParsed, incidents));
+
+      const next: GeminiPulseCacheFile = {
+        version: 1,
+        enabled: cur.enabled,
+        fetchedAtMs: Date.now(),
+        models,
+        incidents,
+      };
+      saveDiskCache(cachePath, next);
+      pulseSeq += 1;
+      return next;
+    } catch (err: any) {
+      const failed: GeminiPulseCacheFile = {
+        ...cur,
+        error: err?.message || String(err),
+      };
+      saveDiskCache(cachePath, failed);
+      pulseSeq += 1;
+      return failed;
+    } finally {
+      fetchInFlight = null;
+    }
+  })();
+
+  fetchInFlight = run;
+  return run;
+}
+
+/**
+ * Non-blocking read for `/api/stats`: returns cached/disk Gemini pulse enriched with
+ * local 7-day baselines and current TTFT attribution, kicking off a background refresh
+ * if the cache is empty or stale (>5m).
+ */
+export function buildGeminiPulseSnapshot({
+  appDataDir,
+  cachePath,
+  summaries = [],
+  latest = null,
+  currentModel = null,
+  inFlightCount = 0,
+  nowMs = Date.now(),
+  triggerRefresh = true,
+}: {
+  appDataDir?: string;
+  cachePath?: string;
+  summaries?: any[];
+  latest?: any;
+  currentModel?: any;
+  inFlightCount?: number;
+  nowMs?: number;
+  triggerRefresh?: boolean;
+}): GeminiPulseSnapshot {
+  const path = cachePath || resolveGeminiPulsePath(appDataDir);
+  const cache = loadDiskCache(path);
+  const isStale = !(cache.fetchedAtMs > 0) || (nowMs - cache.fetchedAtMs >= PULSE_TTL_MS);
+
+  if (triggerRefresh && cache.enabled && isStale && !fetchInFlight) {
+    void refreshGeminiPulse({ appDataDir, cachePath: path, nowMs }).catch(() => {});
+  }
+
+  const localBaselines = computeLocalGeminiBaselines(summaries, nowMs);
+  const models: GeminiModelGlobalPulse[] = cache.enabled
+    ? cache.models.map((m) => ({ ...m, local: localBaselines[m.family] || null }))
+    : [];
+  const incidents = cache.enabled ? cache.incidents : [];
+
+  const activeProbe = latest || currentModel;
+  const activeFamily = activeProbe
+    ? resolveModelFamily(activeProbe.modelId, activeProbe.modelDisplay, activeProbe.model)
+    : '';
+  const activeModel = activeFamily.startsWith('gemini')
+    ? (models.find((m) => m.family === activeFamily) || null)
+    : null;
+
+  const attribution = activeFamily.startsWith('gemini') && latest
+    ? evaluateTtftAttribution({
+        latest,
+        globalModel: activeModel,
+        localBaseline: localBaselines[activeFamily] || null,
+        activeIncidents: incidents,
+        inFlightCount,
+      })
+    : null;
+
+  let overallStatus: PulseHealthStatus | 'unknown' = 'unknown';
+  if (cache.enabled && (models.length > 0 || incidents.length > 0)) {
+    if (incidents.some((i) => i.severity === 'high') || models.some((m) => m.status === 'outage')) {
+      overallStatus = 'outage';
+    } else if (incidents.length > 0 || models.some((m) => m.status === 'degraded')) {
+      overallStatus = 'degraded';
+    } else {
+      overallStatus = 'ok';
+    }
+  }
+
+  return {
+    enabled: cache.enabled,
+    available: cache.enabled && models.length > 0,
+    loading: cache.enabled && Boolean(fetchInFlight) && models.length === 0,
+    stale: cache.enabled && isStale && models.length > 0,
+    fetchedAtMs: cache.fetchedAtMs,
+    overallStatus,
+    models,
+    incidents,
+    activeFamily: activeFamily.startsWith('gemini') ? activeFamily : '',
+    activeModel,
+    attribution,
+    ...(cache.error ? { error: cache.error } : {}),
+  };
+}
