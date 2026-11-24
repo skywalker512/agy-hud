@@ -204,27 +204,128 @@ export function HighlightsSection({ locale, copy, onJumpDemo }: HighlightsSectio
             </div>
 
             <div class="bento-well flex flex-col gap-2 p-3">
-              <div class="flex items-center justify-between font-mono text-[10px]">
-                <span class="text-[var(--muted)]">{isZh ? '缓存存活概率 S(t)' : 'Cache Survival S(t)'}</span>
-                <span class="font-semibold text-[var(--seg-cache)]">{isZh ? '当前存活 86%' : '86% alive now'}</span>
-              </div>
-              <svg viewBox="0 0 240 68" class="block h-[66px] w-full overflow-visible" aria-hidden="true">
-                <line x1="0" y1="16" x2="240" y2="16" stroke="var(--border)" stroke-dasharray="2 3" />
-                <line x1="0" y1="36" x2="240" y2="36" stroke="var(--border)" stroke-dasharray="2 3" />
-                <line x1="0" y1="60" x2="240" y2="60" stroke="var(--border)" />
-                {/* Gemini gradual LRU decay */}
-                <path d="M4,8 C56,10 105,18 152,32 C188,43 214,50 236,54" fill="none" stroke="var(--seg-cache)" stroke-width="2" stroke-linecap="round" />
-                {/* Claude 5m hard TTL cliff */}
-                <path d="M4,9 L68,10 C82,10 86,52 100,57 L236,58" fill="none" stroke="var(--seg-out)" stroke-width="1.8" stroke-dasharray="4 3" stroke-linecap="round" />
-                <circle cx="84" cy="34" r="3" fill="var(--seg-out)" />
-                <circle cx="152" cy="32" r="3" fill="var(--seg-cache)" />
-              </svg>
-              <div class="flex flex-wrap items-center justify-between gap-2 font-mono text-[9.5px]">
-                <span class="inline-flex items-center gap-2 text-[var(--muted)]">
-                  <span class="inline-flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-cache)]" />Gemini LRU</span>
-                  <span class="inline-flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full bg-[var(--seg-out)]" />Claude 5m</span>
+              {/* Real CacheTtlCard replica: Model Header */}
+              <div class="flex flex-wrap items-center justify-between gap-1.5">
+                <div class="flex items-center gap-1.5">
+                  <span class="font-mono text-[11px] font-semibold text-[var(--fg)]">Gemini 4 Neon</span>
+                  <span class="rounded bg-[var(--surface-3)] px-1.5 py-[1px] text-[9px] text-[var(--muted)]">
+                    {isZh ? 'LRU 衰减' : 'LRU decay'}
+                  </span>
+                </div>
+                <span class="inline-flex items-center gap-1 rounded-full bg-[var(--surface-3)] px-1.5 py-[1px] font-mono text-[9px] text-[var(--fg-2)] tabular-nums">
+                  <span class="text-[var(--seg-cache)]">✓</span>
+                  <span>{isZh ? '实测 (81 长间隔)' : 'Fitted (81 ≥3m)'}</span>
                 </span>
-                <span class="text-[var(--seg-out)] font-semibold">{isZh ? '掉缓存损失 ~$0.34' : 'Miss penalty ~$0.34'}</span>
+              </div>
+
+              {/* 3-Metric Recessed Wells Strip (P80 / P50 / Bg Noise) */}
+              <div class="grid grid-cols-3 gap-1.5">
+                <div class="rounded-md bg-[var(--surface)] px-2 py-1">
+                  <div class="truncate text-[9px] text-[var(--muted)]">{isZh ? 'P80 安全窗' : 'Safe (P80)'}</div>
+                  <div class="font-mono text-[11.5px] font-bold text-[var(--seg-cache)] tabular-nums">~14m</div>
+                </div>
+                <div class="rounded-md bg-[var(--surface)] px-2 py-1">
+                  <div class="truncate text-[9px] text-[var(--muted)]">{isZh ? 'P50 半衰期' : 'Half-life (P50)'}</div>
+                  <div class="font-mono text-[11.5px] font-bold text-[var(--fg)] tabular-nums">~52m</div>
+                </div>
+                <div class="rounded-md bg-[var(--surface)] px-2 py-1">
+                  <div class="truncate text-[9px] text-[var(--muted)]">{isZh ? '短间隔底噪' : 'Noise miss'}</div>
+                  <div class="font-mono text-[11.5px] font-bold text-[var(--fg)] tabular-nums">1.7%</div>
+                </div>
+              </div>
+
+              {/* 7-Bucket Empirical Hit-Rate Bars + Fitted Survival Curve Overlay */}
+              {(() => {
+                const buckets = [
+                  { label: '<1m', emp: 98, pred: 98 },
+                  { label: '1-5m', emp: 95, pred: 95 },
+                  { label: '5-10m', emp: 90, pred: 89 },
+                  { label: '10-20m', emp: 79, pred: 80 },
+                  { label: '20-60m', emp: 55, pred: 60 },
+                  { label: '1-2h', emp: 25, pred: 37 },
+                  { label: '2h+', emp: 0, pred: 21 },
+                ];
+                const polyPts = buckets
+                  .map((b, i) => `${(((i + 0.5) / buckets.length) * 100).toFixed(1)},${(100 - b.pred).toFixed(1)}`)
+                  .join(' ');
+                const barTone = (emp: number) =>
+                  emp >= 75 ? 'var(--seg-cache)' : emp >= 40 ? 'var(--seg-out)' : '#ef4444';
+                return (
+                  <div class="flex flex-col gap-1.5 rounded-md bg-[var(--surface)] px-2.5 py-2">
+                    <div class="flex items-center justify-between text-[9px] text-[var(--muted)]">
+                      <div class="flex items-center gap-2.5">
+                        <span class="inline-flex items-center gap-1">
+                          <span class="inline-block h-2 w-2 rounded-[2px] bg-[var(--seg-cache)] opacity-75" />
+                          <span>{isZh ? '实测命中率' : 'Observed'}</span>
+                        </span>
+                        <span class="inline-flex items-center gap-1">
+                          <span class="inline-block h-2 w-2 rounded-full bg-[var(--accent-ink)]" />
+                          <span>{isZh ? '拟合曲线' : 'Fitted curve'}</span>
+                        </span>
+                      </div>
+                      <span class="font-mono opacity-65">100%</span>
+                    </div>
+
+                    <div class="relative h-[54px]">
+                      <div class="pointer-events-none absolute inset-x-0 top-1/2 border-t border-dashed border-[var(--border-strong)] opacity-70" />
+                      <span class="pointer-events-none absolute right-0 top-[calc(50%-10px)] font-mono text-[8px] text-[var(--muted)] opacity-60">
+                        50%
+                      </span>
+                      <svg
+                        class="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+                        viewBox="0 0 100 100"
+                        preserveAspectRatio="none"
+                        aria-hidden="true"
+                      >
+                        <polyline
+                          fill="none"
+                          stroke="var(--accent-ink)"
+                          stroke-width="1.8"
+                          stroke-linejoin="round"
+                          stroke-linecap="round"
+                          vector-effect="non-scaling-stroke"
+                          opacity="0.9"
+                          points={polyPts}
+                        />
+                      </svg>
+                      <div class="relative z-10 grid h-full grid-cols-7 gap-1">
+                        {buckets.map((b) => (
+                          <div key={b.label} class="relative flex h-full items-end justify-center">
+                            {b.emp > 0 ? (
+                              <div
+                                class="w-[56%] rounded-t-[2.5px]"
+                                style={{ height: `${Math.max(4, b.emp)}%`, background: barTone(b.emp), opacity: 0.72 }}
+                              />
+                            ) : (
+                              <div class="h-[2px] w-[56%] rounded-full bg-[var(--border-strong)]" />
+                            )}
+                            <span
+                              class="pointer-events-none absolute h-[5px] w-[5px] rounded-full bg-[var(--accent-ink)]"
+                              style={{ bottom: `calc(${b.pred}% - 2.5px)`, boxShadow: '0 0 0 1.2px var(--surface)' }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div class="grid grid-cols-7 gap-0.5 border-t border-[var(--border-subtle)] pt-1 text-center font-mono tabular-nums">
+                      {buckets.map((b) => (
+                        <div key={b.label} class="flex flex-col leading-[1.2]">
+                          <span class="truncate text-[8.5px] font-medium text-[var(--fg)]">{b.label}</span>
+                          <span class="truncate text-[8px] text-[var(--muted)]">{b.emp}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Expired Miss Cost Footer */}
+              <div class="flex items-center justify-between font-mono text-[9.5px] tabular-nums">
+                <span class="text-[var(--muted)]">{isZh ? '2,605 对样本' : '2,605 pairs'}</span>
+                <span class="font-semibold text-[var(--seg-out)]">
+                  {isZh ? '过期重算 26 次 (+$14.60)' : '26 expired misses (+$14.60)'}
+                </span>
               </div>
             </div>
           </article>

@@ -44,54 +44,41 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
   const CONV_ID = '9a7c4e21-8b3f-4d19-a612-3f8b5e1092c4';
   const isZh = lang === 'zh';
 
+  // Clean 2-model Antigravity Orchestrator pair:
+  // Orchestrator (Neon) handles planning, edits & synthesis;
+  // Gemini 4 Hydrogen (Orchestrator) executes fast search, reads & test/build checks.
   const MODELS = {
-    carbon: {
-      model: 'gemini-4-neon',
-      modelId: 'gemini-4-neon',
-      modelDisplay: 'Gemini 4 Neon (High)',
+    orch: {
+      model: 'gemini-pro-orchestrator-neon',
+      modelId: 'gemini-pro-orchestrator-neon',
+      modelDisplay: 'Orchestrator (Neon)',
       pricingKey: 'gemini-4-neon',
       quotaPool: 'gemini',
       k: 1.0,
       baseTps: 112,
-      tpsSigma: 13.5,
-      tpsMin: 82,
-      tpsMax: 146,
+      tpsSigma: 12.0,
+      tpsMin: 84,
+      tpsMax: 142,
       baseTtft: 1.44,
       inPerM: 3.0,
       cachePerM: 0.15,
       outPerM: 15.0,
     },
-    flash: {
-      model: 'gemini-4-hydrogen',
-      modelId: 'gemini-4-hydrogen',
-      modelDisplay: 'Gemini 4 Hydrogen (High)',
+    worker: {
+      model: 'gemini-flash-worker-agy',
+      modelId: 'gemini-flash-worker-agy',
+      modelDisplay: 'Gemini 4 Hydrogen (Orchestrator)',
       pricingKey: 'gemini-4-hydrogen',
       quotaPool: 'gemini',
       k: 1.0,
-      baseTps: 148,
-      tpsSigma: 15.0,
-      tpsMin: 112,
-      tpsMax: 184,
-      baseTtft: 1.06,
+      baseTps: 154,
+      tpsSigma: 14.0,
+      tpsMin: 122,
+      tpsMax: 188,
+      baseTtft: 0.92,
       inPerM: 1.5,
       cachePerM: 0.075,
       outPerM: 7.5,
-    },
-    claude: {
-      model: 'claude-opus-5-5-high',
-      modelId: 'claude-opus-5-5-high',
-      modelDisplay: 'Claude Opus 5.5 (High)',
-      pricingKey: 'claude-opus-5-5',
-      quotaPool: 'claude_gpt',
-      k: 1.0,
-      baseTps: 116,
-      tpsSigma: 12.0,
-      tpsMin: 90,
-      tpsMax: 148,
-      baseTtft: 2.15,
-      inPerM: 4.0,
-      cachePerM: 0.2,
-      outPerM: 20.0,
     },
   };
 
@@ -115,24 +102,25 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
     { calls: 4, en: 'Final polish on Swarm Cockpit rows and copy tightness', zh: '最终打磨 Swarm 驾驶舱列表与文案精简' },
   ];
 
-  // Hand-crafted realistic model routing pattern across 64 calls (not periodic!)
+  // Clean 2-model Orchestrator alternation per turn:
+  // Orchestrator (Neon) plans -> Hydrogen Worker executes fast tool checks -> Orchestrator edits & synthesizes
   const modelSeq = [
-    'flash', 'carbon', 'carbon',
-    'flash', 'carbon', 'carbon', 'flash',
-    'carbon', 'carbon', 'carbon', 'flash', 'carbon',
-    'flash', 'carbon', 'flash',
-    'carbon', 'carbon', 'claude', 'carbon',
-    'carbon', 'flash', 'carbon', 'claude', 'carbon',
-    'carbon', 'flash', 'carbon', 'carbon',
-    'carbon', 'claude', 'claude', 'carbon', 'flash',
-    'carbon', 'carbon', 'carbon', 'flash',
-    'carbon', 'flash', 'carbon',
-    'carbon', 'carbon', 'claude', 'carbon',
-    'carbon', 'flash', 'carbon', 'carbon', 'flash',
-    'claude', 'carbon', 'flash', 'carbon',
-    'flash', 'carbon', 'carbon',
-    'flash', 'flash', 'carbon', 'carbon',
-    'carbon', 'claude', 'flash', 'carbon',
+    'orch', 'worker', 'orch',
+    'orch', 'worker', 'worker', 'orch',
+    'orch', 'worker', 'orch', 'worker', 'orch',
+    'orch', 'worker', 'orch',
+    'orch', 'worker', 'worker', 'orch',
+    'orch', 'worker', 'orch', 'worker', 'orch',
+    'orch', 'worker', 'worker', 'orch',
+    'orch', 'worker', 'orch', 'worker', 'orch',
+    'orch', 'worker', 'worker', 'orch',
+    'orch', 'worker', 'orch',
+    'orch', 'worker', 'worker', 'orch',
+    'orch', 'worker', 'orch', 'worker', 'orch',
+    'orch', 'worker', 'worker', 'orch',
+    'orch', 'worker', 'orch',
+    'orch', 'worker', 'worker', 'orch',
+    'orch', 'worker', 'worker', 'orch',
   ];
 
   const TOOL_POOLS = [
@@ -156,7 +144,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
   let ctxTokens = 29_400;
 
   // AR(1) state per model so consecutive calls have organic momentum + sudden realistic shifts
-  const tpsDrift = { carbon: 0, flash: 0, claude: 0 };
+  const tpsDrift = { orch: 0, worker: 0 };
   const COMPACT_AFTER_IDX = 35; // compaction happens between call #36 (idx 35) and call #37 (idx 36)
 
   let callIdx = 0;
@@ -171,7 +159,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
     let turnHasCompact = false;
 
     for (let c = 0; c < spec.calls; c++) {
-      const mKey = modelSeq[callIdx] || 'carbon';
+      const mKey = modelSeq[callIdx] || 'orch';
       const prof = MODELS[mKey];
 
       // Occasional realistic gap (e.g. user read output or took a 6m coffee break at call #24)
@@ -191,9 +179,9 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
           afterGmIdx: COMPACT_AFTER_IDX,
           timestampMs: compTs,
           durationSec: 6.4,
-          model: MODELS.carbon.model,
-          modelId: MODELS.carbon.modelId,
-          modelDisplay: MODELS.carbon.modelDisplay,
+          model: MODELS.orch.model,
+          modelId: MODELS.orch.modelId,
+          modelDisplay: MODELS.orch.modelDisplay,
           cachedInput: Math.round(beforeCtx * 0.91),
           newInput: Math.round(beforeCtx * 0.09),
           outputTokens: 3240,
@@ -203,14 +191,14 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
           afterCtx,
           afterCtxEstimated: false,
           priced: true,
-          pricingKey: MODELS.carbon.pricingKey,
+          pricingKey: MODELS.orch.pricingKey,
           costUSD: 0.142,
           cacheSavedUSD: 0.43,
           quotaPool: 'gemini',
-          quotaPct5h: 0.28,
-          quotaPct5hErr: 0.014,
-          quotaPct7d: 0.07,
-          quotaMultiplierK: 3.0,
+          quotaPct5h: 0.09,
+          quotaPct5hErr: 0.005,
+          quotaPct7d: 0.02,
+          quotaMultiplierK: 1.0,
           quotaFitSource: 'fitted',
           hasSummary: true,
           summaryPreview: isZh
@@ -228,10 +216,10 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
       const ctxLoadPenalty = ctxTokens > 150_000 ? ((ctxTokens - 150_000) / 100_000) * 9.5 : 0;
       let genTps = clamp(prof.baseTps + tpsDrift[mKey] - ctxLoadPenalty, prof.tpsMin, prof.tpsMax);
 
-      // Hand-tune last 3 calls for natural crisp hero numbers (and realistic spread)
-      if (callIdx === 61) genTps = 79.4;   // Claude Sonnet 4.6 review
-      if (callIdx === 62) genTps = 131.6;  // Gemini 3.8 Flash fast verification (expanded in Calls screenshot!)
-      if (callIdx === 63) genTps = 104.2;  // Gemini 4 Carbon latest call
+      // Hand-tune last 3 calls for natural crisp hero numbers (and clean Orchestrator alternation)
+      if (callIdx === 61) genTps = 152.4;  // Hydrogen Worker fast read
+      if (callIdx === 62) genTps = 148.6;  // Hydrogen Worker build verify (expanded in Calls tab)
+      if (callIdx === 63) genTps = 110.4;  // Orchestrator (Neon) final synthesis
 
       // Realistic special events
       const isSlowThinkBurst = callIdx === 18 || callIdx === 44;
@@ -247,12 +235,9 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
       } else if (isSlowThinkBurst) {
         thinkingTokens = Math.round(2200 + rng() * 950);
         outputTokens = thinkingTokens + Math.round(1450 + rng() * 900);
-      } else if (mKey === 'flash') {
+      } else if (mKey === 'worker') {
         thinkingTokens = Math.round(140 + rng() * 340);
         outputTokens = thinkingTokens + Math.round(420 + rng() * 880);
-      } else if (mKey === 'claude') {
-        thinkingTokens = Math.round(480 + rng() * 760);
-        outputTokens = thinkingTokens + Math.round(780 + rng() * 1120);
       } else {
         thinkingTokens = Math.round(420 + rng() * 980);
         outputTokens = thinkingTokens + Math.round(640 + rng() * 1380);
@@ -288,7 +273,6 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
       else if (callIdx === 24) cacheRatio = 0.54; // after 6.5m break
       else if (callIdx === COMPACT_AFTER_IDX + 1) cacheRatio = 0.41; // immediately post-compaction
       else if (callIdx === COMPACT_AFTER_IDX + 2) cacheRatio = 0.74;
-      else if (mKey === 'claude' && modelSeq[callIdx - 1] !== 'claude') cacheRatio = 0.62; // model switch prefix coldness
       else cacheRatio = clamp(0.895 + gauss(rng) * 0.032, 0.78, 0.955);
 
       if (callIdx === 62) cacheRatio = 0.892;
@@ -355,7 +339,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         turnIndex: ti + 1,
         lastStepIndex: stepIdx + stepToolCount,
         botId: `bot_${callIdx + 1}`,
-        modelEnum: mKey === 'carbon' ? 401 : mKey === 'flash' ? 381 : 502,
+        modelEnum: mKey === 'orch' ? 1537 : 1669,
         model: prof.model,
         modelId: prof.modelId,
         modelDisplay: prof.modelDisplay,
@@ -681,7 +665,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
     },
   };
 
-  // Sanitized realistic 6-worker Swarm Cockpit (modeled after real Antigravity Swarm telemetry)
+  // Sanitized realistic 6-worker Orchestrator Swarm Cockpit (clean 2-model split: Orchestrator Neon + Hydrogen Worker)
   const childSessions = [
     {
       id: '3c1f8b92-4a21-4e77-9b10-1a2b3c4d5e01',
@@ -703,12 +687,12 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         swarmState: 'working',
         threadId: 't-core',
         threadTitle: isZh ? '核心遥测与配额求解' : 'Core Telemetry & Quota Solver',
-        taskTitle: isZh ? '脏突发守恒护栏 + Claude 池校准' : 'Dirty-burst guard + Claude pool calibration',
-        model: 'gemini-4-neon',
+        taskTitle: isZh ? '脏突发守恒护栏 + 配额校准' : 'Dirty-burst guard + quota calibration',
+        model: 'gemini-pro-orchestrator-neon',
         workspaceMode: 'share',
         lastReadSeq: 64,
         lastPostSeq: 63,
-        lastPostSnippet: isZh ? '92 项 sidecar 单测全绿，正在校验 Ultra 20x 与 Opus 边界' : 'All 92 sidecar tests green; verifying Ultra 20x & Opus caps',
+        lastPostSnippet: isZh ? '92 项 sidecar 单测全绿，正在校验 Ultra 20x 配额边界' : 'All 92 sidecar tests green; verifying Ultra 20x pool caps',
         lastPostTime: '2026-11-24 20:54:12',
       },
     },
@@ -733,7 +717,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         threadId: 't-core',
         threadTitle: isZh ? '核心遥测与配额求解' : 'Core Telemetry & Quota Solver',
         taskTitle: isZh ? '趋势图回调 Ref 修复、键盘无障碍与 memo 优化' : 'Chart callback-ref fix, keyboard a11y & memoization',
-        model: 'gemini-4-neon',
+        model: 'gemini-pro-orchestrator-neon',
         workspaceMode: 'share',
         lastReadSeq: 64,
         lastPostSeq: 64,
@@ -745,7 +729,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
       id: '5e9a0c33-1b72-4d90-a214-1a2b3c4d5e03',
       kind: 'subagent',
       subagentType: 'swarm_worker',
-      title: isZh ? 'Claude Opus 深度代码审校与安全加固' : 'Claude Opus deep code audit & security hardening',
+      title: isZh ? '深度代码审校与安全边界加固' : 'Deep code audit & security boundary hardening',
       calls: 16,
       outputTokens: 12_463,
       costUSD: 0.81,
@@ -754,15 +738,15 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
       unpricedCount: 0,
       updatedMs: NOW - 38_000,
       latestTsMs: NOW - 38_000,
-      quotaUsage: { claude_gpt: { pct5h: 3.91, pct7d: 1.96, isFitted: false } },
+      quotaUsage: { gemini: { pct5h: 0.14, pct7d: 0.04, isFitted: true } },
       swarm: {
-        rosterName: 'opus-auditor',
+        rosterName: 'code-auditor',
         swarmRole: 'worker',
         swarmState: 'waiting',
         threadId: 't-core',
         threadTitle: isZh ? '核心遥测与配额求解' : 'Core Telemetry & Quota Solver',
         taskTitle: isZh ? '审校 Worker 鉴权、链接白名单与 P0 缺陷' : 'Audit Worker HMAC auth, URL allowlists & P0 defects',
-        model: 'claude-opus-5-5-high',
+        model: 'gemini-pro-orchestrator-neon',
         workspaceMode: 'inherit',
         lastReadSeq: 64,
         lastPostSeq: 61,
@@ -791,7 +775,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         threadId: 't-launch',
         threadTitle: isZh ? '云端大盘与官网发布' : 'Global Pulse & Site Launch',
         taskTitle: isZh ? '抽取 pulse-core.ts 并完善 KV 空响应保护' : 'Extract pulse-core.ts & add KV empty-response guard',
-        model: 'gemini-4-hydrogen',
+        model: 'gemini-flash-worker-agy',
         workspaceMode: 'share',
         lastReadSeq: 64,
         lastPostSeq: 60,
@@ -820,7 +804,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         threadId: 't-launch',
         threadTitle: isZh ? '云端大盘与官网发布' : 'Global Pulse & Site Launch',
         taskTitle: isZh ? '生成 1200×630 OG 图与双语发布文档' : 'Generate 1200×630 OG cards & bilingual launch docs',
-        model: 'gemini-4-neon',
+        model: 'gemini-pro-orchestrator-neon',
         workspaceMode: 'share',
         lastReadSeq: 58,
         lastPostSeq: 58,
@@ -849,7 +833,7 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         threadId: 't-launch',
         threadTitle: isZh ? '云端大盘与官网发布' : 'Global Pulse & Site Launch',
         taskTitle: isZh ? '执行 101 项测试、Bundle 校验与 --doctor 验收' : 'Run 101 unit tests, bundle parity & --doctor check',
-        model: 'gemini-4-hydrogen',
+        model: 'gemini-flash-worker-agy',
         workspaceMode: 'inherit',
         lastReadSeq: 59,
         lastPostSeq: 59,
@@ -1164,7 +1148,6 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         costUSD: totalCostUSD,
         quotaUsage: {
           gemini: { pct5h: gem5h, pct7d: gem7d, isFitted: true },
-          claude_gpt: { pct5h: claude5h, pct7d: claude7d, isFitted: false },
         },
       },
       ...childSessions.map((ch) => ({
@@ -1188,7 +1171,6 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
       subagentType: '',
       quotaUsage: {
         gemini: { pct5h: gem5h, pct7d: gem7d, isFitted: true },
-        claude_gpt: { pct5h: claude5h, pct7d: claude7d, isFitted: false },
       },
       parentSession: null,
       childSessions,
@@ -1209,15 +1191,14 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
         childUnpricedCount: 0,
         quotaUsage: {
           gemini: { pct5h: gem5h + demoChildGem5h, pct7d: gem7d + demoChildGem7d, isFitted: true },
-          claude_gpt: { pct5h: claude5h + demoChildClaude5h, pct7d: claude7d + demoChildClaude7d, isFitted: false },
         },
       },
       swarm: {
         swarmId: 'swarm-agy-hud-v12',
         coordinatorConvId: CONV_ID,
         swarmTitle: isZh ? 'AGY-HUD v1.2 遥测与发布协作' : 'AGY-HUD v1.2 Release Swarm',
-        goalTitle: isZh ? '配额校准、全局大盘与官网发布' : 'Quota Calibration, Global Pulse & Launch',
-        goalLine: isZh ? '6 节点并行完成配额求解、Opus 审校、Pulse Worker 与验收' : '6 workers shipping quota solver, Opus audit, Pulse Worker & CI',
+        goalTitle: isZh ? 'Orchestrator 双模型编排与发布' : 'Orchestrator Dual-Model Swarm & Launch',
+        goalLine: isZh ? 'Orchestrator (Neon) + Hydrogen Worker 双模型并行完成校准、审校与验收' : 'Orchestrator (Neon) + Hydrogen Worker shipping calibration, audit & CI',
         createdAt: '2026-11-24 20:10:00',
         boardSeq: 64,
         memberCount: 6,
@@ -1230,13 +1211,13 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
           rosterName: 'coordinator',
           swarmRole: 'coordinator',
           swarmState: 'working',
-          model: 'gemini-4-neon',
+          model: 'gemini-pro-orchestrator-neon',
         },
         threads: [
           {
             id: 't-core',
-            title: isZh ? '核心遥测、配额与 Opus 审校' : 'Core Telemetry, Quota & Opus Audit',
-            members: ['quota-solver', 'hud-ui', 'opus-auditor'],
+            title: isZh ? '核心遥测、配额与代码审校' : 'Core Telemetry, Quota & Code Audit',
+            members: ['quota-solver', 'hud-ui', 'code-auditor'],
           },
           {
             id: 't-launch',
@@ -1282,7 +1263,6 @@ function buildOrganicFixture(lang = 'en', nowOverrideMs = 0) {
       latestCallMs: latest.timestampMs,
       sessionQuota: {
         gemini: { pct5h: gem5h, pct7d: gem7d, isFitted: true },
-        claude_gpt: { pct5h: claude5h, pct7d: claude7d, isFitted: true },
       },
     },
     activeStep: null,

@@ -35,6 +35,8 @@
   }
 
   var WORKER_MODEL_META = {
+    'gemini-pro-orchestrator-neon': { model: 'gemini-pro-orchestrator-neon', modelId: 'gemini-pro-orchestrator-neon', modelDisplay: 'Orchestrator (Neon)', pricingKey: 'gemini-4-neon', pool: 'gemini', baseTps: 112, baseTtft: 1.44 },
+    'gemini-flash-worker-agy': { model: 'gemini-flash-worker-agy', modelId: 'gemini-flash-worker-agy', modelDisplay: 'Gemini 4 Hydrogen (Orchestrator)', pricingKey: 'gemini-4-hydrogen', pool: 'gemini', baseTps: 154, baseTtft: 0.92 },
     'gemini-4-neon': { model: 'gemini-4-neon', modelId: 'gemini-4-neon', modelDisplay: 'Gemini 4 Neon (High)', pricingKey: 'gemini-4-neon', pool: 'gemini', baseTps: 112, baseTtft: 1.48 },
     'gemini-4-hydrogen': { model: 'gemini-4-hydrogen', modelId: 'gemini-4-hydrogen', modelDisplay: 'Gemini 4 Hydrogen (High)', pricingKey: 'gemini-4-hydrogen', pool: 'gemini', baseTps: 146, baseTtft: 1.12 },
     'gemini-4-carbon': { model: 'gemini-4-carbon', modelId: 'gemini-4-carbon', modelDisplay: 'Gemini 4 Carbon (High)', pricingKey: 'gemini-4-pro-preview', pool: 'gemini', baseTps: 94, baseTtft: 1.85 },
