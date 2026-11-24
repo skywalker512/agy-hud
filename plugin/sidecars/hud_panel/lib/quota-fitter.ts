@@ -22,9 +22,11 @@ import {
   getFamilyPriorK,
   getPoolPriorGamma,
   getPoolPriorRefBeta,
+  hasTrustedPoolFit,
   inferPoolKindFromState,
   median,
   resolveModelFamily,
+  selectConsensusGamma,
   solvePoolFitModel,
 } from './quota-solver.ts';
 import type { QuotaFitStore, QuotaPoolState, QuotaSample } from './quota-solver.ts';
@@ -38,7 +40,9 @@ export {
   getPoolPriorGamma,
   getPoolPriorRefBeta,
   hasPoolPrior,
+  hasTrustedPoolFit,
   resolveModelFamily,
+  selectConsensusGamma,
   solvePoolFitModel,
 } from './quota-solver.ts';
 
@@ -461,6 +465,10 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
     let deferSnapAdvance = false;
     const pushSample = (sample) => {
       const { appCallCount: _ac, cliCallCount: _cc, ...persistedSample } = sample;
+      const last = ps.samples[ps.samples.length - 1];
+      if (last && last.t1 === persistedSample.t1 && last.source === persistedSample.source) {
+        return;
+      }
       ps.samples.push({ ...persistedSample, tsMode: 'completed_v2', pricingSig: currentSig, familyVersion: FAMILY_CLASSIFIER_VERSION });
       if (ps.samples.length > MAX_SAMPLES_PER_POOL) {
         ps.samples.splice(0, ps.samples.length - MAX_SAMPLES_PER_POOL);
@@ -484,8 +492,22 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
         const obsGamma = du5 / du7;
         if (obsGamma >= 1.1 && obsGamma <= 20) {
           ps.gammaHistory = [...(ps.gammaHistory || []).slice(-31), obsGamma];
-          ps.gamma = median(ps.gammaHistory);
+          ps.gamma = selectConsensusGamma(ps.gammaHistory) ?? median(ps.gammaHistory);
           dirty = true;
+        }
+      }
+
+      // Detect server-side 5h vs 7d bucket desync (e.g. du5=+0.95% while du7=0.00%, or du7=+1.0% while du5=0.008%).
+      const knownGamma = (ps.gamma ?? 0) > 0 ? ps.gamma! : (ps.fit?.gamma ?? 0);
+      let gammaConsistent = true;
+      if (knownGamma > 0 && same5h && same7d && du5 !== null && du7 !== null) {
+        if (du5 >= 0.02 && du7 <= 0.0001) {
+          gammaConsistent = false;
+        } else if (du7 >= 0.005 && du5 > 0) {
+          const obsG = du5 / du7;
+          if (Math.abs(Math.log(obsG / knownGamma)) > 0.35) {
+            gammaConsistent = false;
+          }
         }
       }
 
@@ -512,7 +534,7 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
               du5: Math.max(0, du5),
               du7: du7 !== null ? Math.max(0, du7) : null,
               source: '5h_delta',
-              boundaryClean: Boolean(intervalClean && sourceClean),
+              boundaryClean: Boolean(intervalClean && sourceClean && gammaConsistent),
               isShort: dtSec <= SHORT_WINDOW_MAX_SEC,
               ...agg,
             });
@@ -588,9 +610,15 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
     const schemaStale = ps.fit && ps.fit.schemaVersion !== FIT_SCHEMA_VERSION;
     if (addedSample || upgradedSamples || schemaStale || (!ps.fit && ps.samples.length > 0)) {
       const nextFit = solvePoolFitModel(ps, pk);
-      // Once a new quota-cap regime is firmly confirmed (>=5 inliers), prune pre-regime samples
-      // so obsolete tier history doesn't linger in quota-model-fit.json.
-      if (nextFit?.regimeStartMs && nextFit.inlierCount >= 5) {
+      // Once a new quota-cap regime is firmly confirmed (>=5 clean inliers, high quality, no drift),
+      // prune pre-regime samples so obsolete tier history doesn't linger in quota-model-fit.json.
+      if (
+        nextFit?.regimeStartMs
+        && nextFit.quality === 'high'
+        && !nextFit.driftWarning
+        && nextFit.shortCleanCount >= 5
+        && nextFit.inlierCount >= 5
+      ) {
         const cutoffMs = nextFit.regimeStartMs;
         const kept = ps.samples.filter((s) => (s.t1 || s.t0) >= cutoffMs);
         if (kept.length >= 5 && kept.length < ps.samples.length) {
@@ -601,7 +629,7 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
             .filter((g) => g >= 1.1 && g <= 20);
           if (keptGammas.length >= 3) {
             ps.gammaHistory = keptGammas.slice(-32);
-            ps.gamma = median(ps.gammaHistory);
+            ps.gamma = selectConsensusGamma(ps.gammaHistory) ?? median(ps.gammaHistory);
           }
           solvePoolFitModel(ps, pk);
         }
@@ -820,7 +848,7 @@ export function evaluatePoolWindowResidual({
   // Signed net residual across the entire window (zero positive-clipping bias).
   const signedResidualPct = usedPct - predPct;
   const nominalDominated = totalSnapUSD > 0 && (unmodeledNominalUSD / totalSnapUSD) > 0.2;
-  const hasEnoughAnchor = fit.quality === 'high' || fit.shortCleanCount >= 4;
+  const hasEnoughAnchor = hasTrustedPoolFit(fit, 4);
   const hasSignificantExternal = hasEnoughAnchor && !nominalDominated && usedPct >= 0.2 && signedResidualPct > bandPct;
   const extPct = hasSignificantExternal ? signedResidualPct : 0;
   const fullUSD = spanKey === '7d'

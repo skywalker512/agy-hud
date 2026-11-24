@@ -14,7 +14,7 @@
 import { getCurrentPricingSig, poolKeyForModel, resolveModelPricing } from './pricing.ts';
 
 export const FIT_STORE_VERSION = 1;
-export const FIT_SCHEMA_VERSION = 4;
+export const FIT_SCHEMA_VERSION = 5;
 export const FAMILY_CLASSIFIER_VERSION = 2;
 export const SHORT_WINDOW_MAX_SEC = 900; // <= 15m short windows train model parameters; long windows only evaluate external burn
 
@@ -177,6 +177,36 @@ export function weightedQuantile(pairs, q = 0.5) {
   return sorted[sorted.length - 1].val;
 }
 
+/**
+ * Consensus-clustered gamma estimator: recovers the dominant 5h/7d ratio cluster even when
+ * up to ~40% of historical ratio samples are out-of-sync 5h/7d server reads.
+ */
+export function selectConsensusGamma(values: number[], tolRel = 0.08): number | null {
+  const valid = values.filter((v) => Number.isFinite(v) && v >= 1.1 && v <= 20);
+  if (!valid.length) return null;
+  if (valid.length < 4) return median(valid);
+
+  let bestCluster: number[] = [];
+  for (let i = 0; i < valid.length; i++) {
+    const c = valid[i];
+    const cluster = valid.filter((v) => Math.abs(v - c) / c <= tolRel);
+    if (cluster.length >= bestCluster.length) {
+      bestCluster = cluster;
+    }
+  }
+  return bestCluster.length >= 2 ? median(bestCluster) : median(valid);
+}
+
+/**
+ * Unified pool-fit trust gate shared by window residual estimation and budget attachment.
+ */
+export function hasTrustedPoolFit(fit: QuotaPoolFit | null | undefined, minShortClean = 2): boolean {
+  if (!fit || !(fit.refBeta > 0)) return false;
+  if (fit.quality === 'high') return true;
+  if ((fit.shortCleanCount || 0) >= minShortClean) return true;
+  return !fit.driftWarning && (fit.inlierCount || 0) >= 6 && (fit.relErrPct ?? 100) <= 2.0;
+}
+
 export function solve3x3WithInverse(mat, rhs) {
   // Augmented 3x6 Gauss-Jordan elimination with partial pivoting
   const aug = [
@@ -315,6 +345,7 @@ interface FittedFamilyStat {
   fam: string;
   m: number;
   wins: number;
+  inlierWins: number;
   beta: number;
   se: number;
   relSE: number;
@@ -578,15 +609,32 @@ function estimateInitialRefBeta(trainSet: QuotaSample[], priorRefBeta: number, p
 
 function initializeFamilyBetas(fittedFamilies: string[], trainSet: QuotaSample[], refBetaCurr: number) {
   return fittedFamilies.map((fam) => {
-    const purePairs: WeightedPair[] = [];
+    const cleanPurePairs: WeightedPair[] = [];
+    const allPurePairs: WeightedPair[] = [];
     for (const s of trainSet) {
       const keys = Object.keys(s.byModel || {}).filter((k) => (s.byModel[k] || 0) > 0);
       if (keys.length === 1 && keys[0] === fam) {
         const val = s.du5 / s.byModel[fam];
         if (Number.isFinite(val) && val > 0.01 && val < 200) {
-          purePairs.push({ val, weight: 1 / Math.sqrt(Math.max(1, s.callCount || 1)) });
+          const pair = { val, weight: 1 / Math.sqrt(Math.max(1, s.callCount || 1)) };
+          allPurePairs.push(pair);
+          if (s.boundaryClean) cleanPurePairs.push(pair);
         }
       }
+    }
+    const purePairs = cleanPurePairs.length >= 2 ? cleanPurePairs : allPurePairs;
+    if (cleanPurePairs.length < 2) {
+      // Without >=2 clean pure windows, require a tight multi-window consensus cluster
+      // (>=4 dirty pure windows agreeing within ±2%) before overriding the family's structural kPrior.
+      if (purePairs.length < 4) return getFamilyPriorK(fam) * refBetaCurr;
+      let maxAgree = 0;
+      for (let i = 0; i < purePairs.length; i++) {
+        const c = purePairs[i].val;
+        const cnt = purePairs.filter((p) => Math.abs(p.val - c) / c <= 0.02).length;
+        if (cnt > maxAgree) maxAgree = cnt;
+      }
+      if (maxAgree < 4) return getFamilyPriorK(fam) * refBetaCurr;
+      return findConsensusRate(purePairs, 0.02);
     }
     if (purePairs.length === 2) {
       const lo = Math.min(purePairs[0].val, purePairs[1].val);
@@ -595,8 +643,41 @@ function initializeFamilyBetas(fittedFamilies: string[], trainSet: QuotaSample[]
         return getFamilyPriorK(fam) * refBetaCurr;
       }
     }
-    return purePairs.length >= 2 ? findConsensusRate(purePairs, 0.08) : getFamilyPriorK(fam) * refBetaCurr;
+    return findConsensusRate(purePairs, 0.08);
   });
+}
+
+/**
+ * Compute breakdown-proof symmetric log-ratio cutoffs for IRLS.
+ * Anchors robustSigma to the tight ±6% consensus core when >=4 samples agree so >50%
+ * multi-agent straddle / external-burn contamination cannot blow open the rejection threshold.
+ */
+function computeRobustLogCutoffs(
+  logResids: number[],
+  hasPerTokenInTrain: boolean,
+  trainLen: number,
+  maxHard: number,
+): { hardCut: number; softCut: number } {
+  if (logResids.length < 4) {
+    return { hardCut: maxHard, softCut: maxHard * 0.5 };
+  }
+  const absLogs = logResids.map((r) => Math.abs(r));
+  const tightAbsLogs = absLogs.filter((a) => a <= 0.06);
+  const coreAbsLogs = absLogs.filter((a) => a <= maxHard);
+  let robustSigma: number;
+  if (tightAbsLogs.length >= 4) {
+    robustSigma = 1.4826 * median(tightAbsLogs);
+  } else if (coreAbsLogs.length >= 4) {
+    robustSigma = 1.4826 * median(coreAbsLogs);
+  } else {
+    const medLog = median(logResids);
+    const mad = median(logResids.map((r) => Math.abs(r - medLog)));
+    robustSigma = 1.4826 * mad;
+  }
+  const minHard = hasPerTokenInTrain ? 0.25 : (trainLen >= 5 ? 0.005 : 0.02);
+  const hardCut = Math.min(maxHard, Math.max(minHard, 6 * robustSigma));
+  const softCut = Math.min(hardCut * 0.6, Math.max(minHard * 0.5, 3 * robustSigma));
+  return { hardCut, softCut };
 }
 
 function runScalarIrls(
@@ -612,11 +693,11 @@ function runScalarIrls(
   const omegas = new Array<number>(trainSet.length).fill(1);
   let refBetaCurr = initialRefBeta;
 
+  const maxHard = hasPerTokenInTrain ? 0.55 : 0.35;
+
   for (let round = 0; round < 4; round++) {
-    let hardCut = 0.5;
-    let softCut = 0.15;
     const preds = new Array<number>(trainSet.length).fill(0);
-    const relResids: number[] = [];
+    const logResids: number[] = [];
 
     for (let i = 0; i < trainSet.length; i++) {
       const s = trainSet[i];
@@ -627,32 +708,25 @@ function runScalarIrls(
         pred += (fIdx >= 0 ? beta[fIdx] : getFamilyPriorK(fam) * refBetaCurr) * usd;
       }
       preds[i] = pred;
-      if (pred > 0) relResids.push((s.du5 - pred) / pred);
+      if (pred > 0 && s.du5 > 0) logResids.push(Math.log(s.du5 / pred));
     }
 
-    if (relResids.length >= 4) {
-      const medRel = median(relResids);
-      const mad = median(relResids.map((r) => Math.abs(r - medRel)));
-      const robustSigma = 1.4826 * mad;
-      // Scale threshold with empirical precision: on ppm-accurate scalar pools (Gemini),
-      // |rel| > max(0.5%, 6*robustSigma) receives exact zero weight (w = 0).
-      const minHard = hasPerTokenInTrain ? 0.25 : (trainSet.length >= 5 ? 0.005 : 0.02);
-      hardCut = Math.max(minHard, 6 * robustSigma);
-      softCut = Math.max(minHard * 0.5, 3 * robustSigma);
-    }
+    const { hardCut, softCut } = computeRobustLogCutoffs(logResids, hasPerTokenInTrain, trainSet.length, maxHard);
 
     for (let i = 0; i < trainSet.length; i++) {
       const s = trainSet[i];
-      const scale = Math.max(0.02, s.du5);
+      // Weight by predicted variance (1 / pred^2) rather than observed (1 / du5^2) so
+      // downward-lagged snapshots with tiny du5 and large x cannot hijack WLS leverage.
+      const scale = Math.max(0.02, preds[i] > 0 ? preds[i] : s.du5);
       let w = (1 / Math.sqrt(Math.max(1, s.callCount || 1))) / (scale * scale);
       if (!s.boundaryClean) w *= 0.4;
 
-      if (preds[i] > 0) {
-        const absRel = Math.abs(s.du5 - preds[i]) / preds[i];
-        if (absRel > hardCut) {
+      if (preds[i] > 0 && s.du5 > 0) {
+        const absLog = Math.abs(Math.log(s.du5 / preds[i]));
+        if (absLog > hardCut) {
           w = 0;
-        } else if (absRel > softCut) {
-          const ratio = absRel / Math.max(1e-6, softCut);
+        } else if (absLog > softCut) {
+          const ratio = absLog / Math.max(1e-6, softCut);
           w /= (1 + ratio * ratio);
         }
       }
@@ -688,12 +762,23 @@ function runScalarIrls(
         }
       }
 
+      const famInlierWins = new Array<number>(M).fill(0);
+      for (let i = 0; i < trainSet.length; i++) {
+        if (!(omegas[i] > 0)) continue;
+        const s = trainSet[i];
+        for (let m = 0; m < M; m++) {
+          if ((s.byModel[fittedFamilies[m]] || 0) > 0) famInlierWins[m] += 1;
+        }
+      }
+      const totalInlierWins = famInlierWins.reduce((a, b) => a + b, 0);
+
       let refNum = 0;
       let refDen = 0;
       for (let m = 0; m < M; m++) {
         const fam = fittedFamilies[m];
         const kP = getFamilyPriorK(fam);
-        const wFam = famShortTrainWins.get(fam) || 1;
+        const wFam = totalInlierWins > 0 ? famInlierWins[m] : (famShortTrainWins.get(fam) || 1);
+        if (!(wFam > 0)) continue;
         refNum += wFam * (beta[m] / kP);
         refDen += wFam;
       }
@@ -784,6 +869,35 @@ function fitPerTokenModels(
   return { tokenModels, usesPerTokenFit };
 }
 
+function collectOosHoldoutErrors(
+  holdoutSet: QuotaSample[],
+  tempModels: Record<string, { beta: number; tokenWeights?: number[] }>,
+  refBetaCurr: number,
+  inlierCount: number,
+): number[] {
+  const cleanOos: number[] = [];
+  const dirtyOos: number[] = [];
+  for (const s of holdoutSet) {
+    const pred = predictSamplePct(s, tempModels, refBetaCurr);
+    if (!(pred > 0) || !(s.du5 > 0)) continue;
+    const relErr = Math.abs(s.du5 - pred) / s.du5;
+    if (s.boundaryClean) {
+      if (s.du5 >= pred * 0.55 && s.du5 <= pred * 1.8) {
+        cleanOos.push(relErr);
+      }
+    } else if (Math.abs(Math.log(s.du5 / pred)) <= 0.25) {
+      dirtyOos.push(relErr);
+    }
+  }
+  if (cleanOos.length > 0) return cleanOos;
+  // When all holdouts come from concurrent/dirty sessions, tight out-of-sample matches (<=2% error)
+  // verify generalization without letting scattered 8-25% burst straddles trigger phase-dependent
+  // false drift; genuine >=3% drift yields 0 tight matches and remains fully visible.
+  const tightDirty = dirtyOos.filter((e) => e <= 0.02);
+  const minTightDirty = inlierCount >= 8 ? 2 : 3;
+  return tightDirty.length >= minTightDirty ? tightDirty : dirtyOos;
+}
+
 function evaluateResidualsAndQuality({
   poolKind,
   fittedFamilies,
@@ -825,13 +939,7 @@ function evaluateResidualsAndQuality({
   const dof = Math.max(1, rawDof);
   const s2 = rawDof > 0 ? weightedSqSum / dof : 0;
 
-  const oosRelErrors: number[] = [];
-  for (const s of holdoutSet) {
-    const pred = predictSamplePct(s, tempModels, refBetaCurr);
-    if (pred > 0 && s.du5 >= pred * 0.55 && s.du5 <= pred * 1.8) {
-      oosRelErrors.push(Math.abs(s.du5 - pred) / s.du5);
-    }
-  }
+  const oosRelErrors = collectOosHoldoutErrors(holdoutSet, tempModels, refBetaCurr, inlierCount);
 
   const empiricalRelErr = oosRelErrors.length > 0
     ? median(oosRelErrors)
@@ -846,22 +954,28 @@ function evaluateResidualsAndQuality({
     const wins = famShortTrainWins.get(fam) || 2;
     const anchor = getFamilyPriorK(fam) * refBetaCurr;
     let hDiag = (wins >= 4 ? 0.001 : 0.015) / Math.max(1e-4, anchor * anchor);
+    let inlierWins = 0;
     for (let i = 0; i < trainSet.length; i++) {
       if (!(omegas[i] > 0)) continue;
       const xim = trainSet[i].byModel[fam] || 0;
-      hDiag += omegas[i] * xim * xim;
+      if (xim > 0) {
+        inlierWins += 1;
+        hDiag += omegas[i] * xim * xim;
+      }
     }
     const famFloor = wins >= 3 && (rawDof > 0 || oosRelErrors.length > 0) ? relErrFloor : Math.max(0.04, relErrFloor);
     const se = Math.max(beta[m] * famFloor, rawDof > 0 ? Math.sqrt(s2 / Math.max(1e-9, hDiag)) : 0);
     const relSE = se / Math.max(1e-6, beta[m]);
-    fittedStats.push({ fam, m, wins, beta: beta[m], se, relSE, kPrior: getFamilyPriorK(fam) });
+    fittedStats.push({ fam, m, wins, inlierWins, beta: beta[m], se, relSE, kPrior: getFamilyPriorK(fam) });
   }
 
   let refBeta = refBetaCurr;
   if (fittedStats.length > 0) {
-    const nonNominal = fittedStats.filter((st) => !nominalSet.has(st.fam));
-    const pool = nonNominal.length > 0 ? nonNominal : fittedStats;
-    pool.sort((a, b) => a.relSE - b.relSE || b.wins - a.wins);
+    const withInliers = fittedStats.filter((st) => st.inlierWins > 0);
+    const activeStats = withInliers.length > 0 ? withInliers : fittedStats;
+    const nonNominal = activeStats.filter((st) => !nominalSet.has(st.fam));
+    const pool = nonNominal.length > 0 ? nonNominal : activeStats;
+    pool.sort((a, b) => a.relSE - b.relSE || b.inlierWins - a.inlierWins || b.wins - a.wins);
     const best = pool[0];
     const direct1x = pool.find((st) => st.kPrior === 1.0 && st.wins >= 3 && st.relSE <= Math.max(0.03, best.relSE * 2.0));
     refBeta = direct1x ? direct1x.beta : (best.beta / best.kPrior);
@@ -872,8 +986,13 @@ function evaluateResidualsAndQuality({
     if (shortCleanCount >= 20 && oosRelErrors.length >= 5 && median(oosRelErrors) <= 0.02) {
       quality = 'high';
     }
-  } else if (fittedFamilies.length > 0 && shortCleanCount >= 4 && rawDof >= 2 && empiricalRelErr <= 0.03) {
-    quality = 'high';
+  } else if (fittedFamilies.length > 0 && rawDof >= 2) {
+    const cleanEnough = shortCleanCount >= 4 && empiricalRelErr <= 0.03;
+    const minConsensusOos = inlierCount >= 8 ? 2 : 3;
+    const consensusEnough = inlierCount >= 6 && oosRelErrors.length >= minConsensusOos && empiricalRelErr <= 0.01;
+    if (cleanEnough || consensusEnough) {
+      quality = 'high';
+    }
   }
 
   const oosMedianPct = oosRelErrors.length > 0 ? median(oosRelErrors) * 100 : null;
@@ -891,6 +1010,7 @@ function evaluateResidualsAndQuality({
     st.priorBeta = priorBetaAbs;
     st.priorRelDiffPct = priorRelDiffPct;
     st.priorZScore = priorZScore;
+    if (st.inlierWins === 0) continue;
 
     if (poolKind === 'gemini' && priorZScore > DRIFT_Z_THRESHOLD) {
       const sign = priorRelDiffPct >= 0 ? '+' : '';
@@ -942,12 +1062,14 @@ function buildModelsMap({
 
   for (const st of fittedStats) {
     const tm = tokenModels.get(st.fam);
-    const ci90 = 1.645 * st.se;
+    const hasFittedInliers = st.inlierWins >= MIN_SHORT_WINS_FOR_SCALAR;
+    const hasAnyInlier = st.inlierWins > 0;
+    const ci90 = hasAnyInlier ? 1.645 * st.se : 1.645 * st.beta * 0.10;
     const entry: QuotaModelFitEntry = {
       beta: st.beta,
       betaPlusMinus: ci90,
       k: refBeta > 0 ? st.beta / refBeta : st.kPrior,
-      source: quality === 'high' ? 'fitted' : 'provisional',
+      source: hasFittedInliers ? (quality === 'high' ? 'fitted' : 'provisional') : (hasAnyInlier ? 'provisional' : 'prior'),
       mode: tm ? 'per_token' : 'scalar',
       ...(st.priorBeta !== undefined ? {
         priorBeta: st.priorBeta,
@@ -955,7 +1077,7 @@ function buildModelsMap({
         priorZScore: st.priorZScore,
       } : {}),
       obsCalls: famTotalCallsAll.get(st.fam) || 1,
-      obsWindows: st.wins,
+      obsWindows: hasAnyInlier ? st.inlierWins : 0,
       obsBaseUSD: famTotalBaseAll.get(st.fam) || 0,
     };
     if (tm) {
@@ -1046,15 +1168,19 @@ function detectRegimeShiftSlice(
 
   for (let splitIdx = primarySet.length - REGIME_MIN_NEW_INLIERS; splitIdx >= REGIME_MIN_OLD_SAMPLES; splitIdx--) {
     const boundaryRate = rates[splitIdx];
-    if (boundaryRate === null) continue;
+    if (boundaryRate === null || !primarySet[splitIdx]?.boundaryClean) continue;
 
     const tailRates: number[] = [];
+    const tailCleanRates: number[] = [];
     for (let i = splitIdx; i < primarySet.length; i++) {
-      if (rates[i] !== null) tailRates.push(rates[i]!);
+      if (rates[i] !== null) {
+        tailRates.push(rates[i]!);
+        if (primarySet[i]?.boundaryClean) tailCleanRates.push(rates[i]!);
+      }
     }
-    if (tailRates.length < REGIME_MIN_NEW_INLIERS) continue;
+    if (tailRates.length < REGIME_MIN_NEW_INLIERS || tailCleanRates.length < REGIME_MIN_NEW_INLIERS) continue;
 
-    const tailMed = median(tailRates);
+    const tailMed = median(tailCleanRates);
     if (!(tailMed > 0)) continue;
 
     // Boundary sample itself must sit in the new regime band (preferring tight core).
@@ -1065,17 +1191,17 @@ function detectRegimeShiftSlice(
       continue;
     }
 
-    // Most recent samples at the very end of the series must still belong to the new regime band
+    // Most recent clean samples at the very end of the series must still belong to the new regime band
     // (guards against multi-shift lock-on to an older intermediate regime).
-    const recentTail = tailRates.slice(-Math.min(3, tailRates.length));
+    const recentTail = tailCleanRates.slice(-Math.min(3, tailCleanRates.length));
     const recentInBand = recentTail.filter((r) => Math.abs(r - tailMed) / tailMed <= bandTol).length;
     const minRecentAgree = recentTail.length <= 2 ? recentTail.length : 2;
     if (recentInBand < minRecentAgree) continue;
 
-    // Require both a tight core (>=3 samples within coreTol) AND majority consistency (>=60% within bandTol).
-    const tailCore = tailRates.filter((r) => Math.abs(r - tailMed) / tailMed <= coreTol).length;
-    const tailBand = tailRates.filter((r) => Math.abs(r - tailMed) / tailMed <= bandTol).length;
-    if (tailCore < REGIME_MIN_NEW_INLIERS || tailBand / tailRates.length < 0.6) continue;
+    // Require both a tight clean core (>=3 clean samples within coreTol) AND majority consistency (>=60% within bandTol).
+    const tailCore = tailCleanRates.filter((r) => Math.abs(r - tailMed) / tailMed <= coreTol).length;
+    const tailBand = tailCleanRates.filter((r) => Math.abs(r - tailMed) / tailMed <= bandTol).length;
+    if (tailCore < REGIME_MIN_NEW_INLIERS || tailBand / tailCleanRates.length < 0.6) continue;
 
     const oldRates: number[] = [];
     for (let i = 0; i < splitIdx; i++) {
@@ -1220,7 +1346,7 @@ export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = 
       .map((s) => s.du5 / s.du7!)
       .filter((g) => g >= 1.1 && g <= 20);
     if (regimeGammas.length >= 3) {
-      gamma = median(regimeGammas);
+      gamma = selectConsensusGamma(regimeGammas) ?? median(regimeGammas);
     }
   }
   const full7dUSD = full5hUSD !== null && full5hUSD > 0 && gamma !== null && gamma > 0 ? full5hUSD * gamma : null;

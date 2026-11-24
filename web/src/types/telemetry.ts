@@ -405,6 +405,7 @@ export interface QuotaPoolFitSummary {
   gamma: number | null;
   sampleCount: number;
   shortCleanCount: number;
+  inlierCount?: number;
   holdoutCount: number;
   oosRelErrPct: number | null;
   relErrPct: number;

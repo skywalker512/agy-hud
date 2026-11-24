@@ -10,12 +10,14 @@ import {
   FAMILY_CLASSIFIER_VERSION,
   buildAccountTierKey,
   computeBaseReferenceUSD,
+  hasTrustedPoolFit,
   ingestQuotaObservation,
   isCallOwnedByOtherAccount,
   loadQuotaFitStore,
   reconcilePoolSamplesPricing,
   resolveAccountId,
   resolveModelFamily,
+  selectConsensusGamma,
   solvePoolFitModel,
 } from '../lib/quota-fitter.ts';
 
@@ -1528,4 +1530,215 @@ test('consensus-cluster solver and symmetric holdout filter recover $600 despite
   assert.ok(Math.abs((fit.full7dUSD ?? 0) - 2400) < 4.0, `expected ~$2400 7d cap, got ${fit.full7dUSD}`);
   assert.equal(fit.quality, 'high', `expected high quality (symmetric holdout ignores 0.38x straddle), got ${fit.quality} (${(fit.driftReasons || []).join(',')})`);
   assert.equal(fit.driftWarning, false);
+});
+
+test('log-space IRLS and dirty-regime guard recover Ultra 20x ($600/$2400) under >80% concurrent multi-agent contamination', () => {
+  const sig = getCurrentPricingSig();
+  const baseTs = 1_950_000_000_000;
+  const makeDirty = (idx: number, neonUsd: number, hydroUsd: number, rateMult: number, calls = 4) => {
+    const totalUsd = neonUsd + hydroUsd;
+    const du5 = ((totalUsd / 600) * 100) * rateMult;
+    const byModel: Record<string, number> = {};
+    const byModelTokens: Record<string, [number, number, number]> = {};
+    if (neonUsd > 0) {
+      byModel['gemini-4-neon'] = neonUsd;
+      byModelTokens['gemini-4-neon'] = [neonUsd / 6, 0, neonUsd / 30];
+    }
+    if (hydroUsd > 0) {
+      byModel['gemini-4-hydrogen'] = hydroUsd;
+      byModelTokens['gemini-4-hydrogen'] = [hydroUsd / 3, 0, hydroUsd / 15];
+    }
+    return {
+      t0: baseTs + idx * 30_000,
+      t1: baseTs + idx * 30_000 + 25_000,
+      dtSec: 25,
+      du5,
+      du7: du5 / 4,
+      source: '5h_delta' as const,
+      boundaryClean: false,
+      isShort: true,
+      tsMode: 'completed_v2' as const,
+      pricingSig: sig,
+      byModel,
+      byModelTokens,
+      callCount: calls,
+      totalBaseUSD: totalUsd,
+      nominalFamilies: [],
+    };
+  };
+
+  // Build 120 dirty (boundaryClean=false) samples mimicking heavy multi-tab/swarm Ultra 20x usage:
+  // - 20 exact $600 samples scattered across the series (17% clean signal, 83% contaminated!)
+  // - Heavy downward-lagged high-spend straddles (huge x=$2.60 with tiny du5=0.008%, 0.02x..0.5x)
+  // - Heavy upward external-burn spikes (2x..20x)
+  // - Dirty concurrent browser-subagent hydrogen bursts (~0.5x)
+  // - 6 consecutive dirty tail straddles at ~0.26x ($2300 implied) that must NOT trigger a false regime shift
+  const samples: any[] = [];
+  const exactIndices = new Set([1, 5, 9, 13, 18, 22, 27, 33, 39, 44, 51, 57, 63, 69, 75, 81, 88, 95, 102, 109]);
+  for (let i = 0; i < 114; i++) {
+    if (exactIndices.has(i)) {
+      samples.push(makeDirty(i, 0.05 + (i % 5) * 0.04, 0, 1.0, 2));
+    } else if (i % 7 === 0) {
+      // Extreme high-leverage downward straddle ($2.62 local spend, tiny du5)
+      samples.push(makeDirty(i, 2.62, 0, 0.018, 20));
+    } else if (i % 5 === 0) {
+      // External burn spike
+      samples.push(makeDirty(i, 0.15, 0, 6.5, 4));
+    } else if (i % 6 === 0) {
+      // Dirty concurrent browser-subagent hydrogen bursts (scattered straddle lags & late flushes)
+      const hydroMults = [0.28, 0.49, 0.53, 0.15, 9.8, 0.41, 0.77, 14.5];
+      samples.push(makeDirty(i, 0, 0.16, hydroMults[(i / 6) % hydroMults.length], 6));
+    } else if (i % 3 === 0) {
+      // Moderate concurrent lag (dispersed across 0.28x..0.85x)
+      const lagMult = 0.28 + ((i * 37) % 58) / 100;
+      samples.push(makeDirty(i, 0.75, 0.15, lagMult, 14));
+    } else {
+      // Dispersed bidirectional noise (external burn 1.18x..5.2x and straddle lag 0.22x..0.86x)
+      const noiseMult = i % 2 === 0
+        ? 1.18 + ((i * 53) % 400) / 100
+        : 0.22 + ((i * 41) % 65) / 100;
+      samples.push(makeDirty(i, 0.42, 0, noiseMult, 8));
+    }
+  }
+  // 6 consecutive dirty tail straddles at ~0.26x (~$2,300 implied)
+  for (let k = 0; k < 6; k++) {
+    samples.push(makeDirty(114 + k, 0.55, 0.12, 0.26, 12));
+  }
+
+  // Must be phase-invariant across all 4 holdout modulo alignments!
+  for (let shift = 0; shift < 4; shift++) {
+    const fit = solvePoolFitModel({ gamma: 4.0, samples: samples.slice(shift) }, 'gemini')!;
+    assert.ok(
+      Math.abs((fit.full5hUSD ?? 0) - 600) < 1.5,
+      `shift=${shift}: expected full5hUSD ~$600 despite 83% contamination, got ${fit.full5hUSD}`,
+    );
+    assert.ok(
+      Math.abs((fit.full7dUSD ?? 0) - 2400) < 6.0,
+      `shift=${shift}: expected full7dUSD ~$2400, got ${fit.full7dUSD}`,
+    );
+    assert.equal(
+      fit.quality,
+      'high',
+      `shift=${shift}: expected high quality via consensus inliers, got ${fit.quality} (${(fit.driftReasons || []).join(',')})`,
+    );
+    assert.equal(fit.driftWarning, false, `shift=${shift}: unexpected driftWarning ${(fit.driftReasons || []).join(',')}`);
+    assert.equal(fit.regimeStartMs, undefined, `shift=${shift}: dirty tail straddles must not trigger regime shift`);
+    assert.equal(fit.models['gemini-4-hydrogen'].source, 'prior', `shift=${shift}: outlier-only hydrogen must stay prior-anchored`);
+    assert.ok(Math.abs(fit.models['gemini-4-hydrogen'].k - 1.0) < 0.02);
+  }
+
+  // Verify attachQuotaBudgetEstimates uses $600/$2400 (high confidence) and isolates remote burn
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-ultra20x-noisy-'));
+  const fitPath = join(dir, 'quota-model-fit.json');
+  const calPath = join(dir, 'quota-calibration.json');
+  try {
+    const nowMs = baseTs + 125 * 30_000;
+    const reset5h = nowMs + 3 * 3_600_000;
+    const reset7d = nowMs + 6 * 24 * 3_600_000;
+    const acctQuota = {
+      available: true,
+      planName: 'Pro',
+      tierName: 'Google AI Ultra',
+      teamsTier: 'TEAMS_TIER_PRO',
+      email: 'ultra20x@example.com',
+      source: 'summary',
+      reqStartedAtMs: nowMs - 100,
+      fetchedAtMs: nowMs,
+      pools: [{
+        label: 'Gemini',
+        remainingPct: 91.0, // 9% used = $54 at $600/5h
+        resetAtMs: reset5h,
+        windows: [
+          { spanKey: '5h', label: '5h', remainingPct: 91.0, resetAtMs: reset5h },
+          { spanKey: '7d', label: '7d', remainingPct: 96.5, resetAtMs: reset7d }, // 3.5% used = $84 at $2400/7d
+        ],
+      }],
+    };
+    const poolKey = `${buildAccountTierKey(acctQuota)}|gemini`;
+    const seededPs: any = { gamma: 4.0, gammaHistory: [4.0, 4.0, 4.0], lastSnap: null, samples, fit: null, pricingSig: sig };
+    solvePoolFitModel(seededPs, 'gemini');
+    writeFileSync(fitPath, JSON.stringify({ version: 1, pools: { [poolKey]: seededPs } }), 'utf8');
+
+    // Local spend in current 5h window = $20 -> remote burn should be ~$34 on 5h and ~$64 on 7d
+    const localCall = { ...makeGeminiCall(nowMs - 60_000, 'gemini-4-neon', 5_000_000, 0, 333_333), source: 'app' };
+    const out = attachQuotaBudgetEstimates(
+      acctQuota,
+      { summaries: [{ latestTsMs: nowMs - 60_000, recentCalls: [localCall] }] },
+      { fitPath, calibrationPath: calPath, nowMs },
+    );
+    const w5 = out.pools[0].windows.find((w: any) => w.spanKey === '5h') as any;
+    const w7 = out.pools[0].windows.find((w: any) => w.spanKey === '7d') as any;
+    assert.ok(Math.abs((w5.estFullUSD ?? 0) - 600) < 2.0, `expected 5h estFullUSD ~$600, got ${w5.estFullUSD}`);
+    assert.ok(Math.abs((w7.estFullUSD ?? 0) - 2400) < 8.0, `expected 7d estFullUSD ~$2400, got ${w7.estFullUSD}`);
+    assert.equal(w5.estConfidence, 'high');
+    assert.ok((w5.estRemoteUSD ?? 0) > 25 && (w5.estRemoteUSD ?? 0) < 42, `expected 5h remote burn ~$34, got ${w5.estRemoteUSD}`);
+    assert.ok((w7.estRemoteUSD ?? 0) > 55 && (w7.estRemoteUSD ?? 0) < 75, `expected 7d remote burn ~$64, got ${w7.estRemoteUSD}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('selectConsensusGamma, 5h/7d desync boundaryClean guard, and unified hasTrustedPoolFit gate', () => {
+  // 1) selectConsensusGamma recovers 4.0 despite heavy out-of-sync 5h/7d ratio noise
+  const gammas = [4.0, 4.01, 3.99, 4.0, 1.31, 1.85, 11.4, 4.0, 1.42];
+  const gEst = selectConsensusGamma(gammas)!;
+  assert.ok(Math.abs(gEst - 4.0) < 0.02, `expected consensus gamma ~4.0, got ${gEst}`);
+
+  // 2) hasTrustedPoolFit unifies high-quality, shortClean, and clean-consensus checks
+  assert.equal(hasTrustedPoolFit(null), false);
+  assert.equal(hasTrustedPoolFit({ refBeta: 0.167, quality: 'high', driftWarning: false, shortCleanCount: 0, inlierCount: 12, relErrPct: 0.02 } as any), true);
+  assert.equal(hasTrustedPoolFit({ refBeta: 0.167, quality: 'provisional', driftWarning: true, shortCleanCount: 0, inlierCount: 12, relErrPct: 0.5 } as any), false);
+  assert.equal(hasTrustedPoolFit({ refBeta: 0.167, quality: 'provisional', driftWarning: false, shortCleanCount: 0, inlierCount: 8, relErrPct: 0.8 } as any), true);
+
+  // 3) Server-side 5h/7d desync (du5=+0.95% while du7=0%) must be flagged boundaryClean=false
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-desync-guard-'));
+  const fitPath = join(dir, 'quota-model-fit.json');
+  try {
+    const t0 = 1_960_000_000_000;
+    const reset5h = t0 + 4 * 3_600_000;
+    const reset7d = t0 + 6 * 24 * 3_600_000;
+    const makeQ = (ts: number, u5: number, u7: number) => ({
+      available: true,
+      planName: 'Pro',
+      tierName: 'Google AI Ultra',
+      teamsTier: 'TEAMS_TIER_PRO',
+      email: 'desync@example.com',
+      source: 'summary',
+      reqStartedAtMs: ts - 80,
+      fetchedAtMs: ts,
+      pools: [{
+        label: 'Gemini',
+        remainingPct: 100 - u5,
+        resetAtMs: reset5h,
+        windows: [
+          { spanKey: '5h', label: '5h', remainingPct: 100 - u5, resetAtMs: reset5h },
+          { spanKey: '7d', label: '7d', remainingPct: 100 - u7, resetAtMs: reset7d },
+        ],
+      }],
+    });
+    const call1 = { ...makeGeminiCall(t0 + 20_000, 'gemini-4-neon', 50_000, 0, 5_000), source: 'app' };
+    const call2 = { ...makeGeminiCall(t0 + 60_000, 'gemini-4-neon', 50_000, 0, 5_000), source: 'app' };
+    const du1 = (call1.costUSD / 600) * 100;
+
+    ingestQuotaObservation(makeQ(t0, 1.0, 0.25), { summaries: [] }, { fitPath, nowMs: t0 });
+    // Clean synced step establishes gamma = 4.0
+    const s1 = ingestQuotaObservation(
+      makeQ(t0 + 35_000, 1.0 + du1, 0.25 + du1 / 4),
+      { summaries: [{ latestTsMs: t0 + 20_000, recentCalls: [call1] }] },
+      { fitPath, nowMs: t0 + 35_000 },
+    );
+    const poolKey = `${buildAccountTierKey(makeQ(t0, 1.0, 0.25))}|gemini`;
+    assert.equal(s1.pools[poolKey].samples[0].boundaryClean, true);
+
+    // Next step: 5h jumps +0.95% while 7d stays +0.00% (server desync!) -> must mark boundaryClean=false
+    const s2 = ingestQuotaObservation(
+      makeQ(t0 + 80_000, 1.0 + du1 + 0.95, 0.25 + du1 / 4),
+      { summaries: [{ latestTsMs: t0 + 60_000, recentCalls: [call1, call2] }] },
+      { fitPath, nowMs: t0 + 80_000 },
+    );
+    const desyncSample = s2.pools[poolKey].samples[s2.pools[poolKey].samples.length - 1];
+    assert.equal(desyncSample.boundaryClean, false, '5h/7d desync sample must be marked boundaryClean=false');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

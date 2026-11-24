@@ -11,6 +11,7 @@ import {
   evaluatePoolWindowResidual,
   getFamilyBaseRates,
   hasPoolPrior,
+  hasTrustedPoolFit,
   ingestQuotaObservation,
   isCallOwnedByOtherAccount,
   loadQuotaFitStore,
@@ -110,6 +111,28 @@ function blendPriorWithSpend(priorUSD, spentUSD, u, pricedRatio) {
   return priorUSD;
 }
 
+function forEachPoolWindowCall(
+  summaries: any[],
+  poolKey: string,
+  startMs: number,
+  endMs: number,
+  accountFilter: { fitStore?: QuotaFitStore; activeAccountId?: string } | undefined,
+  visit: (c: any) => void,
+) {
+  const activeAccountId = accountFilter?.activeAccountId || '';
+  for (const s of summaries) {
+    if (s.latestTsMs && s.latestTsMs < startMs) continue;
+    for (const c of (s.recentCalls || [])) {
+      if (c.ts < startMs || c.ts > endMs) continue;
+      if (poolKey !== 'other' && c.poolKey !== poolKey) continue;
+      if (activeAccountId && isCallOwnedByOtherAccount(accountFilter?.fitStore, activeAccountId, c.ts, c.source)) {
+        continue;
+      }
+      visit(c);
+    }
+  }
+}
+
 function sumPoolWindowSpend(
   summaries,
   poolKey,
@@ -120,23 +143,14 @@ function sumPoolWindowSpend(
   let estSpentUSD = 0;
   let estPricedCalls = 0;
   let estUnpricedCalls = 0;
-  const activeAccountId = accountFilter?.activeAccountId || '';
-  for (const s of summaries) {
-    if (s.latestTsMs && s.latestTsMs < startMs) continue;
-    for (const c of (s.recentCalls || [])) {
-      if (c.ts < startMs || c.ts > endMs) continue;
-      if (poolKey !== 'other' && c.poolKey !== poolKey) continue;
-      if (activeAccountId && isCallOwnedByOtherAccount(accountFilter?.fitStore, activeAccountId, c.ts, c.source)) {
-        continue;
-      }
-      if (c.priced) {
-        estSpentUSD += c.costUSD;
-        estPricedCalls += 1;
-      } else {
-        estUnpricedCalls += 1;
-      }
+  forEachPoolWindowCall(summaries, poolKey, startMs, endMs, accountFilter, (c) => {
+    if (c.priced) {
+      estSpentUSD += c.costUSD;
+      estPricedCalls += 1;
+    } else {
+      estUnpricedCalls += 1;
     }
-  }
+  });
   return { estSpentUSD, estPricedCalls, estUnpricedCalls };
 }
 
@@ -148,18 +162,7 @@ function collectPoolWindowCalls(
   accountFilter?: { fitStore?: QuotaFitStore; activeAccountId?: string },
 ): any[] {
   const out: any[] = [];
-  const activeAccountId = accountFilter?.activeAccountId || '';
-  for (const s of summaries) {
-    if (s.latestTsMs && s.latestTsMs < startMs) continue;
-    for (const c of (s.recentCalls || [])) {
-      if (c.ts < startMs || c.ts > endMs) continue;
-      if (poolKey !== 'other' && c.poolKey !== poolKey) continue;
-      if (activeAccountId && isCallOwnedByOtherAccount(accountFilter?.fitStore, activeAccountId, c.ts, c.source)) {
-        continue;
-      }
-      out.push(c);
-    }
-  }
+  forEachPoolWindowCall(summaries, poolKey, startMs, endMs, accountFilter, (c) => out.push(c));
   return out;
 }
 
@@ -390,6 +393,7 @@ function buildPoolFitSummary(ps: QuotaPoolState | undefined, calPoolKey: string)
     gamma: fit.gamma || ps?.gamma || null,
     sampleCount: fit.sampleCount,
     shortCleanCount: fit.shortCleanCount,
+    inlierCount: fit.inlierCount,
     holdoutCount: fit.holdoutCount,
     oosRelErrPct: fit.oosRelErrPct,
     relErrPct: fit.relErrPct,
@@ -564,7 +568,7 @@ function computeWindowRunway({
   const gamma = ps?.fit?.gamma || ps?.gamma || null;
   for (const s of ps?.samples || []) {
     if (!(s.t1 > tRecent0) || !(s.t0 < nowMs)) continue;
-    if (w.spanKey === '5h' && s.t0 < startMs - 60_000) continue;
+    if (w.spanKey === '5h' && (s.source === '7d_scaled' || s.t0 < startMs - 60_000)) continue;
     const sampleDu = w.spanKey === '7d'
       ? (typeof s.du7 === 'number' ? s.du7 : (gamma > 0 ? (s.du5 || 0) / gamma : 0))
       : (s.du5 || 0);
@@ -638,7 +642,7 @@ function applyFitterWindowEstimate({ w, ps, calPoolKey, snapMeta, fitEval, legac
   w.estBandPct = fitEval.bandPct;
 
   const fit = ps.fit;
-  const hasEmpiricalConsensus = fit.quality === 'high' || fit.shortCleanCount >= 2;
+  const hasEmpiricalConsensus = hasTrustedPoolFit(fit, 2);
 
   if (fitEval.fullUSD > 0 && hasEmpiricalConsensus) {
     w.estFullUSD = fitEval.fullUSD;
@@ -832,7 +836,7 @@ export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: 
   for (const p of pools) {
     const calPoolKey = poolCalKeyMap.get(p) || '';
     const pk = poolKeyForGroupLabel(p.label);
-    const poolHistCalls = collectPoolWindowCalls(summaries, pk, histStartMs, nowMs);
+    const poolHistCalls = collectPoolWindowCalls(summaries, pk, histStartMs, nowMs, accountFilter);
     const ps = fitStore?.pools?.[`${tierKey}|${calPoolKey}`];
     let pool7d = 0;
     let pool7dErr = 0;
