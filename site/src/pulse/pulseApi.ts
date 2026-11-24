@@ -29,6 +29,7 @@ export interface PulseIntradayPoint {
   p99TtftSec?: number | null;
   p50Tps: number | null;
   cacheHitPct: number | null;
+  uptime5mPct?: number | null;
   uptime30mPct: number | null;
   requestCount30m?: number;
   byProvider?: Record<string, { ttft?: number | null; tps?: number | null; cache?: number | null }>;

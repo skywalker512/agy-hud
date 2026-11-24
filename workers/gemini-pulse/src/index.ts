@@ -26,8 +26,11 @@ const GEMINI_MODELS: readonly GeminiModelSpec[] = [
 ];
 
 const KV_KEY_SNAPSHOT = 'gemini:pulse:v4';
-const BUCKET_MS = 30 * 60_000;
-const MAX_AGE_MS = 48 * 3_600_000;
+const BUCKET_MS = 5 * 60_000;
+const MAX_AGE_MS = 24 * 3_600_000;
+const MAX_INTRADAY_POINTS = 288;
+const SERIES_7D_TTL_MS = 30 * 60_000;
+const SITE_ORIGIN = 'https://skywalker512.github.io/agy-hud';
 const GCP_GEMINI_RE = /vertex|gemini|generative|ai platform|cloud ai|model garden/i;
 
 const CORS_HEADERS: Record<string, string> = {
@@ -275,10 +278,15 @@ async function fetchJsonSafe<T>(url: string, headers: Record<string, string>): P
 
 async function collectAndStore(env: Env): Promise<Record<string, unknown>> {
   const nowMs = Date.now();
-  const prevRaw = await env.GEMINI_PULSE_KV.get(KV_KEY_SNAPSHOT, 'json') as { models?: Array<Record<string, any>> } | null;
+  const prevRaw = await env.GEMINI_PULSE_KV.get(KV_KEY_SNAPSHOT, 'json') as {
+    series7dFetchedAtMs?: number;
+    models?: Array<Record<string, any>>;
+  } | null;
   const prevByFamily = new Map<string, Record<string, any>>(
     (prevRaw?.models || []).map((m) => [String(m.family), m]),
   );
+  const prev7dAt = typeof prevRaw?.series7dFetchedAtMs === 'number' ? prevRaw.series7dFetchedAtMs : 0;
+  const shouldRefresh7d = !prev7dAt || nowMs - prev7dAt >= SERIES_7D_TTL_MS;
 
   const gcpRaw = await fetchJsonSafe<Array<Record<string, any>>>('https://status.cloud.google.com/incidents.json', {
     'User-Agent': 'agy-hud-worker/1.0',
@@ -349,12 +357,14 @@ async function collectAndStore(env: Env): Promise<Record<string, unknown>> {
         }
       }
     }
-    let ttft7d: any[] = [];
-    let e2e7d: any[] = [];
-    let tps7d: any[] = [];
-    let cache7d: any[] = [];
-    let uptime7d: any[] = [];
-    if (ps) {
+    const prev = prevByFamily.get(spec.family);
+    const hasPrev7d = Array.isArray(prev?.series?.ttft7d) && prev.series.ttft7d.length > 0;
+    let ttft7d: any[] = hasPrev7d ? prev.series.ttft7d : [];
+    let e2e7d: any[] = Array.isArray(prev?.series?.e2e7d) ? prev.series.e2e7d : [];
+    let tps7d: any[] = Array.isArray(prev?.series?.tps7d) ? prev.series.tps7d : [];
+    let cache7d: any[] = Array.isArray(prev?.series?.cache7d) ? prev.series.cache7d : [];
+    let uptime7d: any[] = Array.isArray(prev?.series?.uptime7d) ? prev.series.uptime7d : [];
+    if (ps && (shouldRefresh7d || !hasPrev7d)) {
       const qs = `permaslug=${encodeURIComponent(ps)}`;
       const hdrs = { 'User-Agent': 'agy-hud-worker/1.0', Accept: 'application/json' };
       const [latR, e2eR, tpsR, cacheR, upR] = await Promise.all([
@@ -386,8 +396,7 @@ async function collectAndStore(env: Env): Promise<Record<string, unknown>> {
           ? 'degraded'
           : 'ok';
 
-    // Merge 48h 30m ring buffer
-    const prev = prevByFamily.get(spec.family);
+    // Merge 24h 5m high-resolution ring buffer (up to 288 points)
     const cutoff = nowMs - MAX_AGE_MS;
     const byBucket = new Map<number, Record<string, unknown>>();
     for (const pt of (prev?.series?.intraday30m || []) as Array<Record<string, any>>) {
@@ -413,13 +422,14 @@ async function collectAndStore(env: Env): Promise<Record<string, unknown>> {
       p99TtftSec,
       p50Tps,
       cacheHitPct,
+      uptime5mPct,
       uptime30mPct,
       requestCount30m,
       ...(Object.keys(byProvider).length ? { byProvider } : {}),
     });
     const intraday30m = [...byBucket.values()]
       .sort((a, b) => Number(a.bucketMs) - Number(b.bucketMs))
-      .slice(-96);
+      .slice(-MAX_INTRADAY_POINTS);
 
     models.push({
       family: spec.family,
@@ -464,12 +474,14 @@ async function collectAndStore(env: Env): Promise<Record<string, unknown>> {
   const payload = {
     version: 4,
     source: 'agy-hud-cloudflare-worker',
+    sampleIntervalMinutes: 5,
     fetchedAtMs: nowMs,
+    series7dFetchedAtMs: shouldRefresh7d ? nowMs : prev7dAt || nowMs,
     models,
     incidents,
   };
   await env.GEMINI_PULSE_KV.put(KV_KEY_SNAPSHOT, JSON.stringify(payload));
-  console.log(JSON.stringify({ event: 'gemini_pulse_collected', models: models.length, incidents: incidents.length, fetchedAtMs: nowMs }));
+  console.log(JSON.stringify({ event: 'gemini_pulse_collected', intervalMin: 5, refreshed7d: shouldRefresh7d, models: models.length, incidents: incidents.length, fetchedAtMs: nowMs }));
   return payload;
 }
 
@@ -505,12 +517,13 @@ export default {
       return Response.json(
         {
           ok: Boolean(snap?.models?.length),
+          sampleIntervalMinutes: 5,
           fetchedAtMs: snap?.fetchedAtMs || 0,
           models: snap?.models?.length || 0,
           intradayPoints: snap?.models?.[0]?.series?.intraday30m?.length || 0,
           incidents: snap?.incidents?.length || 0,
         },
-        { headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=60' } },
+        { headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=30' } },
       );
     }
 
@@ -527,7 +540,7 @@ export default {
       return Response.json({ ok: true, fetchedAtMs: snap.fetchedAtMs }, { headers: CORS_HEADERS });
     }
 
-    if (url.pathname === '/' || url.pathname === '/v1/pulse.json') {
+    if (url.pathname === '/v1/pulse.json') {
       const cache = caches.default;
       const cacheKey = new Request(url.toString(), { method: 'GET' });
       const cached = await cache.match(cacheKey);
@@ -543,11 +556,36 @@ export default {
         headers: {
           ...CORS_HEADERS,
           'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'public, max-age=180, stale-while-revalidate=600',
+          'Cache-Control': 'public, max-age=90, stale-while-revalidate=300',
         },
       });
       ctx.waitUntil(cache.put(cacheKey, response.clone()));
       return response;
+    }
+
+    // Serve the official AGY-HUD website (`/` and `/pulse/`) from GitHub Pages on this custom domain
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      if (url.pathname === '/pulse' || url.pathname === '/hud-demo') {
+        return Response.redirect(`${url.origin}${url.pathname}/${url.search}`, 301);
+      }
+      const upstreamUrl = `${SITE_ORIGIN}${url.pathname}${url.search}`;
+      const upstream = await fetch(upstreamUrl, {
+        method: request.method,
+        headers: { 'User-Agent': 'agy-hud-edge-proxy/1.0' },
+        cf: { cacheTtl: url.pathname.startsWith('/assets/') ? 86400 : 180, cacheEverything: true },
+      } as RequestInit);
+      const headers = new Headers(upstream.headers);
+      headers.delete('content-security-policy');
+      if (url.pathname.startsWith('/assets/')) {
+        headers.set('Cache-Control', 'public, max-age=86400, immutable');
+      } else {
+        headers.set('Cache-Control', 'public, max-age=180, stale-while-revalidate=600');
+      }
+      return new Response(upstream.body, {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers,
+      });
     }
 
     return Response.json({ error: 'Not Found' }, { status: 404, headers: CORS_HEADERS });

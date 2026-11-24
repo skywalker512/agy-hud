@@ -55,7 +55,8 @@ export function PulseApp() {
   const [data, setData] = useState<PulseDashboardData | null>(() => loadCachedPulse());
   const [loading, setLoading] = useState<boolean>(true);
   const [metric, setMetric] = useState<PulseChartMetric>('ttft');
-  const [granularity, setGranularity] = useState<'7d' | '30m'>('7d');
+  const [granularity, setGranularity] = useState<'7d' | '5m'>('7d');
+  const [intradayHours, setIntradayHours] = useState<2 | 6 | 24>(24);
   const [splitProviders, setSplitProviders] = useState<boolean>(false);
   const [selectedFamilies, setSelectedFamilies] = useState<string[]>(() =>
     GEMINI_SPECS.slice(0, 4).map((s) => s.family),
@@ -113,7 +114,7 @@ export function PulseApp() {
 
   const canSplitProviders = useMemo(() => {
     if (!singleModel) return false;
-    if (granularity === '30m') {
+    if (granularity === '5m') {
       const provs = new Set<string>();
       for (const b of singleModel.series.intraday30m) {
         for (const k of Object.keys(b.byProvider || {})) provs.add(k);
@@ -209,7 +210,7 @@ export function PulseApp() {
               <span class="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
               <span class="hidden sm:inline">
                 {data?.mode === 'worker'
-                  ? isZh ? 'Worker 30m 已连' : 'Worker 30m Live'
+                  ? isZh ? 'Worker 5m 已连' : 'Worker 5m Live'
                   : isZh ? 'Worker 采集源' : 'Worker Feed'}
               </span>
             </button>
@@ -367,8 +368,8 @@ export function PulseApp() {
               <div class="mt-0.5 font-mono text-[11px] text-[var(--muted)]">
                 {data?.mode === 'worker'
                   ? isZh
-                    ? `Worker 30m 采集源 · 已缓存 ${maxIntradayPts} 个 30m 切片`
-                    : `Worker 30m Feed · ${maxIntradayPts} intraday buckets`
+                    ? `Worker 5m 采集源 · 已缓存 ${maxIntradayPts} 个 5m 切片`
+                    : `Worker 5m Feed · ${maxIntradayPts} intraday buckets`
                   : isZh
                     ? '浏览器实时直连 OpenRouter + GCP Status'
                     : 'Direct Browser Live · OpenRouter + GCP Status'}
@@ -540,7 +541,7 @@ export function PulseApp() {
               ))}
             </div>
 
-            {/* Granularity + Provider Split Controls */}
+            {/* Granularity + Window + Provider Split Controls */}
             <div class="flex flex-wrap items-center gap-2">
               {metric !== 'e2e' && (
                 <div class="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5 font-mono text-[11px]">
@@ -555,13 +556,30 @@ export function PulseApp() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setGranularity('30m')}
+                    onClick={() => setGranularity('5m')}
                     class={`cursor-pointer rounded-md px-2.5 py-1 transition-colors ${
-                      granularity === '30m' ? 'bg-[var(--surface)] font-semibold text-[var(--fg)]' : 'text-[var(--muted)]'
+                      granularity === '5m' ? 'bg-[var(--surface)] font-semibold text-[var(--fg)]' : 'text-[var(--muted)]'
                     }`}
                   >
-                    {maxIntradayPts > 0 ? `30m (${maxIntradayPts})` : '30m'}
+                    {maxIntradayPts > 0 ? `5m (${maxIntradayPts})` : '5m'}
                   </button>
+                </div>
+              )}
+
+              {granularity === '5m' && metric !== 'e2e' && (
+                <div class="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5 font-mono text-[11px]">
+                  {([2, 6, 24] as const).map((hrs) => (
+                    <button
+                      key={hrs}
+                      type="button"
+                      onClick={() => setIntradayHours(hrs)}
+                      class={`cursor-pointer rounded-md px-2 py-1 transition-colors ${
+                        intradayHours === hrs ? 'bg-[var(--surface)] font-semibold text-[var(--fg)]' : 'text-[var(--muted)]'
+                      }`}
+                    >
+                      {hrs}h
+                    </button>
+                  ))}
                 </div>
               )}
 
@@ -628,6 +646,7 @@ export function PulseApp() {
             selectedFamilies={selectedFamilies}
             metric={metric}
             granularity={granularity}
+            intradayHours={intradayHours}
             splitProviders={splitProviders && canSplitProviders}
             locale={locale}
           />

@@ -92,6 +92,7 @@ export interface GeminiIntradayPoint {
   p99TtftSec?: number | null;
   p50Tps: number | null;
   cacheHitPct: number | null;
+  uptime5mPct?: number | null;
   uptime30mPct: number | null;
   requestCount30m?: number;
   byProvider?: Record<string, { ttft?: number | null; tps?: number | null; cache?: number | null }>;
@@ -651,8 +652,9 @@ export function classifyModelPulseStatus(
   return 'ok';
 }
 
-const INTRADAY_BUCKET_MS = 30 * 60_000;
-const INTRADAY_MAX_AGE_MS = 48 * 3_600_000;
+const INTRADAY_BUCKET_MS = 5 * 60_000;
+const INTRADAY_MAX_AGE_MS = 24 * 3_600_000;
+const INTRADAY_MAX_POINTS = 288;
 
 export function formatUtcBucketLabel(ms: number): string {
   const iso = new Date(ms).toISOString();
@@ -660,7 +662,7 @@ export function formatUtcBucketLabel(ms: number): string {
 }
 
 /**
- * Append a live 30m snapshot into a 48-hour ring buffer (deduplicated per 30m UTC bucket).
+ * Append a live snapshot into a 24-hour 5-minute ring buffer (up to 288 points).
  */
 export function mergeIntradayHistory(
   existing: GeminiIntradayPoint[] | undefined,
@@ -702,6 +704,7 @@ export function mergeIntradayHistory(
       ...(current.p99TtftSec !== null && current.p99TtftSec !== undefined ? { p99TtftSec: current.p99TtftSec } : {}),
       p50Tps: current.p50Tps,
       cacheHitPct: current.cacheHitPct,
+      ...(current.uptime5mPct !== null && current.uptime5mPct !== undefined ? { uptime5mPct: current.uptime5mPct } : {}),
       uptime30mPct: current.uptime30mPct,
       ...(current.requestCount30m > 0 ? { requestCount30m: current.requestCount30m } : {}),
       ...(Object.keys(byProvider).length > 0 ? { byProvider } : {}),
@@ -710,7 +713,7 @@ export function mergeIntradayHistory(
 
   return [...byBucket.values()]
     .sort((a, b) => a.bucketMs - b.bucketMs)
-    .slice(-96);
+    .slice(-INTRADAY_MAX_POINTS);
 }
 
 export function summarizeModelPulse(

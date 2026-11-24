@@ -1,12 +1,14 @@
-# AGY-HUD Gemini Pulse Collector (Cloudflare Workers Free + KV)
+# AGY-HUD Gemini Pulse Collector & Edge Gateway (Cloudflare Workers Free + KV)
 
-Zero-cost (**$0/month, no credit card required**) 30-minute telemetry collector for the 5 Gemini models tracked by AGY-HUD (`Gemini 4 Neon`, `Hydrogen`, `Carbon`, `Argon`, `3.8 Flash`).
+Zero-cost (**$0/month, no credit card required**) 5-minute telemetry collector & edge gateway for `https://agy-hud.512.pub`:
 
-- **Cron**: Runs every 30 minutes (`*/30 * * * *`) → **48 KV writes/day** (< 5% of the 1,000/day Free Tier limit).
-- **Storage**: Single compact JSON snapshot (`~40 KB`) with a rolling **48-hour 30m ring buffer** + 7d TTFT / E2E / TPS / Cache / Uptime series + P99 tail latency + Tool Call error rate + Google Cloud Service Health incidents.
-- **Endpoints**:
-  - `GET /v1/pulse.json` — Full CORS-enabled, edge-cached (`max-age=180`) Gemini telemetry feed.
-  - `GET /v1/health` — Collector status & 30m ring-buffer point count.
+- **Cron**: Runs every **5 minutes** (`*/5 * * * *`) → **288 KV writes/day** (28.8% of the 1,000/day Free Tier limit). Refreshes 7d comparison curves every 30 minutes and reuses them from KV between ticks.
+- **Storage**: Compact JSON snapshot with a rolling **24-hour 5-minute ring buffer (288 points)** + 7d TTFT / E2E / TPS / Cache / Uptime series + P99 tail latency + Tool Call error rate + Google Cloud Service Health incidents.
+- **Unified Custom Domain (`https://agy-hud.512.pub`)**:
+  - `GET /` → Official AGY-HUD Website (edge-proxied & cached from GitHub Pages)
+  - `GET /pulse/` → Standalone Gemini 5m Live Pulse Radar
+  - `GET /v1/pulse.json` → Full CORS-enabled, edge-cached (`max-age=90`) Gemini telemetry feed
+  - `GET /v1/health` → Collector health & 5m ring-buffer point count
 
 ## Deploy in 3 Minutes ($0 Free Tier)
 

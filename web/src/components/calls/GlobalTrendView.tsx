@@ -97,7 +97,7 @@ export function GlobalTrendView({
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [splitProviders, setSplitProviders] = useState<boolean>(false);
   const [showLocalOverlay, setShowLocalOverlay] = useState<boolean>(true);
-  const [granularity, setGranularity] = useState<'7d' | '30m'>('7d');
+  const [granularity, setGranularity] = useState<'7d' | '5m'>('7d');
   const [selectedFamilies, setSelectedFamilies] = useState<string[] | null>(null);
 
   useEffect(() => {
@@ -161,8 +161,8 @@ export function GlobalTrendView({
     () => models.reduce((acc, m) => Math.max(acc, m.series?.intraday30m?.length || 0), 0),
     [models],
   );
-  const canUseIntraday = metric !== 'e2e' && metric !== 'uptime' && maxIntradayPoints >= 2;
-  const effectiveIntraday = granularity === '30m' && canUseIntraday;
+  const canUseIntraday = metric !== 'e2e' && maxIntradayPoints >= 2;
+  const effectiveIntraday = granularity === '5m' && canUseIntraday;
 
   const canSplitProviders = useMemo(() => {
     if (!singleSelectedModel?.series) return false;
@@ -218,7 +218,13 @@ export function GlobalTrendView({
       const idxMap = new Map(sortedX.map((x, i) => [x, i]));
 
       const pickIntradayVal = (pt: GeminiIntradayPoint) =>
-        metric === 'ttft' ? pt.p50TtftSec : metric === 'tps' ? pt.p50Tps : pt.cacheHitPct;
+        metric === 'ttft'
+          ? pt.p50TtftSec
+          : metric === 'tps'
+            ? pt.p50Tps
+            : metric === 'cache'
+              ? pt.cacheHitPct
+              : pt.uptime5mPct ?? pt.uptime30mPct;
 
       if (effectiveSplit && singleSelectedModel) {
         const buckets = singleSelectedModel.series?.intraday30m || [];
@@ -603,7 +609,7 @@ export function GlobalTrendView({
         k: focusLine.label,
         v: fmtVal(focusLine.latestVal, metric),
         sub: effectiveIntraday
-          ? isZh ? '30m 实时' : 'Live 30m'
+          ? isZh ? '5m 实时' : 'Live 5m'
           : metric === 'uptime'
             ? (isZh ? '近 24h 最新' : 'Latest 24h')
             : metric === 'e2e'
@@ -615,7 +621,7 @@ export function GlobalTrendView({
         k: isZh ? '区间波动' : 'RANGE',
         v: `${fmtAxisTick(minV, metric)}–${fmtAxisTick(maxV, metric)}`,
         sub: effectiveIntraday
-          ? `${xLabels.length}×30m`
+          ? `${xLabels.length}×5m`
           : metric === 'uptime'
             ? '24h'
             : isZh ? '近 7 天' : '7d',
@@ -711,7 +717,7 @@ export function GlobalTrendView({
             <button
               type="button"
               onClick={() => {
-                setGranularity((g) => (g === '30m' ? '7d' : '30m'));
+                setGranularity((g) => (g === '5m' ? '7d' : '5m'));
                 setHoveredIdx(null);
               }}
               className={`px-1.5 py-[2px] rounded-full border font-hud-mono text-[9px] cursor-pointer transition-colors ${
@@ -721,11 +727,11 @@ export function GlobalTrendView({
               }`}
               data-tip={
                 isZh
-                  ? `切换 30 分钟实时采集折线（已缓存 ${maxIntradayPoints} 个 30m 节点，最多 48h）`
-                  : `Toggle true 30m intraday series (${maxIntradayPoints} buckets cached, up to 48h)`
+                  ? `切换 5 分钟高精度实时折线（已采集 ${maxIntradayPoints} 个 5m 节点，最多 24h）`
+                  : `Toggle 5-minute high-res live curves (${maxIntradayPoints} buckets, up to 24h)`
               }
             >
-              {effectiveIntraday ? `30m (${maxIntradayPoints})` : '30m'}
+              {effectiveIntraday ? `5m (${maxIntradayPoints})` : '5m'}
             </button>
           )}
           {hasAnyLocalCurve && (
@@ -769,7 +775,7 @@ export function GlobalTrendView({
             </button>
           )}
           <span className="font-hud-mono text-[9px] text-hud-muted">
-            {effectiveIntraday ? '48h·30m' : metric === 'uptime' ? '24h' : metric === 'e2e' ? '7d' : '7d + 30m'}
+            {effectiveIntraday ? '24h·5m' : metric === 'uptime' ? '24h' : metric === 'e2e' ? '7d' : '7d + 30m'}
           </span>
         </div>
       </div>
@@ -911,7 +917,7 @@ export function GlobalTrendView({
                   {s.points.map((pt, pi) => {
                     const isLast = pi === s.points.length - 1;
                     const isHov = safeHoverIdx === pt.xIdx;
-                    if (metric === 'uptime' && !isLast && !isHov) return null;
+                    if ((metric === 'uptime' || (effectiveIntraday && s.points.length > 24)) && !isLast && !isHov) return null;
                     return (
                       <circle
                         key={`gpt-${s.id}-${pt.xIdx}`}
@@ -964,7 +970,7 @@ export function GlobalTrendView({
               <span>{fmtShortX(xLabels[safeHoverIdx], metric, isZh, effectiveIntraday)}</span>
               <span>
                 {effectiveIntraday
-                  ? isZh ? '30m 快照' : '30m Bucket'
+                  ? isZh ? '5m 快照' : '5m Bucket'
                   : xLabels[safeHoverIdx] === '__live30m__'
                     ? isZh ? '实时 30m' : 'Live 30m'
                     : metric === 'uptime'

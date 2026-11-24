@@ -8,7 +8,8 @@ interface PulseChartProps {
   models: PulseModelData[];
   selectedFamilies: string[];
   metric: PulseChartMetric;
-  granularity: '7d' | '30m';
+  granularity: '7d' | '5m';
+  intradayHours: 2 | 6 | 24;
   splitProviders: boolean;
   locale: Locale;
 }
@@ -112,6 +113,7 @@ export function PulseChart({
   selectedFamilies,
   metric,
   granularity,
+  intradayHours,
   splitProviders,
   locale,
 }: PulseChartProps) {
@@ -141,16 +143,26 @@ export function PulseChart({
     [models, selectedFamilies],
   );
 
-  const isIntraday = granularity === '30m' && metric !== 'e2e';
+  const isIntraday = granularity === '5m' && metric !== 'e2e';
   const singleModel = targetModels.length === 1 ? targetModels[0] : null;
 
   const { xLabels, lines } = useMemo(() => {
     if (!targetModels.length) return { xLabels: [] as string[], lines: [] as PlottedLine[] };
 
     if (isIntraday) {
+      let latestMs = 0;
+      for (const m of targetModels) {
+        for (const pt of m.series.intraday30m) {
+          if (pt.bucketMs > latestMs) latestMs = pt.bucketMs;
+        }
+      }
+      const windowCutoff = latestMs > 0 ? latestMs - intradayHours * 3_600_000 : 0;
+      const filterPts = (pts: PulseModelData['series']['intraday30m']) =>
+        windowCutoff > 0 ? pts.filter((pt) => pt.bucketMs >= windowCutoff) : pts;
+
       const labelSet = new Set<string>();
       for (const m of targetModels) {
-        for (const pt of m.series.intraday30m) labelSet.add(pt.x);
+        for (const pt of filterPts(m.series.intraday30m)) labelSet.add(pt.x);
       }
       const sortedX = [...labelSet].sort();
       const idxMap = new Map(sortedX.map((x, i) => [x, i]));
@@ -162,11 +174,12 @@ export function PulseChart({
             ? pt.p50Tps
             : metric === 'cache'
               ? pt.cacheHitPct
-              : pt.uptime30mPct;
+              : pt.uptime5mPct ?? pt.uptime30mPct;
 
       if (splitProviders && singleModel && metric !== 'uptime') {
+        const filtered = filterPts(singleModel.series.intraday30m);
         const provs = new Set<string>();
-        for (const pt of singleModel.series.intraday30m) {
+        for (const pt of filtered) {
           for (const k of Object.keys(pt.byProvider || {})) provs.add(k);
         }
         if (provs.size >= 2) {
@@ -174,7 +187,7 @@ export function PulseChart({
           let ci = 0;
           for (const prov of provs) {
             const pts: PlottedLine['points'] = [];
-            for (const b of singleModel.series.intraday30m) {
+            for (const b of filtered) {
               const pObj = b.byProvider?.[prov];
               const v = metric === 'ttft' ? pObj?.ttft : metric === 'tps' ? pObj?.tps : pObj?.cache;
               if (typeof v === 'number' && v > 0 && idxMap.has(b.x)) {
@@ -198,7 +211,7 @@ export function PulseChart({
       const out: PlottedLine[] = [];
       for (const m of targetModels) {
         const pts: PlottedLine['points'] = [];
-        for (const b of m.series.intraday30m) {
+        for (const b of filterPts(m.series.intraday30m)) {
           const v = pickVal(b);
           if (typeof v === 'number' && v > 0 && idxMap.has(b.x)) {
             pts.push({ xIdx: idxMap.get(b.x)!, xLabel: b.x, val: v });
@@ -282,7 +295,7 @@ export function PulseChart({
       }
     }
     return { xLabels: sortedX, lines: out };
-  }, [targetModels, metric, isIntraday, splitProviders, singleModel]);
+  }, [targetModels, metric, isIntraday, intradayHours, splitProviders, singleModel]);
 
   const svgH = 264;
   const padTop = 18;
@@ -345,8 +358,8 @@ export function PulseChart({
       <div class="flex h-[264px] items-center justify-center rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-2)] px-4 text-center text-[13px] text-[var(--muted)]">
         {isIntraday
           ? isZh
-            ? '30 分钟实时曲线需要接入 Cloudflare Worker 采集源（点击右上角「Worker 采集源」配置，零费用免绑卡）。'
-            : 'True 30m intraday curves require connecting a Cloudflare Worker feed (click "Worker Feed" above — $0 free tier, no card needed).'
+            ? '5 分钟实时采集刚启动，每 5 分钟自动新增一个高精度采样点（当前至少需要 2 个点即可绘制曲线，约 5 分钟后自动出现）。'
+            : '5-minute high-resolution collection is active — a new point is recorded every 5 minutes (curve appears once ≥2 points are collected).'
           : isZh
             ? '正在加载 OpenRouter Gemini 历史折线数据…'
             : 'Loading OpenRouter Gemini historical curves…'}
@@ -469,7 +482,7 @@ export function PulseChart({
         >
           <div class="mb-1.5 flex items-center justify-between border-b border-[var(--border)] pb-1 font-mono text-[11px] font-semibold text-[var(--muted)]">
             <span>{fmtX(xLabels[safeHover], isIntraday)}</span>
-            <span>{isIntraday ? '30m' : isZh ? '日均 P50' : 'Daily P50'}</span>
+            <span>{isIntraday ? '5m' : isZh ? '日均 P50' : 'Daily P50'}</span>
           </div>
           <div class="flex flex-col gap-1">
             {hoverRows.map((row, ri) => (

@@ -310,8 +310,8 @@ test('parseOpenRouterModelHtml extracts P95/P99, tool call error rate, reasoning
   );
   assert.equal(e2eSeries[0].value, 10.2);
 
-  const t0 = Date.UTC(2026, 10, 24, 10, 5, 0);
-  const tOld = t0 - 50 * 3_600_000;
+  const t0 = Date.UTC(2026, 10, 24, 10, 7, 0);
+  const tOld = t0 - 26 * 3_600_000;
   const model = summarizeModelPulse(
     GEMINI_PULSE_MODELS[0],
     parsed,
@@ -324,14 +324,15 @@ test('parseOpenRouterModelHtml extracts P95/P99, tool call error rate, reasoning
 
   const merged = mergeIntradayHistory(
     [
-      { bucketMs: tOld, x: '2026-11-22 08:00', p50TtftSec: 9.9, p50Tps: 40, cacheHitPct: 70, uptime30mPct: 99 },
-      { bucketMs: Date.UTC(2026, 10, 24, 9, 30, 0), x: '2026-11-24 09:30', p50TtftSec: 4.1, p50Tps: 70, cacheHitPct: 81, uptime30mPct: 100 },
+      { bucketMs: tOld, x: '2026-11-23 08:00', p50TtftSec: 9.9, p50Tps: 40, cacheHitPct: 70, uptime30mPct: 99 },
+      { bucketMs: Date.UTC(2026, 10, 24, 10, 0, 0), x: '2026-11-24 10:00', p50TtftSec: 4.1, p50Tps: 70, cacheHitPct: 81, uptime30mPct: 100 },
     ],
     model,
     t0,
   );
-  assert.equal(merged.length, 2); // pruned >48h old bucket, kept 09:30 + added 10:00
-  assert.equal(merged[1].x, '2026-11-24 10:00');
+  assert.equal(merged.length, 2); // pruned >24h old bucket, kept 10:00 + added 10:05
+  assert.equal(merged[1].x, '2026-11-24 10:05');
   assert.equal(merged[1].p50TtftSec, 4.3);
   assert.equal(merged[1].p99TtftSec, 40.29);
+  assert.equal(merged[1].uptime5mPct, 100);
 });
