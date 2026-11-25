@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { computeCallCost, getCurrentPricingSig, poolKeyForModel } from '../lib/pricing.ts';
 import { attachQuotaBudgetEstimates, attachTelemetryQuotaPredictions } from '../lib/quota-budget.ts';
+import { FIT_SCHEMA_VERSION } from '../lib/quota-solver.ts';
 import {
   FAMILY_CLASSIFIER_VERSION,
   buildAccountTierKey,
@@ -1784,7 +1785,7 @@ test('claude_gpt contiguous dirty concurrent burst conserves total burn and merg
 
   const fit = solvePoolFitModel({ gamma: 2.0, samples }, 'claude_gpt')!;
   assert.ok(fit);
-  assert.equal(fit.schemaVersion, 6);
+  assert.equal(fit.schemaVersion, FIT_SCHEMA_VERSION);
   assert.equal(fit.models['claude-opus-5-5'].mode, 'scalar', 'must not overfit 3-param per_token with 0 clean windows');
   assert.ok(Math.abs((fit.full5hUSD ?? 0) - 19.90) < 0.25, `expected conserved full5hUSD ~$19.90, got ${fit.full5hUSD}`);
   const predTree5h = fit.refBeta * 3.0809;
@@ -1814,7 +1815,7 @@ test('claude_gpt contiguous dirty concurrent burst conserves total burn and merg
       'utf8',
     );
     const loaded = loadQuotaFitStore(migPath);
-    assert.equal(loaded.pools[pk].fit?.schemaVersion, 6);
+    assert.equal(loaded.pools[pk].fit?.schemaVersion, FIT_SCHEMA_VERSION);
     assert.ok(Math.abs((loaded.pools[pk].fit?.full5hUSD ?? 0) - 19.90) < 0.25);
   } finally {
     rmSync(migDir, { recursive: true, force: true });
@@ -1880,6 +1881,132 @@ test('claude_gpt contiguous dirty concurrent burst conserves total burn and merg
     assert.equal(afterSettle.pools[poolKey].samples.length, 1);
     const merged = afterSettle.pools[poolKey].samples[0];
     assert.ok(Math.abs(merged.du5 - 1.00) < 0.01, `expected merged du5 ~1.00%, got ${merged.du5}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('sparse or stale boundaryClean samples never hijack a large dirty consensus pool, hasTrustedPoolFit requires agreeing inliers, and summaryFresh=false gates boundaryClean', () => {
+  const sig = getCurrentPricingSig();
+  const baseTs = 1_970_000_000_000;
+  const makeS = (idx: number, usd: number, impliedFull5h: number, boundaryClean: boolean, calls = 5) => {
+    const du5 = (usd / impliedFull5h) * 100;
+    return {
+      t0: baseTs + idx * 60_000,
+      t1: baseTs + idx * 60_000 + 50_000,
+      dtSec: 50,
+      du5,
+      du7: du5 / 4,
+      source: '5h_delta' as const,
+      boundaryClean,
+      isShort: true,
+      tsMode: 'completed_v2' as const,
+      pricingSig: sig,
+      byModel: { 'gemini-4-neon': usd },
+      byModelTokens: { 'gemini-4-neon': [usd / 6, 0, usd / 30] },
+      callCount: calls,
+      totalBaseUSD: usd,
+      nominalFamilies: [],
+    };
+  };
+
+  // 1) Real-world regression: 40 dirty short windows (30 exact $600 + 10 concurrent noise)
+  //    plus 2 discordant boundaryClean=true stale TTL samples ($967.8 and $177.7).
+  const samplesWith2BadClean: any[] = [];
+  for (let i = 0; i < 40; i++) {
+    const usd = 0.2 + (i % 5) * 0.12;
+    const cap = i % 4 === 0 ? 410 + (i % 3) * 45 : 600;
+    samplesWith2BadClean.push(makeS(i, usd, cap, false, 6));
+  }
+  samplesWith2BadClean.splice(15, 0, makeS(100, 0.2245, 967.8, true, 5));
+  samplesWith2BadClean.splice(16, 0, makeS(101, 0.0665, 177.7, true, 4));
+
+  for (let shift = 0; shift < 4; shift++) {
+    const fit = solvePoolFitModel({ gamma: 4.0, samples: samplesWith2BadClean.slice(shift) }, 'gemini')!;
+    assert.ok(
+      Math.abs((fit.full5hUSD ?? 0) - 600) < 1.5,
+      `shift=${shift}: expected ~$600 despite 2 stale clean samples, got ${fit.full5hUSD}`,
+    );
+    assert.ok(
+      Math.abs((fit.full7dUSD ?? 0) - 2400) < 6.0,
+      `shift=${shift}: expected ~$2400 7d cap, got ${fit.full7dUSD}`,
+    );
+    assert.equal(fit.quality, 'high', `shift=${shift}: expected high quality, got ${fit.quality} (${(fit.driftReasons || []).join(',')})`);
+    assert.equal(fit.driftWarning, false, `shift=${shift}: unexpected driftWarning ${(fit.driftReasons || []).join(',')}`);
+  }
+
+  // 2) Even 2 agreeing bad clean samples ($178 and $195) amidst 40 dirty $600 consensus samples
+  //    must NOT hijack initializeFamilyBetas or IRLS!
+  const samplesWith2AgreeingBadClean = samplesWith2BadClean.map((s, idx) => (
+    idx === 15 ? makeS(100, 0.12, 178, true, 3) : idx === 16 ? makeS(101, 0.11, 195, true, 3) : s
+  ));
+  const fit2 = solvePoolFitModel({ gamma: 4.0, samples: samplesWith2AgreeingBadClean }, 'gemini')!;
+  assert.ok(Math.abs((fit2.full5hUSD ?? 0) - 600) < 1.5, `expected ~$600 despite 2 agreeing bad clean samples, got ${fit2.full5hUSD}`);
+  assert.equal(fit2.quality, 'high');
+  assert.equal(fit2.driftWarning, false);
+
+  // 3) 6 scattered discordant legacy clean samples (inlierCount < 4) amidst 40 dirty $600 samples
+  //    triggers the secondary consensus fallback to shortAny!
+  const samplesWith6DiscordantClean = [...samplesWith2BadClean.filter((s) => !s.boundaryClean)];
+  const badCaps = [968, 178, 4700, 38, 1250, 95];
+  badCaps.forEach((cap, k) => {
+    samplesWith6DiscordantClean.splice(5 + k * 4, 0, makeS(200 + k, 0.15, cap, true, 3));
+  });
+  const fit6 = solvePoolFitModel({ gamma: 4.0, samples: samplesWith6DiscordantClean }, 'gemini')!;
+  assert.ok(Math.abs((fit6.full5hUSD ?? 0) - 600) < 1.5, `expected ~$600 despite 6 scattered stale clean samples, got ${fit6.full5hUSD}`);
+  assert.equal(fit6.quality, 'high');
+  assert.equal(fit6.driftWarning, false);
+
+  // 4) hasTrustedPoolFit must reject a 2-clean / 1-inlier discordant provisional fit
+  assert.equal(
+    hasTrustedPoolFit({ refBeta: 0.563, quality: 'provisional', driftWarning: false, shortCleanCount: 2, inlierCount: 1, relErrPct: 8 } as any, 2),
+    false,
+  );
+  assert.equal(
+    hasTrustedPoolFit({ refBeta: 0.167, quality: 'provisional', driftWarning: false, shortCleanCount: 2, inlierCount: 2, relErrPct: 1.5 } as any, 2),
+    true,
+  );
+
+  // 5) Non-forced LS-cached summary (summaryFresh: false) must NEVER be marked boundaryClean=true
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-summary-fresh-'));
+  const fitPath = join(dir, 'quota-model-fit.json');
+  try {
+    const t0 = 1_975_000_000_000;
+    const reset5h = t0 + 4 * 3_600_000;
+    const reset7d = t0 + 6 * 24 * 3_600_000;
+    const makeQ = (ts: number, u5: number, u7: number, summaryFresh: boolean) => ({
+      available: true,
+      planName: 'Pro',
+      tierName: 'Google AI Ultra',
+      teamsTier: 'TEAMS_TIER_PRO',
+      email: 'fresh@example.com',
+      source: 'summary',
+      summaryFresh,
+      reqStartedAtMs: ts - 80,
+      fetchedAtMs: ts,
+      pools: [{
+        label: 'Gemini',
+        remainingPct: 100 - u5,
+        resetAtMs: reset5h,
+        windows: [
+          { spanKey: '5h', label: '5h', remainingPct: 100 - u5, resetAtMs: reset5h },
+          { spanKey: '7d', label: '7d', remainingPct: 100 - u7, resetAtMs: reset7d },
+        ],
+      }],
+    });
+    const call1 = { ...makeGeminiCall(t0 + 20_000, 'gemini-4-neon', 50_000, 0, 5_000), source: 'app' };
+    const du1 = (call1.costUSD / 600) * 100;
+    ingestQuotaObservation(makeQ(t0, 1.0, 0.25, true), { summaries: [] }, { fitPath, nowMs: t0 });
+    const store = ingestQuotaObservation(
+      makeQ(t0 + 40_000, 1.0 + du1, 0.25 + du1 / 4, false),
+      { summaries: [{ latestTsMs: t0 + 20_000, recentCalls: [call1] }] },
+      { fitPath, nowMs: t0 + 40_000 },
+    );
+    const poolKey = `${buildAccountTierKey(makeQ(t0, 1.0, 0.25, true))}|gemini`;
+    const sample = store.pools[poolKey].samples[0];
+    assert.ok(sample);
+    assert.equal(sample.boundaryClean, false, 'summaryFresh=false must mark sample boundaryClean=false');
+    assert.equal(store.pools[poolKey].lastSnap?.boundaryClean, false, 'summaryFresh=false must mark lastSnap.boundaryClean=false');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

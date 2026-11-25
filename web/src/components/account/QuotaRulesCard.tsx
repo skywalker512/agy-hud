@@ -103,11 +103,11 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
                   ) : fs.quality === 'high' ? (
                     <span className="inline-flex items-center gap-1 px-1.5 py-[0.5px] rounded-full font-hud text-[9.5px] font-medium text-hud-fg-2 bg-hud-fill whitespace-nowrap tabular-nums">
                       <IconCheck size={10} className="text-hud-ok" />
-                      <span>{t.rulesAccHigh(errStr, fs.shortCleanCount > 0 ? fs.shortCleanCount : (fs.inlierCount || 0))}</span>
+                      <span>{t.rulesAccHigh(errStr, Math.max(fs.shortCleanCount || 0, fs.inlierCount || 0))}</span>
                     </span>
                   ) : (
                     <span className="px-1.5 py-[0.5px] rounded-full font-hud text-[9.5px] text-hud-muted bg-hud-fill whitespace-nowrap">
-                      {t.rulesAccProv(fs.shortCleanCount > 0 ? fs.shortCleanCount : (fs.inlierCount || 0))}
+                      {t.rulesAccProv(Math.max(fs.shortCleanCount || 0, fs.inlierCount || 0))}
                     </span>
                   )}
                 </div>

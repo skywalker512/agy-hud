@@ -1,19 +1,24 @@
 import { useNowMs } from '../../hooks/useNow';
 import type { Translations } from '../../i18n';
-import type { AccountQuota, QuotaPool, QuotaWindow, TelemetrySummary } from '../../types/telemetry';
+import type { AccountQuota, QuotaPool, QuotaWindow, SessionInfo, TelemetrySummary } from '../../types/telemetry';
 import { fmtClockHm, fmtDurationShort, fmtQuotaPct } from '../../utils/format';
 import { IconArrowRight } from '../common/Icons';
 
 interface LiveQuotaCardProps {
   quota: AccountQuota | undefined;
   summary: TelemetrySummary | undefined;
+  sessionInfo?: SessionInfo | null;
   t: Translations;
   onOpenAccount: () => void;
 }
 
-function selectActivePools(pools: QuotaPool[], summary: TelemetrySummary | undefined): QuotaPool[] {
+function selectActivePools(
+  pools: QuotaPool[],
+  summary: TelemetrySummary | undefined,
+  sessionInfo?: SessionInfo | null,
+): QuotaPool[] {
   if (!pools.length) return [];
-  const sq = summary?.sessionQuota;
+  const sq = sessionInfo?.treeTotals?.quotaUsage || summary?.sessionQuota || sessionInfo?.quotaUsage;
   const usedGemini = Boolean(sq?.gemini && (sq.gemini.pct5h > 0 || (sq.gemini.pct7d || 0) > 0));
   const usedClaude = Boolean(sq?.claude_gpt && (sq.claude_gpt.pct5h > 0 || (sq.claude_gpt.pct7d || 0) > 0));
   if (usedGemini || usedClaude) {
@@ -28,11 +33,11 @@ function selectActivePools(pools: QuotaPool[], summary: TelemetrySummary | undef
   return pools.slice(0, 1);
 }
 
-export function LiveQuotaCard({ quota, summary, t, onOpenAccount }: LiveQuotaCardProps) {
+export function LiveQuotaCard({ quota, summary, sessionInfo, t, onOpenAccount }: LiveQuotaCardProps) {
   const nowMs = useNowMs();
   if (!quota?.available || !quota.pools?.length) return null;
 
-  const activePools = selectActivePools(quota.pools, summary);
+  const activePools = selectActivePools(quota.pools, summary, sessionInfo);
   if (!activePools.length) return null;
 
   return (

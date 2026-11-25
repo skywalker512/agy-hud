@@ -1482,11 +1482,6 @@ export function attachGraphQuotaSummaries({
     return s ? computeSummaryQuotaUsage(s, fitStore, tierPrefix, activeWins) : null;
   };
 
-  const nextConversations = conversations.map((c) => {
-    const q = lookup(c.id);
-    return q ? { ...c, quotaUsage: q } : c;
-  });
-
   const mergeQuotaUsages = (items: any[]) => {
     const merged: Record<string, any> = Object.create(null);
     let hasAny = false;
@@ -1523,9 +1518,40 @@ export function attachGraphQuotaSummaries({
     return hasAny ? finalizePoolQuotaMap(merged) : null;
   };
 
+  const computeTreeQuota = (rootId: string) => {
+    const selfQ = lookup(rootId);
+    const directChildren = graph?.childrenByParent?.get(rootId);
+    if (!Array.isArray(directChildren) || directChildren.length === 0) {
+      return { selfQ, childQ: null, treeQ: selfQ, hasDescendants: false };
+    }
+    const visited = new Set<string>([rootId]);
+    const queue = [...directChildren];
+    const childParts: any[] = [];
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item || !item.id || visited.has(item.id)) continue;
+      visited.add(item.id);
+      childParts.push(lookup(item.id));
+      const sub = graph?.childrenByParent?.get(item.id);
+      if (Array.isArray(sub)) {
+        for (const ch of sub) {
+          if (ch && ch.id && !visited.has(ch.id)) queue.push(ch);
+        }
+      }
+    }
+    const childQ = mergeQuotaUsages(childParts);
+    const treeQ = mergeQuotaUsages([selfQ, ...childParts]);
+    return { selfQ, childQ, treeQ, hasDescendants: visited.size > 1 };
+  };
+
+  const nextConversations = conversations.map((c) => {
+    const { treeQ } = computeTreeQuota(c.id);
+    return treeQ ? { ...c, quotaUsage: treeQ } : c;
+  });
+
   let nextSessionInfo = sessionInfo;
   if (sessionInfo) {
-    const selfQ = lookup(sessionInfo.id);
+    const { selfQ, childQ, treeQ, hasDescendants } = computeTreeQuota(sessionInfo.id);
     const nextParent = sessionInfo.parentSession
       ? (() => {
           const pq = lookup(sessionInfo.parentSession.id);
@@ -1541,32 +1567,29 @@ export function attachGraphQuotaSummaries({
 
     // Collect recursive descendant quota usages (Swarm workers + multi-level subagents + Side-Q)
     let nextTreeTotals = sessionInfo.treeTotals;
-    if (nextTreeTotals && nextTreeTotals.descendantCount > 0) {
-      const visited = new Set<string>([sessionInfo.id]);
-      const queue = [...(graph?.childrenByParent?.get(sessionInfo.id) || [])];
-      const quotaParts: any[] = [selfQ];
-      while (queue.length > 0) {
-        const item = queue.shift();
-        if (!item || !item.id || visited.has(item.id)) continue;
-        visited.add(item.id);
-        quotaParts.push(lookup(item.id));
-        const sub = graph?.childrenByParent?.get(item.id);
-        if (Array.isArray(sub)) {
-          for (const ch of sub) {
-            if (ch && ch.id && !visited.has(ch.id)) queue.push(ch);
-          }
-        }
-      }
-      const treeQ = mergeQuotaUsages(quotaParts);
-      nextTreeTotals = { ...nextTreeTotals, ...(treeQ ? { quotaUsage: treeQ } : {}) };
+    if (nextTreeTotals && (nextTreeTotals.descendantCount > 0 || hasDescendants)) {
+      nextTreeTotals = {
+        ...nextTreeTotals,
+        ...(treeQ ? { quotaUsage: treeQ } : {}),
+        ...(childQ ? { childQuotaUsage: childQ } : {}),
+      };
     } else if (nextTreeTotals && selfQ) {
       nextTreeTotals = { ...nextTreeTotals, quotaUsage: selfQ };
+    }
+
+    let nextRootTreeTotals = sessionInfo.rootTreeTotals;
+    if (nextRootTreeTotals?.rootId) {
+      const { treeQ: rootTreeQ } = computeTreeQuota(nextRootTreeTotals.rootId);
+      if (rootTreeQ) {
+        nextRootTreeTotals = { ...nextRootTreeTotals, quotaUsage: rootTreeQ };
+      }
     }
 
     nextSessionInfo = {
       ...sessionInfo,
       ...(selfQ ? { quotaUsage: selfQ } : {}),
       ...(nextTreeTotals ? { treeTotals: nextTreeTotals } : {}),
+      ...(nextRootTreeTotals ? { rootTreeTotals: nextRootTreeTotals } : {}),
       parentSession: nextParent,
       childSessions: nextChildren,
     };

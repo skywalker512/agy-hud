@@ -80,7 +80,8 @@ export function cleanFallbackPromptTitle(raw: string, maxLen = 96): string {
 
 export function summarizeConversationDb(conv) {
   const anno = conv.annoPath ? parseAnnotationPbtxt(conv.annoPath) : { title: '', sideQuestionIds: [], sideQuestionTitles: {} };
-  const parentIds = new Set();
+  const parentIds = new Set<string>();
+  const fallbackParentIds = new Set<string>();
   let trajectoryType = 0;
   let dbSourceCode = null;
   let subagentType = '';
@@ -130,6 +131,44 @@ export function summarizeConversationDb(conv) {
             const pid = Buffer.from(val).toString('utf8');
             if (UUID_RE.test(pid) && pid !== conv.id) parentIds.add(pid);
           }
+        }
+      }
+    } catch { /* table missing */ }
+
+    // Fallback parent linkage for run_workflow child conversations whose parent_references table is empty:
+    // trajectory_metadata_blob stores parent cascade ID at field 6 and origin tool invocation at field 12.1.{1,3.2}.
+    try {
+      const tmbRow: any = db.prepare('SELECT data FROM trajectory_metadata_blob LIMIT 1').get();
+      if (tmbRow?.data) {
+        let tmbRootId = '';
+        let tmbOriginParentId = '';
+        let tmbToolName = '';
+        for (const [fn, wt, val] of iterFields(tmbRow.data)) {
+          if (fn === 6 && wt === 2) {
+            const pid = Buffer.from(val).toString('utf8');
+            if (UUID_RE.test(pid) && pid !== conv.id) tmbRootId = pid;
+          } else if (fn === 12 && wt === 2) {
+            for (const [f12, w12, v12] of iterFields(val)) {
+              if (f12 !== 1 || w12 !== 2) continue;
+              for (const [f1, w1, v1] of iterFields(v12)) {
+                if (f1 === 1 && w1 === 2) {
+                  const pid = Buffer.from(v1).toString('utf8');
+                  if (UUID_RE.test(pid) && pid !== conv.id) tmbOriginParentId = pid;
+                } else if (f1 === 3 && w1 === 2) {
+                  for (const [f3, w3, v3] of iterFields(v1)) {
+                    if (f3 === 2 && w3 === 2) {
+                      tmbToolName = Buffer.from(v3).toString('utf8');
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        if (tmbOriginParentId) fallbackParentIds.add(tmbOriginParentId);
+        if (tmbRootId) fallbackParentIds.add(tmbRootId);
+        if (tmbToolName === 'run_workflow' && !subagentType) {
+          subagentType = 'workflow';
         }
       }
     } catch { /* table missing */ }
@@ -300,6 +339,9 @@ export function summarizeConversationDb(conv) {
         if (parsed.parentCascadeId && parsed.parentCascadeId !== conv.id) {
           parentIds.add(parsed.parentCascadeId);
         }
+        if (parsed.rootCascadeId && parsed.rootCascadeId !== conv.id) {
+          fallbackParentIds.add(parsed.rootCascadeId);
+        }
         if (parsed.subagentType && !subagentType) subagentType = parsed.subagentType;
 
         if (parsed.modelEnum !== null) {
@@ -443,7 +485,7 @@ export function summarizeConversationDb(conv) {
     sideQuestionIds: anno.sideQuestionIds,
     sideQuestionTitles: anno.sideQuestionTitles,
     trajectoryType,
-    parentIds: [...parentIds],
+    parentIds: [...parentIds, ...[...fallbackParentIds].filter((pid) => !parentIds.has(pid))],
     subagentType,
     calls,
     outputTokens,
@@ -850,26 +892,25 @@ function collectDescendantSessions(rootId: string, graph: any) {
   return descendants;
 }
 
-export function buildSessionInfo(targetId, graph) {
-  const s = graph.byId.get(targetId);
-  const link = graph.parentLinks.get(targetId);
-  const swarmIndex = graph.swarmIndex;
-  const coordSwarm = swarmIndex?.swarmsByCoordinator?.get(targetId) || null;
-  const workerLookup = !coordSwarm ? (swarmIndex?.memberLookup?.get(targetId) || null) : null;
+function resolveRootAncestorId(startId: string, graph: any, fallbackParentId = ''): string {
+  const visited = new Set<string>([startId]);
+  let cur = startId;
+  while (true) {
+    const link = graph?.parentLinks?.get(cur);
+    const workerLookup = graph?.swarmIndex?.memberLookup?.get(cur);
+    const nextParent = link?.parentId
+      || workerLookup?.coordinatorConvId
+      || (cur === startId ? fallbackParentId : '');
+    if (!nextParent || visited.has(nextParent)) break;
+    visited.add(nextParent);
+    cur = nextParent;
+  }
+  return cur;
+}
 
-  const effectiveParentId = link?.parentId || workerLookup?.coordinatorConvId || '';
-  const parentSum = effectiveParentId ? graph.byId.get(effectiveParentId) : null;
-  const kind = link
-    ? link.kind
-    : (workerLookup ? 'subagent' : (s?.trajectoryType === 22 ? 'side_question' : 'main'));
-  const title = graph.sqTitleOverrides.get(targetId)
-    || s?.title
-    || (coordSwarm?.swarmTitle || workerLookup?.member.meta.taskTitle || '');
-  const rawChildren = graph.childrenByParent.get(targetId) || [];
-  const childSessions = rawChildren.map(({ key: _key, ...rest }) => rest);
-
-  // Recursive rollup across ALL Swarm workers + subagents + Side-Q descendants (cycle-safe)
-  const descendants = collectDescendantSessions(targetId, graph);
+function computeSessionTreeMetrics(rootId: string, graph: any) {
+  const s = graph?.byId?.get(rootId);
+  const descendants = collectDescendantSessions(rootId, graph);
   let childCalls = 0;
   let childOutputTokens = 0;
   let childCostUSD = 0;
@@ -894,22 +935,76 @@ export function buildSessionInfo(targetId, graph) {
   const rootPricedCount = s?.pricedCount || 0;
   const rootUnpricedCount = s?.unpricedCount || 0;
 
-  const treeTotals = {
-    descendantCount: descendants.length,
-    swarmWorkerCount,
-    calls: rootCalls + childCalls,
-    outputTokens: rootOutputTokens + childOutputTokens,
-    costUSD: rootCostUSD + childCostUSD,
-    savedUSD: rootSavedUSD + childSavedUSD,
-    pricedCount: rootPricedCount + childPricedCount,
-    unpricedCount: rootUnpricedCount + childUnpricedCount,
-    childCalls,
-    childOutputTokens,
-    childCostUSD,
-    childSavedUSD,
-    childPricedCount,
-    childUnpricedCount,
+  return {
+    descendants,
+    totals: {
+      descendantCount: descendants.length,
+      swarmWorkerCount,
+      calls: rootCalls + childCalls,
+      outputTokens: rootOutputTokens + childOutputTokens,
+      costUSD: rootCostUSD + childCostUSD,
+      savedUSD: rootSavedUSD + childSavedUSD,
+      pricedCount: rootPricedCount + childPricedCount,
+      unpricedCount: rootUnpricedCount + childUnpricedCount,
+      childCalls,
+      childOutputTokens,
+      childCostUSD,
+      childSavedUSD,
+      childPricedCount,
+      childUnpricedCount,
+    },
   };
+}
+
+export function buildSessionInfo(targetId, graph) {
+  const s = graph.byId.get(targetId);
+  const link = graph.parentLinks.get(targetId);
+  const swarmIndex = graph.swarmIndex;
+  const coordSwarm = swarmIndex?.swarmsByCoordinator?.get(targetId) || null;
+  const workerLookup = !coordSwarm ? (swarmIndex?.memberLookup?.get(targetId) || null) : null;
+
+  const effectiveParentId = link?.parentId || workerLookup?.coordinatorConvId || '';
+  const parentSum = effectiveParentId ? graph.byId.get(effectiveParentId) : null;
+  const kind = link
+    ? link.kind
+    : (workerLookup ? 'subagent' : (s?.trajectoryType === 22 ? 'side_question' : 'main'));
+  const title = graph.sqTitleOverrides.get(targetId)
+    || s?.title
+    || (coordSwarm?.swarmTitle || workerLookup?.member.meta.taskTitle || '');
+  const rawChildren = graph.childrenByParent.get(targetId) || [];
+  const childSessions = rawChildren.map(({ key: _key, ...rest }) => rest);
+
+  // Recursive rollup across ALL Swarm workers + subagents + workflow children + Side-Q descendants (cycle-safe)
+  const { descendants, totals: treeTotals } = computeSessionTreeMetrics(targetId, graph);
+
+  // When viewing a child / Swarm worker session, also expose the top-most ancestor tree totals
+  // so users never mistake a single worker's spend for the entire Swarm / parent task.
+  const rootAncestorId = effectiveParentId ? resolveRootAncestorId(targetId, graph, effectiveParentId) : '';
+  let rootTreeTotals: any = null;
+  let rootTreeSig = '';
+  if (rootAncestorId && rootAncestorId !== targetId) {
+    const rootSum = graph.byId.get(rootAncestorId);
+    const rootSwarm = swarmIndex?.swarmsByCoordinator?.get(rootAncestorId) || null;
+    const { totals: rt } = computeSessionTreeMetrics(rootAncestorId, graph);
+    rootTreeTotals = {
+      rootId: rootAncestorId,
+      rootTitle: graph.sqTitleOverrides.get(rootAncestorId)
+        || rootSwarm?.swarmTitle
+        || rootSum?.title
+        || workerLookup?.swarm?.swarmTitle
+        || '',
+      isSwarm: Boolean(rootSwarm || workerLookup?.coordinatorConvId === rootAncestorId),
+      descendantCount: rt.descendantCount,
+      swarmWorkerCount: rt.swarmWorkerCount,
+      calls: rt.calls,
+      outputTokens: rt.outputTokens,
+      costUSD: rt.costUSD,
+      savedUSD: rt.savedUSD,
+      pricedCount: rt.pricedCount,
+      unpricedCount: rt.unpricedCount,
+    };
+    rootTreeSig = `rt:${rootAncestorId}:${rt.descendantCount}:${rt.calls}:${rt.costUSD.toFixed(4)}`;
+  }
 
   const swarmOverview = coordSwarm
     ? buildSwarmOverview(coordSwarm, true)
@@ -934,6 +1029,7 @@ export function buildSessionInfo(targetId, graph) {
           }
         : null);
 
+  const descendantKeys = descendants.map((c) => `${c.id}:${c.key}`).join(',');
   return {
     id: targetId,
     title,
@@ -942,8 +1038,9 @@ export function buildSessionInfo(targetId, graph) {
     parentSession,
     childSessions,
     treeTotals,
+    ...(rootTreeTotals ? { rootTreeTotals } : {}),
     ...(swarmOverview ? { swarm: swarmOverview } : {}),
-    childKeys: descendants.map((c) => `${c.id}:${c.key}`).join(','),
+    childKeys: rootTreeSig ? `${descendantKeys}|${rootTreeSig}` : descendantKeys,
     swarmSig,
   };
 }

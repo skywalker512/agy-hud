@@ -14,7 +14,7 @@
 import { getCurrentPricingSig, poolKeyForModel, resolveModelPricing } from './pricing.ts';
 
 export const FIT_STORE_VERSION = 1;
-export const FIT_SCHEMA_VERSION = 6;
+export const FIT_SCHEMA_VERSION = 7;
 export const FAMILY_CLASSIFIER_VERSION = 2;
 export const SHORT_WINDOW_MAX_SEC = 900; // <= 15m short windows train model parameters; long windows only evaluate external burn
 
@@ -204,7 +204,7 @@ export function selectConsensusGamma(values: number[], tolRel = 0.08): number | 
 export function hasTrustedPoolFit(fit: QuotaPoolFit | null | undefined, minShortClean = 2): boolean {
   if (!fit || !(fit.refBeta > 0)) return false;
   if (fit.quality === 'high') return true;
-  if ((fit.shortCleanCount || 0) >= minShortClean) return true;
+  if ((fit.shortCleanCount || 0) >= minShortClean && (fit.inlierCount || 0) >= minShortClean) return true;
   return !fit.driftWarning && (fit.inlierCount || 0) >= 6 && (fit.relErrPct ?? 100) <= 2.0;
 }
 
@@ -673,10 +673,21 @@ function initializeFamilyBetas(fittedFamilies: string[], trainSet: QuotaSample[]
         }
       }
     }
-    const purePairs = cleanPurePairs.length >= 2 ? cleanPurePairs : allPurePairs;
-    if (cleanPurePairs.length < 2) {
-      // Without >=2 clean pure windows, require a tight multi-window consensus cluster
-      // (>=4 dirty pure windows agreeing within ±2%) before overriding the family's structural kPrior.
+    let cleanMaxAgree = 0;
+    for (let i = 0; i < cleanPurePairs.length; i++) {
+      const c = cleanPurePairs[i].val;
+      const cnt = cleanPurePairs.filter((p) => Math.abs(p.val - c) / c <= 0.08).length;
+      if (cnt > cleanMaxAgree) cleanMaxAgree = cnt;
+    }
+    const useCleanPure = cleanPurePairs.length >= 2 && (
+      cleanMaxAgree >= 4
+      || allPurePairs.length < 6
+      || cleanPurePairs.length * 2 >= allPurePairs.length
+    );
+    const purePairs = useCleanPure ? cleanPurePairs : allPurePairs;
+    if (!useCleanPure) {
+      // Without a substantial clean pure sample set, require a tight multi-window consensus cluster
+      // (>=4 pure windows agreeing within ±2%) before overriding the family's structural kPrior.
       if (purePairs.length < 4) return getFamilyPriorK(fam) * refBetaCurr;
       let maxAgree = 0;
       for (let i = 0; i < purePairs.length; i++) {
@@ -940,13 +951,17 @@ function collectOosHoldoutErrors(
       dirtyOos.push(relErr);
     }
   }
-  if (cleanOos.length > 0) return cleanOos;
-  // When all holdouts come from concurrent/dirty sessions, tight out-of-sample matches (<=2% error)
-  // verify generalization without letting scattered 8-25% burst straddles trigger phase-dependent
-  // false drift; genuine >=3% drift yields 0 tight matches and remains fully visible.
-  const tightDirty = dirtyOos.filter((e) => e <= 0.02);
-  const minTightDirty = inlierCount >= 8 ? 2 : 3;
-  return tightDirty.length >= minTightDirty ? tightDirty : dirtyOos;
+  if (cleanOos.length > 0 && (dirtyOos.length === 0 || (cleanOos.length >= 2 && cleanOos.length >= dirtyOos.length))) {
+    return cleanOos;
+  }
+  // When holdouts come predominantly from concurrent/dirty sessions (or only 1-2 stray clean holdouts
+  // sit alongside a large dirty consensus set), tight out-of-sample matches (<=2% error) verify
+  // generalization without letting scattered straddles or a lone stale clean read trigger false drift;
+  // genuine >=3% drift yields 0 tight matches and remains fully visible.
+  const combinedOos = cleanOos.length > 0 ? [...cleanOos, ...dirtyOos] : dirtyOos;
+  const tightOos = combinedOos.filter((e) => e <= 0.02);
+  const minTight = inlierCount >= 8 ? 2 : 3;
+  return tightOos.length >= minTight ? tightOos : combinedOos;
 }
 
 function evaluateResidualsAndQuality({
@@ -1283,28 +1298,14 @@ function detectRegimeShiftSlice(
   return { activePrimary, regimeStartMs, shifted: true };
 }
 
-export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = ''): QuotaPoolFit | null {
-  const rawSamples = Array.isArray(poolState?.samples) ? poolState.samples : [];
-  if (!rawSamples.length) {
-    poolState.fit = null;
-    return null;
-  }
-
-  const allSamples = coalesceZeroDeltaSamples(rawSamples);
-  const poolKind = inferPoolKindFromState(poolState, explicitPoolKind);
-  const priorRefBeta = getPoolPriorRefBeta(poolKind);
-
-  const shortClean = allSamples.filter((s) => s.isShort && s.boundaryClean && s.totalBaseUSD > 0 && s.du5 > 0);
-  const shortAny = allSamples.filter((s) => s.isShort && s.totalBaseUSD > 0 && s.du5 > 0);
-  const rawPrimarySet = shortClean.length > 0 ? shortClean : shortAny;
-
-  if (!rawPrimarySet.length) {
-    const inventory = collectFamilyInventory(allSamples);
-    const priorFit = buildColdStartPriorFit(poolState, poolKind, priorRefBeta, allSamples, inventory);
-    poolState.fit = priorFit;
-    return priorFit;
-  }
-
+function solvePoolFitOnPrimary(
+  poolState: QuotaPoolState,
+  poolKind: string,
+  priorRefBeta: number,
+  allSamples: QuotaSample[],
+  shortClean: QuotaSample[],
+  rawPrimarySet: QuotaSample[],
+): QuotaPoolFit {
   const { activePrimary: primarySet, regimeStartMs, shifted } = detectRegimeShiftSlice(rawPrimarySet, poolKind);
   const effectiveSamples = shifted && regimeStartMs !== null
     ? allSamples.filter((s) => (s.t1 || s.t0) >= regimeStartMs)
@@ -1471,7 +1472,7 @@ export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = 
   }
   const full7dUSD = full5hUSD !== null && full5hUSD > 0 && gamma !== null && gamma > 0 ? full5hUSD * gamma : null;
 
-  const fit = {
+  return {
     schemaVersion: FIT_SCHEMA_VERSION,
     pricingSig: poolState.pricingSig || getCurrentPricingSig(),
     quality: stats.quality,
@@ -1493,6 +1494,64 @@ export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = 
     models,
     updatedAtMs: Date.now(),
   };
+}
+
+export function solvePoolFitModel(poolState: QuotaPoolState, explicitPoolKind = ''): QuotaPoolFit | null {
+  const rawSamples = Array.isArray(poolState?.samples) ? poolState.samples : [];
+  if (!rawSamples.length) {
+    poolState.fit = null;
+    return null;
+  }
+
+  const allSamples = coalesceZeroDeltaSamples(rawSamples);
+  const poolKind = inferPoolKindFromState(poolState, explicitPoolKind);
+  const priorRefBeta = getPoolPriorRefBeta(poolKind);
+
+  const shortClean = allSamples.filter((s) => s.isShort && s.boundaryClean && s.totalBaseUSD > 0 && s.du5 > 0);
+  const shortAny = allSamples.filter((s) => s.isShort && s.totalBaseUSD > 0 && s.du5 > 0);
+
+  if (!shortAny.length) {
+    const inventory = collectFamilyInventory(allSamples);
+    const priorFit = buildColdStartPriorFit(poolState, poolKind, priorRefBeta, allSamples, inventory);
+    poolState.fit = priorFit;
+    return priorFit;
+  }
+
+  // Prefer clean-only training when clean samples are sufficient (>=6, or >=50% of short samples,
+  // or small startup <6 total). Avoid discarding a large multi-agent consensus pool when only 1-5
+  // stray/stale boundaryClean samples exist alongside dozens of dirty short windows.
+  const useCleanOnly = shortClean.length > 0 && (
+    shortClean.length === shortAny.length
+    || shortClean.length >= 6
+    || shortAny.length < 6
+    || shortClean.length * 2 >= shortAny.length
+  );
+
+  let fit = solvePoolFitOnPrimary(
+    poolState,
+    poolKind,
+    priorRefBeta,
+    allSamples,
+    shortClean,
+    useCleanOnly ? shortClean : shortAny,
+  );
+
+  // Secondary safeguard: if a small minority of clean samples (<=1/3 of shortAny) fails to form
+  // even a 4-inlier consensus (e.g. legacy stale non-forced TTL snapshots), fall back to shortAny
+  // when shortAny reaches a verified high-quality consensus with zero drift.
+  if (
+    useCleanOnly
+    && shortClean.length < shortAny.length
+    && shortAny.length >= shortClean.length * 3
+    && fit.quality !== 'high'
+    && fit.inlierCount < 4
+  ) {
+    const anyFit = solvePoolFitOnPrimary(poolState, poolKind, priorRefBeta, allSamples, shortClean, shortAny);
+    if (anyFit.quality === 'high' && !anyFit.driftWarning && anyFit.inlierCount >= 6) {
+      fit = anyFit;
+    }
+  }
+
   poolState.fit = fit;
   return fit;
 }

@@ -123,6 +123,7 @@ export function ContextWindowCard({ snap, t }: ContextWindowCardProps) {
   }
 
   const tree = found ? snap?.sessionInfo?.treeTotals : null;
+  const rootTree = found ? snap?.sessionInfo?.rootTreeTotals || null : null;
   const childCount = tree?.descendantCount || 0;
   const childCost = tree?.childCostUSD || 0;
   const childSaved = tree?.childSavedUSD || 0;
@@ -136,18 +137,31 @@ export function ContextWindowCard({ snap, t }: ContextWindowCardProps) {
   const effSaved = rootSaved + childSaved;
   const effPriced = (s?.pricedCount || 0) + childPriced;
   const effUnpriced = (s?.unpricedCount || 0) + (tree?.childUnpricedCount || 0);
+  const hasRootTree = Boolean(rootTree && rootTree.costUSD > effCost);
 
   const hasPricedCost = Boolean(found && (effPriced > 0 || effCost > 0));
   const costStr = hasPricedCost ? fmtUsd(effCost) : '';
   const savedStr = hasPricedCost && effSaved > 0 ? fmtUsd(effSaved) : '';
   const isZh = t.lang === 'zh';
+  const rosterName = snap?.sessionInfo?.swarm?.selfMember?.rosterName;
+  const sessionMicroLabel = hasRootTree
+    ? (rosterName ? `@${rosterName}` : (isZh ? '本子会话' : 'Subsession'))
+    : `${t.ctxMicroSession}${hasChildRollup ? ` · +${childCount}` : ''}`;
+  const rootTreeBadgeStr = hasRootTree && rootTree
+    ? `${rootTree.isSwarm ? (isZh ? '蜂群' : 'Swarm') : (isZh ? '主树' : 'Tree')} ${fmtUsd(rootTree.costUSD)}`
+    : '';
   const childSplitLine = hasChildRollup
     ? isZh
       ? `\n主会话：${fmtUsd(rootCost)}（${s?.count || 0} 次） + ${tree?.swarmWorkerCount ? 'Swarm/子会话' : '子会话'}（${childCount} 个）：${fmtUsd(childCost)}（${childCalls} 次）`
       : `\nMain: ${fmtUsd(rootCost)} (${s?.count || 0} calls) + ${tree?.swarmWorkerCount ? 'Swarm/subagents' : 'Subagents'} (${childCount}): ${fmtUsd(childCost)} (${childCalls} calls)`
     : '';
+  const rootTreeSplitLine = hasRootTree && rootTree
+    ? isZh
+      ? `\n所属${rootTree.isSwarm ? '蜂群' : '主会话树'}总计：${fmtUsd(rootTree.costUSD)}（含 ${rootTree.descendantCount} 个子会话 · ${rootTree.calls} 次调用 · 省 ${fmtUsd(rootTree.savedUSD)}）`
+      : `\nParent ${rootTree.isSwarm ? 'Swarm' : 'session tree'} total: ${fmtUsd(rootTree.costUSD)} (${rootTree.descendantCount} subagents · ${rootTree.calls} calls · saved ${fmtUsd(rootTree.savedUSD)})`
+    : '';
   const costTip = hasPricedCost
-    ? `${t.sessionCostTip(costStr, savedStr || '$0.00', effPriced, effUnpriced)}${childSplitLine}`
+    ? `${t.sessionCostTip(costStr, savedStr || '$0.00', effPriced, effUnpriced)}${childSplitLine}${rootTreeSplitLine}`
     : undefined;
 
   const rawSessionQuota = found
@@ -441,17 +455,20 @@ export function ContextWindowCard({ snap, t }: ContextWindowCardProps) {
           data-tip={spendQuotaTip}
         >
           <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">
-            {t.ctxMicroSession}
-            {hasChildRollup ? ` · +${childCount}` : ''}
+            {sessionMicroLabel}
           </span>
           <span className="font-hud-mono text-[12px] font-bold text-hud-fg tabular-nums truncate">
             {costStr || '--'}
           </span>
-          {savedStr && (
+          {rootTreeBadgeStr ? (
+            <span className="font-hud-mono text-[9.5px] text-hud-accent-ink tabular-nums truncate leading-tight">
+              {rootTreeBadgeStr}
+            </span>
+          ) : savedStr ? (
             <span className="font-hud-mono text-[9.5px] text-hud-ok tabular-nums truncate leading-tight">
               {t.ctxMicroSaved(savedStr)}
             </span>
-          )}
+          ) : null}
         </div>
       </div>
 

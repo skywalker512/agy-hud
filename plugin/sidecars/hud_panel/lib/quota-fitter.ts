@@ -734,7 +734,8 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
     const u7 = w7 ? Math.max(0, 100 - (w7.remainingPct || 0)) : null;
     const w5StartMs = w5 ? w5.resetAtMs - 5 * 3_600_000 : 0;
     const w5CumAgg = w5 ? aggregateCallsInInterval(allCalls, pk, w5StartMs, fetchedAtMs, aggOpts) : null;
-    const currClean = !hasActiveInFlight && isSnapshotBoundaryClean(allCalls, pk, reqStartedAtMs, fetchedAtMs);
+    const summaryFresh = accountQuota.summaryFresh !== false;
+    const currClean = summaryFresh && !hasActiveInFlight && isSnapshotBoundaryClean(allCalls, pk, reqStartedAtMs, fetchedAtMs);
     const prev = ps.lastSnap;
 
     if (backfillDailyBurnIfNeeded(ps, fetchedAtMs)) dirty = true;

@@ -171,16 +171,35 @@ export function formatSessionMarkdown(snap: StatsSnapshot, lang: Lang): string {
   const maxCtx = ctxList.length ? Math.max(...ctxList) : 0;
   const latestCtx = snap.latest?.totalContext || (ctxList.length ? ctxList[ctxList.length - 1] : 0);
   const ctxLimit = snap.latest?.contextLimit || (invs.length ? invs[invs.length - 1].contextLimit : 0);
-  const quotaStr = formatSessionQuotaCompact(s?.sessionQuota || snap.sessionInfo?.quotaUsage);
+  const tree = snap.sessionInfo?.treeTotals;
+  const rootTree = snap.sessionInfo?.rootTreeTotals || null;
+  const childCount = tree?.descendantCount || 0;
+  const childCost = tree?.childCostUSD || 0;
+  const childSaved = tree?.childSavedUSD || 0;
+  const childCalls = tree?.childCalls || 0;
+  const childOut = tree?.childOutputTokens || 0;
+  const hasChildRollup = childCount > 0 && (childCost > 0 || childCalls > 0);
+  const effCost = (s?.totalCostUSD || 0) + childCost;
+  const effSaved = (s?.totalSavedUSD || 0) + childSaved;
+  const effOutput = (s?.totalOutput || 0) + childOut;
+  const hasRootTree = Boolean(rootTree && rootTree.costUSD > effCost);
+  const quotaStr = formatSessionQuotaCompact(
+    hasChildRollup && tree?.quotaUsage ? tree.quotaUsage : s?.sessionQuota || snap.sessionInfo?.quotaUsage,
+  );
 
   const lines: string[] = [];
   lines.push(isZh ? `# AGY-HUD 会话诊断报告` : `# AGY-HUD Session Telemetry Report`);
   lines.push('');
   lines.push(`- **${isZh ? '会话标题' : 'Session'}**: ${escMdCell(title)}`);
   lines.push(`- **${isZh ? '会话 ID' : 'Conversation ID'}**: \`${snap.conversationId || '--'}\``);
+  if (hasRootTree && rootTree) {
+    lines.push(
+      `- **${isZh ? (rootTree.isSwarm ? '所属蜂群总计' : '所属主会话树') : (rootTree.isSwarm ? 'Parent Swarm Total' : 'Parent Tree Total')}**: ${fmtUsd(rootTree.costUSD)} (${rootTree.calls} ${isZh ? '次调用' : 'calls'} · ${rootTree.descendantCount} ${isZh ? '个子会话' : 'subagents'} · \`${rootTree.rootId}\`)`,
+    );
+  }
   lines.push(`- **${isZh ? '导出时间' : 'Exported'}**: ${new Date().toISOString()}`);
   lines.push(
-    `- **${isZh ? '规模' : 'Scale'}**: ${s?.userTurns || 0} ${isZh ? '轮' : 'turns'} · ${s?.totalSteps || 0} ${isZh ? '步' : 'steps'} · ${invs.length} ${isZh ? '次调用' : 'calls'}${compacts.length ? ` · ${compacts.length} ${isZh ? '次压缩' : 'compactions'}` : ''}`,
+    `- **${isZh ? '规模' : 'Scale'}**: ${s?.userTurns || 0} ${isZh ? '轮' : 'turns'} · ${s?.totalSteps || 0} ${isZh ? '步' : 'steps'} · ${invs.length} ${isZh ? '次调用' : 'calls'}${hasChildRollup ? ` (+${childCalls} ${isZh ? `次 / ${childCount} 子会话` : `calls / ${childCount} subagents`})` : ''}${compacts.length ? ` · ${compacts.length} ${isZh ? '次压缩' : 'compactions'}` : ''}`,
   );
   lines.push('');
 
@@ -198,13 +217,13 @@ export function formatSessionMarkdown(snap: StatsSnapshot, lang: Lang): string {
     `| ${isZh ? '平均缓存命中率' : 'Avg Cache Hit'} | ${fmtCachePct(s?.avgCacheHitPct)} (${fmtNum(s?.totalCachedInput)} cached / ${fmtNum(s?.totalNewInput)} new) |`,
   );
   lines.push(
-    `| ${isZh ? '总输出 Token' : 'Total Output'} | ${fmtNum(s?.totalOutput)} (${isZh ? '思考' : 'Think'} ${fmtNum(s?.totalThinking)} / ${isZh ? '可见' : 'Visible'} ${fmtNum(s?.totalCandidate)}) |`,
+    `| ${isZh ? '总输出 Token' : 'Total Output'} | ${fmtNum(effOutput)} (${isZh ? '主会话' : 'Main'} ${fmtNum(s?.totalOutput)}: ${isZh ? '思考' : 'Think'} ${fmtNum(s?.totalThinking)} / ${isZh ? '可见' : 'Visible'} ${fmtNum(s?.totalCandidate)}${hasChildRollup && childOut > 0 ? ` · ${isZh ? '子会话' : 'Subagents'} +${fmtNum(childOut)}` : ''}) |`,
   );
   lines.push(
     `| ${isZh ? '上下文轨迹' : 'Context Trajectory'} | ${fmtNum(minCtx)} → ${isZh ? '峰值' : 'Peak'} ${fmtNum(maxCtx)} → ${isZh ? '最新' : 'Latest'} ${fmtNum(latestCtx)}${ctxLimit ? ` / ${fmtNum(ctxLimit)}` : ''} |`,
   );
   lines.push(
-    `| ${isZh ? 'API 等价成本 / 缓存节省' : 'API-Eq Cost / Cache Saved'} | ${fmtUsd(s?.totalCostUSD)} / ${fmtUsd(s?.totalSavedUSD)} |`,
+    `| ${isZh ? 'API 等价成本 / 缓存节省' : 'API-Eq Cost / Cache Saved'} | ${fmtUsd(effCost)} / ${fmtUsd(effSaved)}${hasChildRollup ? ` (${isZh ? `主 ${fmtUsd(s?.totalCostUSD)} + ${childCount} 子 ${fmtUsd(childCost)}` : `Main ${fmtUsd(s?.totalCostUSD)} + ${childCount} sub ${fmtUsd(childCost)}`})` : ''} |`,
   );
   if (quotaStr) {
     lines.push(`| ${isZh ? '配额消耗' : 'Quota Burn'} | ${quotaStr} |`);

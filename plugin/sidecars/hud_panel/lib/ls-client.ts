@@ -792,6 +792,7 @@ async function refreshUserStatus(forceRefresh = false) {
       deferred: false,
       pools: summaryPools.length ? summaryPools : base.pools,
       source: summaryPools.length ? 'summary' : (base.source || 'user_status'),
+      summaryFresh: summaryPools.length ? Boolean(forceRefresh) : false,
       summaryReason,
       ttlMs: QUOTA_TTL_MS,
       reqStartedAtMs,
@@ -819,10 +820,13 @@ export async function getUserStatusCached(waitIfCold = true, force = false) {
   if (!force && now - quotaCache.fetchedAtMs < QUOTA_TTL_MS && quotaCache.fetchedAtMs > 0) {
     return quotaCache.data;
   }
-  if (!quotaCache.inFlight || (force && !quotaCache.inFlightForce)) {
-    const isForced = Boolean(force);
-    quotaCache.inFlightForce = isForced;
-    quotaCache.inFlight = refreshUserStatus(isForced).finally(() => {
+  // Cold boot uses LS cache for instant first paint (summaryFresh=false); periodic 5-min TTL
+  // refreshes and explicit post-call/manual refreshes force a fresh backend read so fetchedAtMs
+  // aligns with server quota state instead of returning a minutes-old LS cache.
+  const shouldForceRpc = Boolean(force || quotaCache.fetchedAtMs > 0);
+  if (!quotaCache.inFlight || (shouldForceRpc && !quotaCache.inFlightForce)) {
+    quotaCache.inFlightForce = shouldForceRpc;
+    quotaCache.inFlight = refreshUserStatus(shouldForceRpc).finally(() => {
       quotaCache.inFlight = null;
       quotaCache.inFlightForce = false;
     });

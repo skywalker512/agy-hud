@@ -72,8 +72,36 @@ export function PulseBar({ snap, t, visible = true }: PulseBarProps) {
     };
   }
 
-  const showCost = Boolean(found && s && s.pricedCount > 0);
-  const sessionQuota = s?.sessionQuota || snap?.sessionInfo?.quotaUsage || null;
+  const tree = found ? snap?.sessionInfo?.treeTotals : null;
+  const rootTree = found ? snap?.sessionInfo?.rootTreeTotals || null : null;
+  const childCount = tree?.descendantCount || 0;
+  const childCost = tree?.childCostUSD || 0;
+  const childCalls = tree?.childCalls || 0;
+  const hasChildRollup = childCount > 0 && (childCost > 0 || childCalls > 0);
+  const rootCost = s?.totalCostUSD || 0;
+  const effCost = rootCost + childCost;
+  const effPriced = (s?.pricedCount || 0) + (tree?.childPricedCount || 0);
+  const hasRootTree = Boolean(rootTree && rootTree.costUSD > effCost);
+
+  const showCost = Boolean(found && (effPriced > 0 || effCost > 0));
+  const isZh = t.lang === 'zh';
+  const rootTreeLine = hasRootTree && rootTree
+    ? isZh
+      ? `所属${rootTree.isSwarm ? '蜂群' : '主会话树'}总计：${fmtUsd(rootTree.costUSD)}（含 ${rootTree.descendantCount} 个子会话 · ${rootTree.calls} 次）`
+      : `Parent ${rootTree.isSwarm ? 'Swarm' : 'tree'} total: ${fmtUsd(rootTree.costUSD)} (${rootTree.descendantCount} subagents · ${rootTree.calls} calls)`
+    : '';
+  const costTip = hasChildRollup
+    ? isZh
+      ? `本会话总计（含 ${childCount} 个${tree?.swarmWorkerCount ? ' Swarm/子会话' : '子会话'}）：${fmtUsd(effCost)}\n主会话：${fmtUsd(rootCost)} + 子会话：${fmtUsd(childCost)}${rootTreeLine ? `\n${rootTreeLine}` : ''}`
+      : `Session total (incl. ${childCount} ${tree?.swarmWorkerCount ? 'Swarm/subagents' : 'subagents'}): ${fmtUsd(effCost)}\nMain: ${fmtUsd(rootCost)} + Subagents: ${fmtUsd(childCost)}${rootTreeLine ? `\n${rootTreeLine}` : ''}`
+    : hasRootTree
+      ? isZh
+        ? `当前子会话：${fmtUsd(effCost)}\n${rootTreeLine}`
+        : `This subsession: ${fmtUsd(effCost)}\n${rootTreeLine}`
+      : undefined;
+  const sessionQuota = found
+    ? (hasChildRollup && tree?.quotaUsage ? tree.quotaUsage : s?.sessionQuota || snap?.sessionInfo?.quotaUsage || null)
+    : null;
   const quotaStr = found ? formatSessionQuotaTiny(sessionQuota) : '';
   const quotaTip = quotaStr ? formatSessionQuotaTip(sessionQuota, t) : undefined;
 
@@ -95,7 +123,9 @@ export function PulseBar({ snap, t, visible = true }: PulseBarProps) {
           {showCost && (
             <>
               <span className="text-hud-muted opacity-40" aria-hidden="true">·</span>
-              <span className="pulse-chip text-hud-fg-2">{fmtUsd(s?.totalCostUSD || 0)}</span>
+              <span className={`pulse-chip text-hud-fg-2${costTip ? ' cursor-help' : ''}`} data-tip={costTip}>
+                {fmtUsd(effCost)}
+              </span>
             </>
           )}
           {quotaStr && (

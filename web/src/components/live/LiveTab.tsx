@@ -169,6 +169,7 @@ export function LiveTab({
       <LiveQuotaCard
         quota={snap?.accountQuota}
         summary={found ? snap?.summary : undefined}
+        sessionInfo={found ? snap?.sessionInfo || null : null}
         t={t}
         onOpenAccount={onOpenAccount}
       />

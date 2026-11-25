@@ -68,6 +68,7 @@ export function buildGenMetadataBlob({
   ttftSec = 2.0,
   genSec = 4.0,
   contextTree = null,
+  extraKv = [],
 }: {
   modelId?: string;
   modelDisplay?: string;
@@ -82,6 +83,7 @@ export function buildGenMetadataBlob({
   ttftSec?: number;
   genSec?: number;
   contextTree?: Buffer | null;
+  extraKv?: [string, string][];
 } = {}): Buffer {
   const usage = Buffer.concat([
     vField(2, newIn),
@@ -94,7 +96,7 @@ export function buildGenMetadataBlob({
   if (contextTree) ctxInnerParts.push(bField(3, contextTree));
   const ctxInner = Buffer.concat(ctxInnerParts);
   const ctxOuter = bField(10, ctxInner);
-  const inner = Buffer.concat([
+  const innerParts: Buffer[] = [
     vField(3, modelEnum),
     bField(4, usage),
     bField(9, ctxOuter),
@@ -102,7 +104,11 @@ export function buildGenMetadataBlob({
     bField(12, durationMsg(genSec)),
     bField(19, modelId),
     bField(21, modelDisplay),
-  ]);
+  ];
+  for (const [k, v] of extraKv) {
+    innerParts.push(bField(20, Buffer.concat([bField(1, k), bField(2, v)])));
+  }
+  const inner = Buffer.concat(innerParts);
   return bField(1, inner);
 }
 

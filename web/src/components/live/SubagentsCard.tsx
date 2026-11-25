@@ -402,7 +402,7 @@ function SubagentsCardImpl({
   // Non-Swarm Subagents / Side-Q mode
   if (!isSwarmCockpit || !swarm) {
     const tree = sessionInfo?.treeTotals;
-    const totalChildQuota = mergeSessionQuotas(children.map((c) => c.quotaUsage));
+    const totalChildQuota = tree?.childQuotaUsage || mergeSessionQuotas(children.map((c) => c.quotaUsage));
     const totalChildQuotaStr = formatSessionQuotaCompact(totalChildQuota);
     const totalChildQuotaTip = totalChildQuotaStr ? formatSessionQuotaTip(totalChildQuota, t) : undefined;
     const childCostUSD = tree ? tree.childCostUSD : children.reduce((acc, c) => acc + (c.costUSD || 0), 0);

@@ -2,6 +2,7 @@ import type { Translations } from '../../i18n';
 import { getSwarmStrings } from '../../i18n/swarm';
 import type { Lang, StatsSnapshot, SwarmMemberState } from '../../types/telemetry';
 import {
+  fmtUsd,
   formatSessionQuotaCompact,
   formatSessionQuotaTip,
   kindBadgeClass,
@@ -52,15 +53,26 @@ export function SessionRelBar({
   }
 
   const sw = getSwarmStrings(lang);
-  const parentQuotaStr = parent?.quotaUsage ? formatSessionQuotaCompact(parent.quotaUsage, true) : '';
-  const parentQuotaTip = parent?.quotaUsage ? formatSessionQuotaTip(parent.quotaUsage, t) : undefined;
+  const isZh = lang === 'zh';
+  const rootTree = info?.rootTreeTotals || null;
+  const effectiveParentQuota = rootTree?.quotaUsage || parent?.quotaUsage || null;
+  const parentQuotaStr = effectiveParentQuota ? formatSessionQuotaCompact(effectiveParentQuota, true) : '';
+  const parentQuotaTip = effectiveParentQuota ? formatSessionQuotaTip(effectiveParentQuota, t) : undefined;
+  const rootTreeCostStr = rootTree && (rootTree.costUSD > 0 || rootTree.pricedCount > 0) ? fmtUsd(rootTree.costUSD) : '';
+  const parentSummaryTag = [rootTreeCostStr, parentQuotaStr].filter(Boolean).join(' · ');
+  const rootTreeTipLine = rootTree && rootTreeCostStr
+    ? isZh
+      ? `${rootTree.isSwarm ? '所属蜂群总计' : '所属会话树总计'}：${rootTreeCostStr}（${rootTree.calls} 次调用 · 含 ${rootTree.descendantCount} 个子会话）`
+      : `${rootTree.isSwarm ? 'Swarm total' : 'Session tree total'}: ${rootTreeCostStr} (${rootTree.calls} calls · ${rootTree.descendantCount} subagents)`
+    : '';
+  const combinedParentTip = [rootTreeTipLine, parentQuotaTip].filter(Boolean).join('\n\n') || undefined;
 
   // Swarm Worker Breadcrumb View
   if (isSwarmWorker && swarm) {
     const self = swarm.selfMember;
     const selfState: SwarmMemberState = self?.swarmState || 'waiting';
     const coordLabel = shortTitleLabel(swarm.swarmTitle, swarm.coordinatorConvId);
-    const coordTip = sw.backCoordinatorTip(swarm.swarmTitle, swarm.coordinatorConvId, parentQuotaTip);
+    const coordTip = sw.backCoordinatorTip(swarm.swarmTitle, swarm.coordinatorConvId, combinedParentTip);
     const selfTip = self
       ? sw.workerBadgeTip(
           self.rosterName,
@@ -83,7 +95,7 @@ export function SessionRelBar({
           <IconArrowLeft size={11} />
           <span className="truncate">
             {sw.backCoordinator(coordLabel)}
-            {parentQuotaStr ? ` (${parentQuotaStr})` : ''}
+            {parentSummaryTag ? ` (${parentSummaryTag})` : ''}
           </span>
         </button>
 
@@ -130,12 +142,12 @@ export function SessionRelBar({
         <button
           type="button"
           onClick={() => onJumpConversation(parent.id)}
-          data-tip={parentQuotaTip}
+          data-tip={combinedParentTip}
           className="swarm-interactive-pill swarm-pill-share inline-flex items-center gap-1 max-w-full px-[7px] py-[2px] rounded-md border font-hud text-[10.5px] font-semibold cursor-pointer truncate transition-colors"
         >
           <IconArrowLeft size={11} />
           <span className="truncate">
-            {t.backParent(`${shortTitleLabel(parent.title, parent.id)}${parentQuotaStr ? ` (${parentQuotaStr})` : ''}`)}
+            {t.backParent(`${shortTitleLabel(parent.title, parent.id)}${parentSummaryTag ? ` (${parentSummaryTag})` : ''}`)}
           </span>
         </button>
       )}

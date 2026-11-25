@@ -345,6 +345,22 @@ export interface SessionTreeTotals {
   childPricedCount: number;
   childUnpricedCount: number;
   quotaUsage?: SessionQuotaUsage | null;
+  childQuotaUsage?: SessionQuotaUsage | null;
+}
+
+export interface RootTreeTotals {
+  rootId: string;
+  rootTitle: string;
+  isSwarm: boolean;
+  descendantCount: number;
+  swarmWorkerCount: number;
+  calls: number;
+  outputTokens: number;
+  costUSD: number;
+  savedUSD: number;
+  pricedCount: number;
+  unpricedCount: number;
+  quotaUsage?: SessionQuotaUsage | null;
 }
 
 export interface SessionInfo {
@@ -356,6 +372,7 @@ export interface SessionInfo {
   parentSession: ParentSessionItem | null;
   childSessions: ChildSessionItem[];
   treeTotals?: SessionTreeTotals | null;
+  rootTreeTotals?: RootTreeTotals | null;
   swarm?: SwarmOverview | null;
 }
 

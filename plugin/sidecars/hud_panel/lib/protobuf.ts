@@ -186,6 +186,7 @@ export function parseGenRow(idx: number, raw: Uint8Array) {
   let contextLimit = 0;
   let lastStepIndex: number | null = null;
   let parentCascadeId = '';
+  let rootCascadeId = '';
   let subagentType = '';
 
   for (const [fn, wt, val] of iterFields(f1[2])) {
@@ -227,6 +228,8 @@ export function parseGenRow(idx: number, raw: Uint8Array) {
         modelEnumName = v;
       } else if (k === 'parent_cascade_id' && UUID_RE.test(v)) {
         parentCascadeId = v;
+      } else if (k === 'root_cascade_id' && UUID_RE.test(v)) {
+        rootCascadeId = v;
       } else if (k === 'subagent_type' && v) {
         subagentType = v;
       }
@@ -260,6 +263,7 @@ export function parseGenRow(idx: number, raw: Uint8Array) {
     modelId,
     modelDisplay,
     parentCascadeId,
+    rootCascadeId,
     subagentType,
     newInput: u.newInput,
     cachedInput: u.cachedInput,

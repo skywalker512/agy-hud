@@ -29,10 +29,15 @@ function fmtResetDateTime(ts: number): string {
   return `${mm}-${dd} ${fmtClock(ts)}`;
 }
 
+function effCostOrZero(v: number): number {
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
 export function SpendGrid({ summary, history, sessionInfo, accountLedger, t }: SpendGridProps) {
   const s = summary;
   const h = history;
   const tree = sessionInfo?.treeTotals;
+  const rootTree = sessionInfo?.rootTreeTotals || null;
   const isZh = t.lang === 'zh';
 
   const rootCost = s?.totalCostUSD || 0;
@@ -46,29 +51,52 @@ export function SpendGrid({ summary, history, sessionInfo, accountLedger, t }: S
   const childPriced = tree?.childPricedCount || 0;
   const childCalls = tree?.childCalls || 0;
   const hasChildRollup = childCount > 0 && (childCost > 0 || childCalls > 0);
+  const hasRootTree = Boolean(rootTree && rootTree.costUSD > effCostOrZero(rootCost + childCost));
 
   const effCost = rootCost + childCost;
   const effSaved = rootSaved + childSaved;
   const effPriced = rootPriced + childPriced;
   const effCalls = rootCalls + childCalls;
 
+  const rosterName = sessionInfo?.swarm?.selfMember?.rosterName;
+  const selfTag = rosterName ? `@${rosterName}` : (isZh ? '当前子会话' : 'Subsession');
+  const rootTreeShortLabel = rootTree?.isSwarm ? (isZh ? '蜂群' : 'Swarm') : (isZh ? '主树' : 'Tree');
+
+  const sessionCellLabel = hasRootTree
+    ? (isZh ? '当前子会话' : 'SUBSESSION')
+    : t.spendSession;
+
   const sessionSub = hasChildRollup
     ? isZh
       ? `含${childCount}子 · 省${fmtUsd(effSaved)}`
       : `+${childCount} sub · -${fmtUsd(effSaved)}`
-    : effPriced
-      ? t.spendSavedSub(fmtUsd(effSaved))
-      : t.spendCallsSub(effCalls);
+    : hasRootTree && rootTree
+      ? `${rootTreeShortLabel} ${fmtUsd(rootTree.costUSD)}`
+      : effPriced
+        ? t.spendSavedSub(fmtUsd(effSaved))
+        : t.spendCallsSub(effCalls);
+
+  const rootTreeTipSection = hasRootTree && rootTree
+    ? isZh
+      ? `• 所属${rootTree.isSwarm ? '蜂群' : '主会话树'}总计（含 ${rootTree.descendantCount} 个子会话）：${fmtUsd(rootTree.costUSD)}（省 ${fmtUsd(rootTree.savedUSD)}，${rootTree.calls} 次调用）\n` +
+        `• 当前子会话（${selfTag}）：${fmtUsd(effCost)}（省 ${fmtUsd(effSaved)}，${effCalls} 次调用）\n` +
+        `提示：顶部点击返回父会话可查看整棵任务树明细。\n\n`
+      : `• Parent ${rootTree.isSwarm ? 'Swarm' : 'session tree'} total (${rootTree.descendantCount} subagents): ${fmtUsd(rootTree.costUSD)} (saved ${fmtUsd(rootTree.savedUSD)}, ${rootTree.calls} calls)\n` +
+        `• This subsession (${selfTag}): ${fmtUsd(effCost)} (saved ${fmtUsd(effSaved)}, ${effCalls} calls)\n` +
+        `Tip: click the parent breadcrumb at the top to view the full tree.\n\n`
+    : '';
 
   const sessionBreakdownTip = hasChildRollup
     ? isZh
       ? `本会话总计（含 Swarm / 递归子会话）：${fmtUsd(effCost)}（省 ${fmtUsd(effSaved)}，${effCalls} 次调用）\n` +
         `• 主会话：${fmtUsd(rootCost)}（${rootCalls} 次）\n` +
-        `• ${tree?.swarmWorkerCount ? `Swarm / 子会话` : '子会话'}（${childCount} 个）：${fmtUsd(childCost)}（${childCalls} 次）\n\n${t.spendSessionTip}`
+        `• ${tree?.swarmWorkerCount ? `Swarm / 子会话` : '子会话'}（${childCount} 个）：${fmtUsd(childCost)}（${childCalls} 次）\n` +
+        `${rootTreeTipSection ? `\n${rootTreeTipSection}` : '\n'}${t.spendSessionTip}`
       : `Session total (incl. Swarm / recursive subagents): ${fmtUsd(effCost)} (saved ${fmtUsd(effSaved)}, ${effCalls} calls)\n` +
         `• Main session: ${fmtUsd(rootCost)} (${rootCalls} calls)\n` +
-        `• ${tree?.swarmWorkerCount ? 'Swarm / subagents' : 'Subagents'} (${childCount}): ${fmtUsd(childCost)} (${childCalls} calls)\n\n${t.spendSessionTip}`
-    : t.spendSessionTip;
+        `• ${tree?.swarmWorkerCount ? 'Swarm / subagents' : 'Subagents'} (${childCount}): ${fmtUsd(childCost)} (${childCalls} calls)\n` +
+        `${rootTreeTipSection ? `\n${rootTreeTipSection}` : '\n'}${t.spendSessionTip}`
+    : `${rootTreeTipSection}${t.spendSessionTip}`;
 
   const cliDbs = h?.dbCountBySource?.cli || 0;
   const cliCalls = h?.callsBySource?.cli || 0;
@@ -86,7 +114,7 @@ export function SpendGrid({ summary, history, sessionInfo, accountLedger, t }: S
 
   const cells = [
     {
-      k: t.spendSession,
+      k: sessionCellLabel,
       v: effPriced > 0 || effCost > 0 ? fmtUsd(effCost) : '--',
       sub: sessionSub,
       tip: sessionBreakdownTip,

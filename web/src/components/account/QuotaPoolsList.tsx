@@ -101,9 +101,7 @@ export function QuotaPoolsList({ quota, t }: QuotaPoolsListProps) {
               ? `OOS ${p.fitSummary.oosRelErrPct.toFixed(1)}%`
               : `±${p.fitSummary.relErrPct.toFixed(1)}%`;
           const errLabel = p.fitSummary.quality === 'high' ? baseErr : `provisional · ${baseErr}`;
-          const verifiedWins = p.fitSummary.shortCleanCount > 0
-            ? p.fitSummary.shortCleanCount
-            : (p.fitSummary.inlierCount || 0);
+          const verifiedWins = Math.max(p.fitSummary.shortCleanCount || 0, p.fitSummary.inlierCount || 0);
           fitNotes = t.poolFitTipLine(modelsStr, gammaStr, verifiedWins, errLabel);
         }
 

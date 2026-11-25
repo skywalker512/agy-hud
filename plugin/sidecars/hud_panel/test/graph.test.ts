@@ -609,15 +609,20 @@ test('buildSessionInfo and attachGraphQuotaSummaries recursively roll up Swarm w
   assert.ok(info.childKeys.includes('grand-1:g1'));
 
   const enriched = attachGraphQuotaSummaries({
-    conversations: [],
+    conversations: [{ id: 'root', title: 'Root' }, { id: 'worker-1', title: 'Worker 1' }],
     sessionInfo: info,
     graph: fakeGraph,
     accountQuota: null,
     opts: { fitPath: '' },
   });
   const selfPct = enriched.sessionInfo.quotaUsage?.gemini?.pct5h || 0;
+  const childPct = enriched.sessionInfo.treeTotals?.childQuotaUsage?.gemini?.pct5h || 0;
   const treePct = enriched.sessionInfo.treeTotals?.quotaUsage?.gemini?.pct5h || 0;
+  const dropdownRootPct = enriched.conversations[0]?.quotaUsage?.gemini?.pct5h || 0;
   assert.ok(selfPct > 0);
+  assert.ok(childPct > selfPct * 2, `Expected childQuotaUsage (${childPct}) to sum all recursive descendants`);
+  assert.ok(Math.abs(selfPct + childPct - treePct) < 1e-9, `Expected self + child == tree (${selfPct} + ${childPct} vs ${treePct})`);
+  assert.ok(Math.abs(dropdownRootPct - treePct) < 1e-9, `Expected conversation dropdown quota (${dropdownRootPct}) to roll up descendants (${treePct})`);
   assert.ok(treePct > selfPct * 3, `Expected tree quota (${treePct}) to include all recursive descendants (> 3x root ${selfPct})`);
 });
 
@@ -670,6 +675,134 @@ test('pickTargetConversation does not fall back to previous conversation when ex
     nowMs: 1_700_006_010_000,
   });
   assert.equal(pickedLatest?.id, newerActiveId);
+});
+
+test('run_workflow children link via trajectory_metadata_blob & root_cascade_id and expose rootTreeTotals on child views', () => {
+  const root = mkdtempSync(join(tmpdir(), 'agy-hud-workflow-link-'));
+  const convDir = join(root, 'conversations');
+  const annoDir = join(root, 'annotations');
+  mkdirSync(convDir, { recursive: true });
+  mkdirSync(annoDir, { recursive: true });
+
+  const mainId = 'aaaa1111-1111-4111-8111-111111111111';
+  const wfId = 'bbbb2222-2222-4222-8222-222222222222';
+  const workerId = 'cccc3333-3333-4333-8333-333333333333';
+  const grandId = 'dddd4444-4444-4444-8444-444444444444';
+
+  try {
+    // 1. Main session DB
+    const mainDb = createSchema(join(convDir, `${mainId}.db`));
+    mainDb.prepare('INSERT INTO trajectory_meta (trajectory_type) VALUES (?)').run(1);
+    mainDb.prepare('INSERT INTO gen_metadata (idx, data) VALUES (?, ?)').run(
+      0,
+      buildGenMetadataBlob({ modelId: 'gemini-4-neon', modelDisplay: 'Gemini 4 Neon (High)', newIn: 100_000, cached: 0, output: 10_000 }),
+    );
+    mainDb.close();
+    writeFileSync(join(annoDir, `${mainId}.pbtxt`), 'title: "Main Coordinator"\n');
+
+    // 2. run_workflow child DB: empty parent_references, trajectory_type = 4, linked via trajectory_metadata_blob + root_cascade_id
+    const wfDb = createSchema(join(convDir, `${wfId}.db`));
+    wfDb.exec('CREATE TABLE trajectory_metadata_blob (data BLOB);');
+    wfDb.prepare('INSERT INTO trajectory_meta (trajectory_type) VALUES (?)').run(4);
+    const tmbBlob = Buffer.concat([
+      bField(6, mainId),
+      bField(12, bField(1, Buffer.concat([
+        bField(1, mainId),
+        bField(3, bField(2, 'run_workflow')),
+      ]))),
+    ]);
+    wfDb.prepare('INSERT INTO trajectory_metadata_blob (data) VALUES (?)').run(tmbBlob);
+    wfDb.prepare('INSERT INTO gen_metadata (idx, data) VALUES (?, ?)').run(
+      0,
+      buildGenMetadataBlob({
+        modelId: 'gemini-4-neon',
+        modelDisplay: 'Gemini 4 Neon (High)',
+        newIn: 200_000,
+        cached: 0,
+        output: 20_000,
+        extraKv: [['root_cascade_id', mainId]],
+      }),
+    );
+    wfDb.close();
+
+    // 3. Direct worker under main
+    const workerDb = createSchema(join(convDir, `${workerId}.db`));
+    workerDb.prepare('INSERT INTO trajectory_meta (trajectory_type) VALUES (?)').run(1);
+    workerDb.prepare('INSERT INTO parent_references (idx, data) VALUES (?, ?)').run(0, bField(6, mainId));
+    workerDb.prepare('INSERT INTO gen_metadata (idx, data) VALUES (?, ?)').run(
+      0,
+      buildGenMetadataBlob({ modelId: 'gemini-4-neon', modelDisplay: 'Gemini 4 Neon (High)', newIn: 50_000, cached: 0, output: 5_000 }),
+    );
+    workerDb.close();
+
+    // 4. Grandchild under worker: has BOTH parent_cascade_id = workerId AND root_cascade_id = mainId -> must link to workerId!
+    const grandDb = createSchema(join(convDir, `${grandId}.db`));
+    grandDb.prepare('INSERT INTO trajectory_meta (trajectory_type) VALUES (?)').run(1);
+    grandDb.prepare('INSERT INTO gen_metadata (idx, data) VALUES (?, ?)').run(
+      0,
+      buildGenMetadataBlob({
+        modelId: 'gemini-4-neon',
+        modelDisplay: 'Gemini 4 Neon (High)',
+        newIn: 50_000,
+        cached: 0,
+        output: 5_000,
+        extraKv: [
+          ['parent_cascade_id', workerId],
+          ['root_cascade_id', mainId],
+        ],
+      }),
+    );
+    grandDb.close();
+
+    const convs = listConversations(convDir, annoDir, 0);
+    const graph = getConversationGraph(convs, { requiredConvId: mainId, syncAll: true });
+
+    // Workflow child must be linked under mainId with subagentType = 'workflow'
+    assert.deepEqual(graph.parentLinks.get(wfId), { parentId: mainId, kind: 'subagent' });
+    // Grandchild must prioritize direct parent (workerId) over root_cascade_id (mainId)
+    assert.deepEqual(graph.parentLinks.get(grandId), { parentId: workerId, kind: 'subagent' });
+
+    const mainInfo = buildSessionInfo(mainId, graph);
+    assert.equal(mainInfo.rootTreeTotals, undefined);
+    assert.equal(mainInfo.treeTotals.descendantCount, 3);
+    assert.equal(mainInfo.treeTotals.calls, 4);
+    const wfChild = mainInfo.childSessions.find((c: any) => c.id === wfId);
+    assert.ok(wfChild);
+    assert.equal(wfChild.subagentType, 'workflow');
+
+    // Viewing the grandchild must expose rootTreeTotals pointing all the way up to mainId!
+    const grandInfo = buildSessionInfo(grandId, graph);
+    assert.equal(grandInfo.parentSession?.id, workerId);
+    assert.ok(grandInfo.rootTreeTotals, 'child/grandchild must include rootTreeTotals');
+    assert.equal(grandInfo.rootTreeTotals.rootId, mainId);
+    assert.equal(grandInfo.rootTreeTotals.rootTitle, 'Main Coordinator');
+    assert.equal(grandInfo.rootTreeTotals.descendantCount, 3);
+    assert.equal(grandInfo.rootTreeTotals.calls, 4);
+    assert.ok(Math.abs(grandInfo.rootTreeTotals.costUSD - mainInfo.treeTotals.costUSD) < 1e-9);
+    assert.ok(grandInfo.childKeys.includes(`rt:${mainId}:3:4:`));
+
+    // attachGraphQuotaSummaries must populate rootTreeTotals.quotaUsage matching root's full tree quota
+    const enrichedMain = attachGraphQuotaSummaries({
+      conversations: [{ id: mainId }],
+      sessionInfo: mainInfo,
+      graph,
+      accountQuota: null,
+      opts: { fitPath: '' },
+    });
+    const enrichedGrand = attachGraphQuotaSummaries({
+      conversations: [{ id: grandId }],
+      sessionInfo: grandInfo,
+      graph,
+      accountQuota: null,
+      opts: { fitPath: '' },
+    });
+    const mainTreePct = enrichedMain.sessionInfo.treeTotals?.quotaUsage?.gemini?.pct5h || 0;
+    const grandRootPct = enrichedGrand.sessionInfo.rootTreeTotals?.quotaUsage?.gemini?.pct5h || 0;
+    assert.ok(mainTreePct > 0);
+    assert.ok(Math.abs(grandRootPct - mainTreePct) < 1e-9);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 
