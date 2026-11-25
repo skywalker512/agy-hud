@@ -307,6 +307,50 @@ export interface QuotaPoolFit {
   updatedAtMs: number;
 }
 
+export interface QuotaBurnInterval {
+  t0: number;
+  t1: number;
+  du5: number;
+  du7: number | null;
+  w5ResetAtMs?: number;
+  w7ResetAtMs?: number;
+  remoteOnly?: boolean;
+}
+
+export interface QuotaWindowPeak {
+  resetAtMs: number;
+  maxUsedPct: number;
+  firstSeenMs: number;
+  lastSeenMs: number;
+  peakReachedAtMs?: number;
+}
+
+export interface QuotaResetEvent {
+  ts: number;
+  spanKey: '5h' | '7d';
+  kind: 'in_window_rewind' | 'early_window_shift';
+  beforeUsedPct: number;
+  afterUsedPct: number;
+  reclaimedPct: number;
+  prevResetAtMs?: number;
+  nextResetAtMs?: number;
+}
+
+export interface QuotaRewindCandidate {
+  w5UsedPct?: number;
+  w7UsedPct?: number;
+  firstSeenMs: number;
+  count: number;
+}
+
+export interface QuotaDailyBurnEntry {
+  pct5h: number;
+  pct7d: number;
+  resets?: number;
+  reclaimedPct5h?: number;
+  reclaimedPct7d?: number;
+}
+
 export interface QuotaPoolState {
   gamma?: number | null;
   gammaHistory?: number[];
@@ -321,6 +365,12 @@ export interface QuotaPoolState {
     w7UsedPct: number | null;
   } | null;
   samples: QuotaSample[];
+  burnLog?: QuotaBurnInterval[];
+  dailyBurn?: Record<string, QuotaDailyBurnEntry>;
+  winPeaks5h?: QuotaWindowPeak[];
+  winPeaks7d?: QuotaWindowPeak[];
+  resetEvents?: QuotaResetEvent[];
+  pendingRewind?: QuotaRewindCandidate | null;
   fit?: QuotaPoolFit | null;
   pricingSig?: string;
 }

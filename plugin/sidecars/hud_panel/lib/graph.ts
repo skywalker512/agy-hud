@@ -755,12 +755,13 @@ export function pickTargetConversation({
   prevAutoTargetId?: string;
   nowMs?: number;
 }) {
-  if (!conversations.length) return null;
-
   if (mode === 'auto' && explicitConvId) {
     const matched = conversations.find((c) => c.id === explicitConvId);
-    if (matched) return matched;
+    // Never fall back to an older/previous conversation when the pane explicitly
+    // targets a specific (e.g. newly opened) conversation whose DB does not exist yet.
+    return matched || null;
   }
+  if (!conversations.length) return null;
 
   const metas = conversations.map((c) => {
     const sum = graph?.byId?.get(c.id);
@@ -786,7 +787,7 @@ export function pickTargetConversation({
 
   const activePool = pool.filter((m) => m.isActive);
   if (activePool.length) {
-    if (prevAutoTargetId) {
+    if (mode !== 'latest' && prevAutoTargetId) {
       const sticky = activePool.find((m) => m.conv.id === prevAutoTargetId);
       if (sticky) return sticky.conv;
     }

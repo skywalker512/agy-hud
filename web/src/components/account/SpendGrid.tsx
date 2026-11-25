@@ -1,15 +1,35 @@
 import type { Translations } from '../../i18n';
-import type { AccountHistory, SessionInfo, TelemetrySummary } from '../../types/telemetry';
-import { fmtUsd } from '../../utils/format';
+import type {
+  AccountHistory,
+  AccountLedgerPoolRow,
+  AccountQuotaLedger,
+  SessionInfo,
+  TelemetrySummary,
+} from '../../types/telemetry';
+import { fmtClock, fmtUsd } from '../../utils/format';
 
 interface SpendGridProps {
   summary: TelemetrySummary | undefined;
   history: AccountHistory | undefined;
   sessionInfo?: SessionInfo | null;
+  accountLedger?: AccountQuotaLedger | null;
   t: Translations;
 }
 
-export function SpendGrid({ summary, history, sessionInfo, t }: SpendGridProps) {
+function fmtPoolPctCompact(pct: number, spanLabel: string): string {
+  if (!(pct > 0.05)) return `${spanLabel} 0%`;
+  if (pct >= 100) return `${(pct / 100).toFixed(pct >= 1000 ? 0 : 1)}×${spanLabel}`;
+  return `${spanLabel} ${pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}%`;
+}
+
+function fmtResetDateTime(ts: number): string {
+  const d = new Date(ts);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${mm}-${dd} ${fmtClock(ts)}`;
+}
+
+export function SpendGrid({ summary, history, sessionInfo, accountLedger, t }: SpendGridProps) {
   const s = summary;
   const h = history;
   const tree = sessionInfo?.treeTotals;
@@ -93,27 +113,148 @@ export function SpendGrid({ summary, history, sessionInfo, t }: SpendGridProps) 
     },
   ];
 
+  const ledger = accountLedger && (
+    accountLedger.all.pct5hSum > 0.05
+    || accountLedger.all.pct7dSum > 0.05
+    || accountLedger.recentResets.length > 0
+  )
+    ? accountLedger
+    : null;
+
+  const fmtLedgerUsd = (usd: number) => {
+    if (!(usd > 0.005)) return '--';
+    return `${ledger?.hasProvisionalCap ? '~' : ''}${fmtUsd(usd)}`;
+  };
+
+  const buildLedgerTip = (
+    periodName: string,
+    getRow: (r: AccountLedgerPoolRow) => { pct7d: number; pct5h?: number; usd: number },
+  ) => {
+    if (!ledger) return '';
+    const lines = ledger.pools.map((r) => {
+      const m = getRow(r);
+      const qTag = r.estQuality === 'high' ? '' : isZh ? ' (初估)' : ' (est.)';
+      const pctPart = m.pct5h !== undefined && m.pct5h > 0.05
+        ? `${fmtPoolPctCompact(m.pct5h, '5h')} · ${fmtPoolPctCompact(m.pct7d, '7d')}`
+        : fmtPoolPctCompact(m.pct7d, '7d');
+      return `• ${r.label}: ${pctPart} (${m.usd > 0.005 ? fmtUsd(m.usd) : '--'}${qTag})`;
+    });
+    return `${periodName}\n${lines.join('\n')}\n\n${t.accountSpendScopeTip}`;
+  };
+
+  const ledgerCells = ledger
+    ? [
+        {
+          k: t.spendToday,
+          v: fmtLedgerUsd(ledger.today.usd),
+          sub: ledger.today.pct5hSum > 0.05
+            ? fmtPoolPctCompact(ledger.today.pct5hSum, '5h')
+            : fmtPoolPctCompact(ledger.today.pct7dSum, '7d'),
+          tip: buildLedgerTip(t.spendToday, (r) => ({ pct5h: r.todayPct5h, pct7d: r.todayPct7d, usd: r.todayUsd })),
+        },
+        {
+          k: t.accountSpendWeek,
+          v: fmtLedgerUsd(ledger.week7d.usd),
+          sub: fmtPoolPctCompact(ledger.week7d.pct7dSum, '7d'),
+          tip: buildLedgerTip(t.accountSpendWeek, (r) => ({ pct7d: r.weekPct7d, usd: r.weekUsd })),
+        },
+        {
+          k: t.spendMonth,
+          v: fmtLedgerUsd(ledger.month.usd),
+          sub: fmtPoolPctCompact(ledger.month.pct7dSum, '7d'),
+          tip: buildLedgerTip(t.spendMonth, (r) => ({ pct7d: r.monthPct7d, usd: r.monthUsd })),
+        },
+        {
+          k: t.accountSpendTracked,
+          v: fmtLedgerUsd(ledger.all.usd),
+          sub: t.accountSpendDaysSub(ledger.trackedDays, ledger.all.resets),
+          tip: buildLedgerTip(
+            `${t.accountSpendTracked} (${ledger.firstDay} →)`,
+            (r) => ({ pct7d: r.allPct7d, usd: r.allUsd }),
+          ),
+        },
+      ]
+    : null;
+
+  const latestReset = ledger?.recentResets?.[0] || null;
+  const resetBannerTip = ledger && ledger.recentResets.length > 0
+    ? `${t.accountResetTipTitle}\n${ledger.recentResets
+        .map((ev) => {
+          const kindLbl = ev.kind === 'in_window_rewind' ? t.accountResetKindInWindow : t.accountResetKindEarlyShift;
+          return `• ${fmtResetDateTime(ev.ts)} · ${ev.poolLabel} ${ev.spanKey} (${kindLbl}): ${ev.beforeUsedPct.toFixed(1)}% → ${ev.afterUsedPct.toFixed(1)}% (+${ev.reclaimedPct.toFixed(1)}%)`;
+        })
+        .join('\n')}`
+    : '';
+
   return (
-    <div className="flex flex-col gap-1.5 min-w-0">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-hud text-[9.5px] font-semibold uppercase tracking-[0.04em] text-hud-muted">
-          {t.spendScopeLabel}
-        </span>
-      </div>
-      <div className="spend-grid grid grid-cols-4 gap-1.5">
-        {cells.map((c) => (
-          <div key={c.k} className="spend-cell cursor-help" data-tip={c.tip}>
-            <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">
-              {c.k}
+    <div className="flex flex-col gap-2.5 min-w-0">
+      {ledger && ledgerCells && (
+        <div className="flex flex-col gap-1.5 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-hud text-[9.5px] font-semibold uppercase tracking-[0.04em] text-hud-muted">
+              {t.accountSpendScopeLabel}
             </span>
-            <span className="font-hud-mono text-[12px] font-bold text-hud-fg tabular-nums">
-              {c.v}
-            </span>
-            <span className="font-hud-mono text-[9.5px] text-hud-muted tabular-nums truncate">
-              {c.sub}
-            </span>
+            {ledger.hasProvisionalCap && (
+              <span className="font-hud-mono text-[9px] text-hud-muted/80">
+                {t.accountSpendProvTag}
+              </span>
+            )}
           </div>
-        ))}
+          <div className="spend-grid grid grid-cols-4 gap-1.5">
+            {ledgerCells.map((c) => (
+              <div key={c.k} className="spend-cell cursor-help" data-tip={c.tip}>
+                <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">
+                  {c.k}
+                </span>
+                <span className="font-hud-mono text-[12px] font-bold text-hud-fg tabular-nums">
+                  {c.v}
+                </span>
+                <span className="font-hud-mono text-[9.5px] text-hud-muted tabular-nums truncate">
+                  {c.sub}
+                </span>
+              </div>
+            ))}
+          </div>
+          {latestReset && (
+            <div
+              className="l2-well flex items-center justify-between gap-2 px-2.5 py-1.5 font-hud text-[10px] text-hud-ok cursor-help"
+              data-tip={resetBannerTip}
+            >
+              <span className="truncate">
+                {t.accountResetBanner(
+                  ledger.recentResets.length,
+                  latestReset.poolLabel,
+                  latestReset.spanKey,
+                  `${latestReset.reclaimedPct.toFixed(1)}%`,
+                  fmtResetDateTime(latestReset.ts),
+                )}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-1.5 min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-hud text-[9.5px] font-semibold uppercase tracking-[0.04em] text-hud-muted">
+            {t.spendScopeLabel}
+          </span>
+        </div>
+        <div className="spend-grid grid grid-cols-4 gap-1.5">
+          {cells.map((c) => (
+            <div key={c.k} className="spend-cell cursor-help" data-tip={c.tip}>
+              <span className="font-hud text-[9.5px] font-medium text-hud-muted truncate">
+                {c.k}
+              </span>
+              <span className="font-hud-mono text-[12px] font-bold text-hud-fg tabular-nums">
+                {c.v}
+              </span>
+              <span className="font-hud-mono text-[9.5px] text-hud-muted tabular-nums truncate">
+                {c.sub}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

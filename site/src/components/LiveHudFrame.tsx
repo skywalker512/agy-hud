@@ -39,6 +39,7 @@ export function LiveHudFrame({
 }: LiveHudFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const initialLangRef = useRef<Locale>(locale);
+  const initialModeRef = useRef<'dark' | 'light'>(theme.mode);
   const [activeStop, setActiveStop] = useState<string>('live');
   const isZh = locale === 'zh';
 
@@ -146,7 +147,7 @@ export function LiveHudFrame({
       {/* Real compiled `web/` HUD iframe driven by shared organic fixture + live host theme sync */}
       <iframe
         ref={iframeRef}
-        src={`./hud-demo/index.html?lang=${initialLangRef.current}`}
+        src={`./hud-demo/index.html?lang=${initialLangRef.current}&mode=${initialModeRef.current}`}
         title={isZh ? 'AGY-HUD 真实交互面板预览' : 'AGY-HUD Real Interactive Panel Preview'}
         onLoad={syncFrame}
         class="block h-[660px] w-full border-0 bg-[var(--bg)]"

@@ -52,6 +52,7 @@ import {
   schedulePostCallQuotaSample,
 } from './lib/ls-client.ts';
 import {
+  createEmptyTelemetry,
   getTelemetryCached,
   listConversations,
   readTelemetry,
@@ -251,14 +252,19 @@ async function startServer() {
 
   app.api('/api/stats', async (data) => {
     const mode = data.mode === 'latest' ? 'latest' : 'auto';
-    const rawConvId = typeof data.conversationId === 'string' && UUID_RE.test(data.conversationId)
+    // Never fall back to startup app.config.conversationId: the sidecar process is shared across conversations.
+    const explicitConvId = typeof data.conversationId === 'string' && UUID_RE.test(data.conversationId)
       ? data.conversationId
-      : (mode === 'auto' && UUID_RE.test(app.config?.conversationId || '') ? String(app.config?.conversationId || '') : '');
-    const explicitConvId = rawConvId;
+      : '';
+    const paneEmpty = mode === 'auto' && !explicitConvId && data.paneEmpty === '1';
     const assetKey = getAssetKey();
 
     const appDataRoots = resolveAllAppDataDirs(appDataDir);
-    const conversations = listConversations(appDataRoots);
+    let conversations = listConversations(appDataRoots);
+    if (explicitConvId && !conversations.some((c) => c.id === explicitConvId)) {
+      // Bypass short directory cache so a freshly created conversation DB is picked up immediately.
+      conversations = listConversations(appDataRoots, '', 0);
+    }
     const forceQuota = data.refreshQuota === '1';
     const includeQuota = data.includeQuota !== '0';
     let accountQuota;
@@ -271,31 +277,37 @@ async function startServer() {
         : { available: false, deferred: true, reason: 'deferred', ttlMs: QUOTA_TTL_MS };
     }
 
-    if (!conversations.length) {
+    if (!conversations.length && !explicitConvId && !paneEmpty) {
       return { found: false, bootId: BOOT_ID, assetKey, conversations: [], accountQuota, serverTimeMs: Date.now() };
     }
 
     const graph = getConversationGraph(conversations, { requiredConvId: explicitConvId, appDataRoots });
-    const lsSummaries = (!explicitConvId || mode === 'latest')
+    const lsSummaries = (!explicitConvId || mode === 'latest') && !paneEmpty
       ? await getCascadeSummariesCached(600)
       : undefined;
 
-    const target = pickTargetConversation({
-      mode,
-      explicitConvId,
-      conversations,
-      graph,
-      lsSummaries,
-      prevAutoTargetId: lastAutoTargetId,
-    });
-    if (!target) {
+    const target = paneEmpty
+      ? null
+      : pickTargetConversation({
+          mode,
+          explicitConvId,
+          conversations,
+          graph,
+          lsSummaries,
+          prevAutoTargetId: lastAutoTargetId,
+        });
+    const isPendingSession = paneEmpty || Boolean(mode === 'auto' && explicitConvId && !target);
+    if (!target && !isPendingSession) {
       return { found: false, bootId: BOOT_ID, assetKey, conversations: [], accountQuota, serverTimeMs: Date.now() };
     }
-    if (!explicitConvId && target.id) {
+    const targetId = target ? target.id : explicitConvId;
+    if (!explicitConvId && !paneEmpty && target?.id) {
       lastAutoTargetId = target.id;
     }
 
-    const liveOverlay = await fetchLiveActiveStep(target.id, lsSummaries ?? undefined);
+    const liveOverlay = targetId
+      ? await fetchLiveActiveStep(targetId, lsSummaries ?? undefined)
+      : null;
     const anyLsActive = Boolean(
       lsSummaries && Object.values(lsSummaries).some((s: any) => isCascadeStatusActive(s?.status)),
     );
@@ -303,7 +315,7 @@ async function startServer() {
     if (hasInFlight && !(graph.inFlightCount > 0)) {
       graph.inFlightCount = 1;
     }
-    const sessionInfoFull = buildSessionInfo(target.id, graph);
+    const sessionInfoFull = buildSessionInfo(targetId, graph);
     const { childKeys, swarmSig, ...sessionInfo } = sessionInfoFull;
     const accountHistory = buildAccountHistory(graph);
     if (!graph.indexing && accountHistory.totalCalls > 0) {
@@ -345,15 +357,21 @@ async function startServer() {
     const quotaSig = accountQuota?.deferred
       ? `${quotaCache.updatedSeq}:d`
       : `${quotaCache.updatedSeq}:${quotaCache.fetchedAtMs}`;
-    const etag = `${mode}|${target.id}|${target.key}|${target.annoKey}|${childKeys}|${swarmSig || graph.swarmIndex?.sig || ''}|${recentList[0]?.id || ''}|${quotaSig}|${histSig}|${liveSig}|${getLsModelCatalogVersion()}|${getGeminiPulseVersion()}`;
+    const targetKeyPart = target
+      ? `${target.key}|${target.annoKey}`
+      : `pending:${paneEmpty ? 'empty' : 'conv'}`;
+    const etag = `${mode}|${targetId}|${targetKeyPart}|${childKeys}|${swarmSig || graph.swarmIndex?.sig || ''}|${recentList[0]?.id || ''}|${quotaSig}|${histSig}|${liveSig}|${getLsModelCatalogVersion()}|${getGeminiPulseVersion()}`;
     if (data.etag && data.etag === etag) {
       return { unchanged: true, etag, bootId: BOOT_ID, assetKey, serverTimeMs: Date.now() };
     }
 
-    const paths = resolveTranscriptPaths(target.appDataDir || appDataDir, target.id, appDataRoots);
+    const paths = targetId
+      ? resolveTranscriptPaths(target?.appDataDir || appDataDir, targetId, appDataRoots)
+      : { jsonlPath: '', jsonlFullPath: '', jsonlExists: false, jsonlFullExists: false };
     try {
-      const cachedTelemetry = getTelemetryCached(target, conversations);
-      const telemetry = toLightTelemetryPayload(cachedTelemetry.telemetry);
+      const telemetry: any = target
+        ? toLightTelemetryPayload(getTelemetryCached(target, conversations).telemetry)
+        : createEmptyTelemetry();
       if (liveOverlay?.liveStep) {
         let lsStep = liveOverlay.liveStep;
         if (lsStep.syntheticFallback && telemetry.pendingCompact) {
@@ -424,12 +442,13 @@ async function startServer() {
       });
       return {
         found: true,
+        pendingSession: isPendingSession,
         etag,
         bootId: BOOT_ID,
         assetKey,
         mode,
-        conversationId: target.id,
-        dbPath: target.dbPath,
+        conversationId: targetId,
+        dbPath: target?.dbPath || '',
         ...paths,
         serverTimeMs: Date.now(),
         conversations: enrichedGraph.conversations,
@@ -446,8 +465,8 @@ async function startServer() {
         bootId: BOOT_ID,
         assetKey,
         error: err?.message || String(err),
-        conversationId: target.id,
-        dbPath: target.dbPath,
+        conversationId: targetId,
+        dbPath: target?.dbPath || '',
         ...paths,
         conversations: recentList,
         sessionInfo,

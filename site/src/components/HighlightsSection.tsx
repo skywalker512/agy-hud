@@ -20,8 +20,8 @@ function LiveTtftShowcase({ isZh }: { isZh: boolean }) {
   useEffect(() => {
     if (paused) return;
     const id = window.setInterval(() => {
-      setTickMs((prev) => (prev + 120) % cycleMs);
-    }, 120);
+      setTickMs((prev) => (prev + 100) % cycleMs);
+    }, 100);
     return () => window.clearInterval(id);
   }, [paused, cycleMs]);
 
@@ -45,7 +45,7 @@ function LiveTtftShowcase({ isZh }: { isZh: boolean }) {
       ? { cls: 'border-[var(--tint-bad-border)] bg-[var(--tint-bad)] text-[var(--seg-bad)]', text: isZh ? '首字偏慢' : 'SLOW TTFT' }
       : isSlow
         ? { cls: 'border-[var(--tint-out-border)] bg-[var(--tint-out)] text-[var(--seg-out)]', text: isZh ? '等待偏长' : 'WAIT LONG' }
-        : { cls: 'border-[var(--tint-out-border)] bg-[var(--tint-out)] text-[var(--seg-out)]', text: isZh ? '等待首字' : 'WAIT TTFT' }
+        : { cls: 'border-[var(--tint-cache-border)] bg-[var(--tint-cache)] text-[var(--seg-cache)]', text: isZh ? '等待首字' : 'WAIT TTFT' }
     : { cls: 'border-[var(--tint-cache-border)] bg-[var(--tint-cache)] text-[var(--seg-cache)]', text: isZh ? '首字已出 · 114 t/s' : '1ST TOK · 114 t/s' };
 
   const numColorCls = isStalled
@@ -119,20 +119,27 @@ function LiveTtftShowcase({ isZh }: { isZh: boolean }) {
         class={`relative overflow-hidden rounded-lg border bg-[var(--surface)] p-2.5 transition-colors ${
           isStalled
             ? 'border-[var(--tint-bad-border)]'
-            : isWaiting
+            : isSlow
               ? 'border-[var(--tint-out-border)]'
-              : 'border-[var(--tint-cache-border)]'
+              : !isWaiting
+                ? 'site-ttft-arrive border-[var(--tint-cache-border)]'
+                : 'border-[var(--tint-cache-border)]'
         }`}
       >
         <div
-          class="pointer-events-none absolute inset-x-2 top-0 h-[2px] rounded-full transition-colors"
+          class={`pointer-events-none absolute inset-x-2 top-0 h-[2px] rounded-full transition-colors ${
+            isWaiting
+              ? `site-ttft-scan${isStalled ? ' is-stalled' : isSlow ? ' is-slow' : ''}${paused ? ' is-paused' : ''}`
+              : ''
+          }`}
           style={{
-            background: isStalled
-              ? 'var(--seg-bad)'
-              : isWaiting
-                ? 'var(--seg-out)'
-                : 'var(--seg-cache)',
-            opacity: isWaiting && !paused ? 0.9 : 0.65,
+            backgroundImage: isWaiting
+              ? isStalled
+                ? 'linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--seg-bad) 30%, transparent) 28%, var(--seg-bad) 50%, color-mix(in srgb, var(--seg-bad) 30%, transparent) 72%, transparent 100%)'
+                : isSlow
+                  ? 'linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--seg-out) 28%, transparent) 30%, var(--seg-out) 50%, color-mix(in srgb, var(--seg-out) 28%, transparent) 70%, transparent 100%)'
+                  : 'linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--seg-cache) 28%, transparent) 30%, var(--seg-cache) 50%, color-mix(in srgb, var(--seg-cache) 28%, transparent) 70%, transparent 100%)'
+              : 'linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--seg-cache) 80%, transparent) 50%, transparent 100%)',
           }}
         />
         <div class="flex items-center justify-between gap-2">
@@ -160,32 +167,38 @@ function LiveTtftShowcase({ isZh }: { isZh: boolean }) {
           {liveSubLine}
         </div>
 
-        {/* Live Waiting Progress Track Crossing Session Avg Tick (matches real HeroSpeedCards) */}
-        {isWaiting && (
-          <div class="relative mt-1.5 h-[3px] w-full overflow-hidden rounded-full bg-[var(--surface-3)]">
-            <div
-              class="h-full rounded-full transition-all duration-100"
-              style={{
-                width: `${Math.min(100, Math.max(6, (elapsedSec / 6.5) * 100)).toFixed(1)}%`,
-                backgroundColor: isStalled ? 'var(--seg-bad)' : isSlow ? 'var(--seg-out)' : 'var(--seg-cache)',
-              }}
-            />
-            <span
-              class="pointer-events-none absolute top-0 bottom-0 w-[1.5px] bg-[var(--fg)] opacity-55"
-              style={{ left: `${((avgSec / 6.5) * 100).toFixed(1)}%` }}
-            />
-          </div>
-        )}
+        {/* Always-mounted 3px Progress Track (zero layout shift on first-token lock) */}
+        <div class="relative mt-1.5 h-[3px] w-full overflow-hidden rounded-full bg-[var(--surface-3)]">
+          <div
+            class={`h-full rounded-full transition-[width,background-color] duration-100 ease-linear ${
+              isWaiting ? `site-ttft-shimmer${paused ? ' is-paused' : ''}` : ''
+            }`}
+            style={{
+              width: `${Math.min(100, Math.max(6, (elapsedSec / 6.5) * 100)).toFixed(1)}%`,
+              backgroundColor: !isWaiting
+                ? 'var(--seg-cache)'
+                : isStalled
+                  ? 'var(--seg-bad)'
+                  : isSlow
+                    ? 'var(--seg-out)'
+                    : 'var(--seg-cache)',
+            }}
+          />
+          <span
+            class="pointer-events-none absolute top-0 bottom-0 w-[1.5px] bg-[var(--fg)] opacity-55"
+            style={{ left: `${((avgSec / 6.5) * 100).toFixed(1)}%` }}
+          />
+        </div>
 
         {/* 10-Bar Live Growing TTFT Bar Chart vs Session Avg Dashed Line */}
         <div class="relative mt-2.5 h-[36px] w-full">
           <div
-            class="pointer-events-none absolute inset-x-0 border-t border-dashed border-[var(--border-strong)]"
+            class="pointer-events-none absolute inset-x-0 border-t border-dashed border-[var(--border-strong)] transition-[top] duration-100 ease-linear"
             style={{ top: `${avgTopPct.toFixed(1)}%` }}
           />
           <span
-            class="pointer-events-none absolute right-0 font-mono text-[8px] text-[var(--muted)] opacity-75"
-            style={{ top: `calc(${avgTopPct.toFixed(1)}% - 10px)` }}
+            class="pointer-events-none absolute left-0 rounded bg-[var(--surface)]/80 px-1 font-mono text-[8px] text-[var(--muted)] transition-[top] duration-100 ease-linear"
+            style={{ top: `calc(${avgTopPct.toFixed(1)}% - 11px)` }}
           >
             {isZh ? '均 1.4s' : 'avg 1.4s'}
           </span>
@@ -196,7 +209,7 @@ function LiveTtftShowcase({ isZh }: { isZh: boolean }) {
               return (
                 <div key={i} class="flex h-full items-end">
                   <div
-                    class={`w-full rounded-t-[2.5px] transition-all duration-100 ${isLiveBar && isWaiting && !paused ? 'animate-pulse' : ''}`}
+                    class={`w-full rounded-t-[2.5px] transition-[height,background-color] duration-100 ease-linear ${isLiveBar && isWaiting && !paused ? 'animate-pulse' : ''}`}
                     style={{
                       height: `${hPct.toFixed(1)}%`,
                       background: barColor(v),

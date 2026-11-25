@@ -621,3 +621,55 @@ test('buildSessionInfo and attachGraphQuotaSummaries recursively roll up Swarm w
   assert.ok(treePct > selfPct * 3, `Expected tree quota (${treePct}) to include all recursive descendants (> 3x root ${selfPct})`);
 });
 
+test('pickTargetConversation does not fall back to previous conversation when explicitConvId DB is not created yet', () => {
+  const prevId = '68f3a538-8789-4d13-b0b5-dbfa727695fa';
+  const newConvId = '11111111-2222-3333-4444-555555555555';
+  const conversations = [
+    { id: prevId, updatedMs: 1_700_005_000_000, dbMtimeMs: 1_700_005_000_000 },
+  ];
+  const fakeGraph = {
+    byId: new Map([[prevId, { id: prevId, calls: 5, stepLatestTsMs: 1_700_005_000_000, trajectoryType: 0 }]]),
+    parentLinks: new Map(),
+  };
+
+  // In auto mode with an explicit new conversation ID not yet on disk, must return null (pending) instead of prevId.
+  const pickedAuto = pickTargetConversation({
+    mode: 'auto',
+    explicitConvId: newConvId,
+    conversations,
+    graph: fakeGraph,
+    lsSummaries: null,
+    prevAutoTargetId: prevId,
+    nowMs: 1_700_005_010_000,
+  });
+  assert.equal(pickedAuto, null);
+
+  // In latest mode, ignores explicitConvId and tracks newest active conversation without sticking to older active prevAutoTargetId.
+  const newerActiveId = '22222222-3333-4444-5555-666666666666';
+  const twoConvs = [
+    { id: prevId, updatedMs: 1_700_005_000_000, dbMtimeMs: 1_700_005_000_000 },
+    { id: newerActiveId, updatedMs: 1_700_006_000_000, dbMtimeMs: 1_700_006_000_000 },
+  ];
+  const twoGraph = {
+    byId: new Map([
+      [prevId, { id: prevId, calls: 5, stepLatestTsMs: 1_700_005_000_000, trajectoryType: 0 }],
+      [newerActiveId, { id: newerActiveId, calls: 1, stepLatestTsMs: 1_700_006_000_000, trajectoryType: 0 }],
+    ]),
+    parentLinks: new Map(),
+  };
+  const pickedLatest = pickTargetConversation({
+    mode: 'latest',
+    explicitConvId: '',
+    conversations: twoConvs,
+    graph: twoGraph,
+    lsSummaries: {
+      [prevId]: { status: 'CASCADE_RUN_STATUS_RUNNING', lastModifiedTime: new Date(1_700_005_000_000).toISOString() },
+      [newerActiveId]: { status: 'CASCADE_RUN_STATUS_RUNNING', lastModifiedTime: new Date(1_700_006_000_000).toISOString() },
+    },
+    prevAutoTargetId: prevId,
+    nowMs: 1_700_006_010_000,
+  });
+  assert.equal(pickedLatest?.id, newerActiveId);
+});
+
+

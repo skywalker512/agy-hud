@@ -10,15 +10,18 @@ interface NowProviderProps {
 }
 
 /**
- * Isolated live-clock context so 250ms/1s ticks only re-render clock-driven leaf components
- * (TopBar, PulseBar, LiveCallRow, ContextWindowCard, LiveQuotaCard, QuotaPoolsList) instead
- * of triggering 4x/sec full-tree re-renders across TrendChartCard and CallLogCard.
+ * Isolated live-clock context so 100ms/1s ticks only re-render clock-driven leaf components
+ * (TopBar, PulseBar, HeroSpeedCards, LiveCallRow, ContextWindowCard, LiveQuotaCard, QuotaPoolsList)
+ * instead of triggering full-tree re-renders across TrendChartCard and CallLogCard.
  */
 export function NowProvider({ isActiveStep, clockSkewMs, children }: NowProviderProps) {
   const [tickNow, setTickNow] = useState<number>(() => Date.now());
 
   useEffect(() => {
-    const intervalMs = isActiveStep ? 250 : 1000;
+    if (isActiveStep && !document.hidden) {
+      setTickNow(Date.now());
+    }
+    const intervalMs = isActiveStep ? 100 : 1000;
     const id = setInterval(() => {
       if (!document.hidden) setTickNow(Date.now());
     }, intervalMs);

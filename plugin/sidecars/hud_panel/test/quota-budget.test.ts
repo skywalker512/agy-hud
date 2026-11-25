@@ -608,3 +608,397 @@ test('computeWindowRunway applies Historical Rhythm Bayesian Shrinkage on early 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('computeWindowRunway synthesizes cross-device recent burn and account-wide historical pace across devices', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-runway-multidev-'));
+  try {
+    const HR_MS = 3_600_000;
+    const DAY_MS = 24 * HR_MS;
+    const tBase = new Date(2026, 10, 20, 14, 0, 0).getTime();
+
+    const makeQuotaSnap = (fetchedAtMs: number, reset5h: number, rem5h: number, reset7d: number, rem7d: number) => ({
+      available: true,
+      planName: 'Ultra',
+      tierName: 'Ultra',
+      teamsTier: 'ULTRA',
+      email: 'multi@example.com',
+      fetchedAtMs,
+      pools: [
+        {
+          label: 'Gemini',
+          remainingPct: rem5h,
+          resetAtMs: reset5h,
+          windows: [
+            { spanKey: '5h', label: '5h', remainingPct: rem5h, resetTime: '', resetAtMs: reset5h },
+            { spanKey: '7d', label: '7d', remainingPct: rem7d, resetTime: '', resetAtMs: reset7d },
+          ],
+        },
+      ],
+    });
+
+    const makeGraph = (calls: any[], latestTsMs: number) => ({
+      indexing: false,
+      summaries: calls.length
+        ? [{ id: '22222222-2222-2222-2222-222222222222', source: 'app', latestTsMs, recentCalls: calls }]
+        : [],
+    });
+
+    // 1) Pure remote/other-device recent burn:
+    // Device A runs calls locally (+15% 5h, +3.75% 7d in 30 min); Device B is completely idle (0 local calls).
+    // Both observe the same two snapshots at t0 (elapsed 2h of 5h, 30h of 7d) and t1 (t0 + 30m).
+    const devACal = join(dir, 'devA-cal.json');
+    const devAFit = join(dir, 'devA-fit.json');
+    const devBCal = join(dir, 'devB-cal.json');
+    const devBFit = join(dir, 'devB-fit.json');
+
+    const reset5h = tBase + 3 * HR_MS; // 2h elapsed at tBase
+    const reset7d = tBase + 138 * HR_MS; // 30h elapsed at tBase
+    const t0 = tBase;
+    const t1 = tBase + 30 * 60_000;
+
+    // Initial snapshot at t0: 5h has 90% rem (10% used), 7d has 90% rem (10% used)
+    attachQuotaBudgetEstimates(makeQuotaSnap(t0, reset5h, 90, reset7d, 90), makeGraph([], t0), {
+      calibrationPath: devACal,
+      fitPath: devAFit,
+      nowMs: t0,
+    });
+    attachQuotaBudgetEstimates(makeQuotaSnap(t0, reset5h, 90, reset7d, 90), makeGraph([], t0), {
+      calibrationPath: devBCal,
+      fitPath: devBFit,
+      nowMs: t0,
+    });
+
+    // At t1 (30m later): another burst burns +15% of 5h (rem 75%) and +3.75% of 7d (rem 86.25%)
+    const devACalls = [
+      {
+        ts: t0 + 15 * 60_000,
+        poolKey: 'gemini',
+        family: 'gemini-4-hydrogen',
+        baseUSD: 22.5, // 15% of 5h, 3.75% of 7d on $150/$600 prior
+        costUSD: 22.5,
+        priced: true,
+      },
+    ];
+    const outA = attachQuotaBudgetEstimates(
+      makeQuotaSnap(t1, reset5h, 75, reset7d, 86.25),
+      makeGraph(devACalls, t1),
+      { calibrationPath: devACal, fitPath: devAFit, nowMs: t1 },
+    );
+    const outB = attachQuotaBudgetEstimates(
+      makeQuotaSnap(t1, reset5h, 75, reset7d, 86.25),
+      makeGraph([], t1), // 0 local calls on idle Device B!
+      { calibrationPath: devBCal, fitPath: devBFit, nowMs: t1 },
+    );
+
+    const rwA5 = outA.pools[0].windows[0].runway;
+    const rwB5 = outB.pools[0].windows[0].runway;
+    const rwA7 = outA.pools[0].windows[1].runway;
+    const rwB7 = outB.pools[0].windows[1].runway;
+    assert.ok(rwA5 && rwB5 && rwA7 && rwB7);
+    assert.equal(rwB5.basis, 'active_blend', 'idle device should detect remote recent burn via burnLog');
+    assert.equal(rwB7.basis, 'active_blend', 'idle device should detect remote 7d burn via burnLog');
+    assert.ok(
+      Math.abs(rwA5.burnPctPerHour - rwB5.burnPctPerHour) < 0.05,
+      `5h burn rates should match across devices: A=${rwA5.burnPctPerHour}, B=${rwB5.burnPctPerHour}`,
+    );
+    assert.ok(
+      Math.abs(rwA5.projectedRemAtResetPct - rwB5.projectedRemAtResetPct) < 0.2,
+      `5h projected remaining should match: A=${rwA5.projectedRemAtResetPct}, B=${rwB5.projectedRemAtResetPct}`,
+    );
+    assert.ok(
+      Math.abs(rwA7.burnPctPerHour - rwB7.burnPctPerHour) < 0.02,
+      `7d burn rates should match across devices: A=${rwA7.burnPctPerHour}, B=${rwB7.burnPctPerHour}`,
+    );
+
+    // Verify Device B's fitter samples were NOT polluted by the 0-local-call remote burn
+    const devBStore = JSON.parse(readFileSync(devBFit, 'utf8'));
+    const devBPool = Object.values(devBStore.pools)[0] as any;
+    assert.equal(devBPool.samples.length, 0, 'pure remote burn must not pollute model fitter samples');
+    assert.ok(devBPool.burnLog.length >= 2, 'burnLog should persist account-wide intervals');
+
+    // 2) Multi-device historical pace convergence:
+    // Both Device Heavy (local $100/day) and Device Light (local $5/day) observed the same prior account-wide
+    // 5h windows (each 30% burned over 4h -> 7.5%/hr) and prior 7d window (84% burned over 168h -> 0.5%/hr).
+    // Now a fresh 5h + 7d window starts (early cycle where historical habit carries high weight).
+    const heavyCal = join(dir, 'heavy-cal.json');
+    const heavyFit = join(dir, 'heavy-fit.json');
+    const lightCal = join(dir, 'light-cal.json');
+    const lightFit = join(dir, 'light-fit.json');
+
+    const curStart7d = tBase;
+    const curReset7d = curStart7d + 7 * DAY_MS;
+    const curStart5h = curStart7d + 24 * HR_MS; // Day 1 into new 7d window
+    const curReset5h = curStart5h + 5 * HR_MS;
+    const nowNew = curStart5h + 30 * 60_000; // 0.5h into new 5h window, 24.5h into new 7d window
+
+    // Feed 3 prior 5h windows + 1 prior 7d window (spanning 7 full days before curStart7d) to BOTH devices
+    const priorReset7d = curStart7d;
+    const priorSnaps: Array<[number, number, number, number, number]> = [
+      // Prior 7d start + 3 prior 5h windows across days -6, -4, -2 (each observed at 4h mark with 30% used = 7.5%/hr)
+      [priorReset7d - 6 * DAY_MS + 4 * HR_MS, priorReset7d - 6 * DAY_MS + 5 * HR_MS, 70, priorReset7d, 85],
+      [priorReset7d - 4 * DAY_MS + 4 * HR_MS, priorReset7d - 4 * DAY_MS + 5 * HR_MS, 70, priorReset7d, 55],
+      [priorReset7d - 2 * DAY_MS + 4 * HR_MS, priorReset7d - 2 * DAY_MS + 5 * HR_MS, 70, priorReset7d, 30],
+      // Prior 7d end (168h observed, 84% used -> 0.50%/hr; 5h window unused at 100% -> skipped by 5h peak guard)
+      [priorReset7d - 5 * 60_000, priorReset7d + 5 * HR_MS, 100, priorReset7d, 16],
+    ];
+    for (const [ts, r5, rem5, r7, rem7] of priorSnaps) {
+      attachQuotaBudgetEstimates(makeQuotaSnap(ts, r5, rem5, r7, rem7), makeGraph([], ts), {
+        calibrationPath: heavyCal,
+        fitPath: heavyFit,
+        nowMs: ts,
+      });
+      attachQuotaBudgetEstimates(makeQuotaSnap(ts, r5, rem5, r7, rem7), makeGraph([], ts), {
+        calibrationPath: lightCal,
+        fitPath: lightFit,
+        nowMs: ts,
+      });
+    }
+
+    // Give Heavy vs Light wildly different local 10-day call histories
+    const makeLocalCalls = (usdPerHr: number) => {
+      const arr: any[] = [];
+      for (let d = 10; d >= 2; d--) {
+        for (let h = 0; h < 4; h++) {
+          arr.push({
+            ts: curStart7d - d * DAY_MS + (10 + h) * HR_MS,
+            poolKey: 'gemini',
+            family: 'gemini-4-hydrogen',
+            baseUSD: usdPerHr,
+            costUSD: usdPerHr,
+            priced: true,
+          });
+        }
+      }
+      return arr;
+    };
+
+    const outHeavy = attachQuotaBudgetEstimates(
+      makeQuotaSnap(nowNew, curReset5h, 96, curReset7d, 88), // 4% in 0.5h (5h), 12% in 24.5h (7d)
+      makeGraph(makeLocalCalls(25), nowNew),
+      { calibrationPath: heavyCal, fitPath: heavyFit, nowMs: nowNew },
+    );
+    const outLight = attachQuotaBudgetEstimates(
+      makeQuotaSnap(nowNew, curReset5h, 96, curReset7d, 88),
+      makeGraph(makeLocalCalls(1), nowNew),
+      { calibrationPath: lightCal, fitPath: lightFit, nowMs: nowNew },
+    );
+
+    const h5 = outHeavy.pools[0].windows[0].runway;
+    const l5 = outLight.pools[0].windows[0].runway;
+    const h7 = outHeavy.pools[0].windows[1].runway;
+    const l7 = outLight.pools[0].windows[1].runway;
+    assert.ok(h5 && l5 && h7 && l7);
+    assert.equal(h5.habitSource, 'account');
+    assert.equal(l5.habitSource, 'account');
+    assert.equal(h7.habitSource, 'account');
+    assert.equal(l7.habitSource, 'account');
+    assert.ok(Math.abs(h5.histBurnPctPerHour - 7.5) < 0.05, `expected ~7.5%/hr 5h account pace, got ${h5.histBurnPctPerHour}`);
+    assert.ok(Math.abs(h7.histBurnPctPerHour - 0.5) < 0.02, `expected ~0.5%/hr 7d account pace, got ${h7.histBurnPctPerHour}`);
+    assert.ok(Math.abs(h5.projectedRemAtResetPct - l5.projectedRemAtResetPct) < 0.05);
+    assert.ok(Math.abs(h7.projectedRemAtResetPct - l7.projectedRemAtResetPct) < 0.05);
+
+    // 3) 100% cap saturation uses peakReachedAtMs rather than diluting across locked-out hours
+    const capCal = join(dir, 'cap-cal.json');
+    const capFit = join(dir, 'cap-fit.json');
+    const capReset1 = curStart5h - 24 * HR_MS;
+    const capReset2 = curStart5h - 12 * HR_MS;
+    // Both prior 5h windows hit 100% in 2 hours (50%/hr) and remain locked out at 100% until 4.9h
+    for (const r5 of [capReset1, capReset2]) {
+      const wStart = r5 - 5 * HR_MS;
+      attachQuotaBudgetEstimates(makeQuotaSnap(wStart + 2 * HR_MS, r5, 0, curReset7d, 50), makeGraph([], wStart + 2 * HR_MS), {
+        calibrationPath: capCal,
+        fitPath: capFit,
+        nowMs: wStart + 2 * HR_MS,
+      });
+      attachQuotaBudgetEstimates(makeQuotaSnap(wStart + 4.9 * HR_MS, r5, 0, curReset7d, 50), makeGraph([], wStart + 4.9 * HR_MS), {
+        calibrationPath: capCal,
+        fitPath: capFit,
+        nowMs: wStart + 4.9 * HR_MS,
+      });
+    }
+    const capOut = attachQuotaBudgetEstimates(
+      makeQuotaSnap(nowNew, curReset5h, 90, curReset7d, 45),
+      makeGraph([], nowNew),
+      { calibrationPath: capCal, fitPath: capFit, nowMs: nowNew },
+    );
+    const capRw5 = capOut.pools[0].windows[0].runway;
+    assert.ok(capRw5 && capRw5.habitSource === 'account');
+    assert.ok(
+      Math.abs(capRw5.histBurnPctPerHour - 50) < 0.5,
+      `capped 5h windows exhausted in 2h should yield ~50%/hr, got ${capRw5.histBurnPctPerHour}`,
+    );
+
+    // 4) Cold-start multi-device guard & provisional cap-inflation guard:
+    //    (a) When remoteOnly burn is observed and no prior account windows exist yet, skip single-device local habit
+    //    (b) When provisional cap inflates localWindowPct > 1.35x server usedPct (e.g. $177 prov vs $600 real), skip local habit
+    const remGuardCal = join(dir, 'rem-guard-cal.json');
+    const remGuardFit = join(dir, 'rem-guard-fit.json');
+    const remGuardOut = attachQuotaBudgetEstimates(
+      makeQuotaSnap(nowNew, curReset5h, 90, curReset7d, 85), // 10% 5h, 15% 7d with 0 local calls in current windows -> remoteOnly!
+      makeGraph(makeLocalCalls(1), nowNew), // 9 days of tiny local history before curStart7d
+      { calibrationPath: remGuardCal, fitPath: remGuardFit, nowMs: nowNew },
+    );
+    assert.equal(remGuardOut.pools[0].windows[0].runway.habitBlended, undefined, 'remote-only cold start must bypass local habit (5h)');
+    assert.equal(remGuardOut.pools[0].windows[1].runway.habitBlended, undefined, 'remote-only cold start must bypass local habit (7d)');
+
+    const inflCal = join(dir, 'infl-cal.json');
+    const inflFit = join(dir, 'infl-fit.json');
+    const inflCalls = [
+      ...makeLocalCalls(10),
+      {
+        ts: nowNew - 15 * 60_000,
+        poolKey: 'gemini',
+        family: 'gemini-4-hydrogen',
+        baseUSD: 9.0, // on $150 prior = 6.0% >> 2.8% actual server usedPct -> provisional cap inflated!
+        costUSD: 9.0,
+        priced: true,
+      },
+    ];
+    const inflOut = attachQuotaBudgetEstimates(
+      makeQuotaSnap(nowNew, curReset5h, 97.2, curReset7d, 85),
+      makeGraph(inflCalls, nowNew),
+      { calibrationPath: inflCal, fitPath: inflFit, nowMs: nowNew },
+    );
+    assert.equal(inflOut.pools[0].windows[0].runway.habitBlended, undefined, 'inflated provisional cap must bypass distorted local habit');
+
+    // 5) Fast 1-window account learning & EWMA recency weighting:
+    //    1 prior 5h window (1.5h covered) + 1 prior 7d window (24h covered) immediately activates account pace;
+    //    recent 5h window (1d ago, 20%/hr) strongly outweighs older window (12d ago, 4%/hr) under 4d EWMA half-life.
+    const ewmaCal = join(dir, 'ewma-cal.json');
+    const ewmaFit = join(dir, 'ewma-fit.json');
+    const oldWin5 = curStart5h - 12 * DAY_MS;
+    const recentWin5 = curStart5h - 1 * DAY_MS;
+    // Old 5h window: 4h elapsed, 16% used = 4%/hr; Prior 7d window observed at 24h mark with 12% used = 0.5%/hr
+    attachQuotaBudgetEstimates(
+      makeQuotaSnap(oldWin5 - 1 * HR_MS, oldWin5, 84, priorReset7d, 96),
+      makeGraph([], oldWin5 - 1 * HR_MS),
+      { calibrationPath: ewmaCal, fitPath: ewmaFit, nowMs: oldWin5 - 1 * HR_MS },
+    );
+    attachQuotaBudgetEstimates(
+      makeQuotaSnap(priorReset7d - 6 * DAY_MS, recentWin5, 100, priorReset7d, 88), // 24h into prior 7d, 12% used
+      makeGraph([], priorReset7d - 6 * DAY_MS),
+      { calibrationPath: ewmaCal, fitPath: ewmaFit, nowMs: priorReset7d - 6 * DAY_MS },
+    );
+    // Recent 5h window (1d ago): 2h elapsed, 40% used = 20%/hr
+    attachQuotaBudgetEstimates(
+      makeQuotaSnap(recentWin5 - 3 * HR_MS, recentWin5, 60, curReset7d, 95),
+      makeGraph([], recentWin5 - 3 * HR_MS),
+      { calibrationPath: ewmaCal, fitPath: ewmaFit, nowMs: recentWin5 - 3 * HR_MS },
+    );
+    const ewmaOut = attachQuotaBudgetEstimates(
+      makeQuotaSnap(nowNew, curReset5h, 92, curReset7d, 88),
+      makeGraph([], nowNew),
+      { calibrationPath: ewmaCal, fitPath: ewmaFit, nowMs: nowNew },
+    );
+    const ewma5 = ewmaOut.pools[0].windows[0].runway;
+    const ewma7 = ewmaOut.pools[0].windows[1].runway;
+    assert.ok(ewma5 && ewma7);
+    assert.equal(ewma5.habitSource, 'account');
+    assert.equal(ewma7.habitSource, 'account');
+    assert.ok(
+      ewma5.histBurnPctPerHour > 15,
+      `EWMA should weight recent 20%/hr much more heavily than 12d-old 4%/hr (got ${ewma5.histBurnPctPerHour})`,
+    );
+    assert.ok(
+      Math.abs(ewma7.histBurnPctPerHour - 0.5) < 0.02,
+      `24h-covered prior 7d window should immediately activate ~0.5%/hr account pace (got ${ewma7.histBurnPctPerHour})`,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('accountLedger preserves account-wide spend across mid-window Gemini resets and early window shifts', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-reset-ledger-'));
+  try {
+    const HR_MS = 3_600_000;
+    const t0 = new Date(2026, 10, 25, 10, 0, 0).getTime();
+    const reset5h = t0 + 4 * HR_MS;
+    const reset7d = t0 + 5 * 24 * HR_MS;
+    const calPath = join(dir, 'cal.json');
+    const fitPath = join(dir, 'fit.json');
+
+    const snap = (fetchedAtMs: number, r5: number, rem5: number, r7: number, rem7: number, source = 'summary') => ({
+      available: true,
+      source,
+      planName: 'Ultra',
+      tierName: 'Google AI Ultra',
+      teamsTier: 'TEAMS_TIER_PRO',
+      email: 'acct@example.com',
+      fetchedAtMs,
+      pools: [
+        {
+          label: 'Gemini',
+          remainingPct: rem5,
+          resetAtMs: r5,
+          windows: [
+            { spanKey: '5h', label: '5h', remainingPct: rem5, resetTime: '', resetAtMs: r5 },
+            { spanKey: '7d', label: '7d', remainingPct: rem7, resetTime: '', resetAtMs: r7 },
+          ],
+        },
+      ],
+    });
+    const emptyGraph = { indexing: false, summaries: [] };
+
+    // 1) Initial morning burn: 5h reaches 40% used, 7d reaches 10% used (both start today at 09:00)
+    attachQuotaBudgetEstimates(snap(t0, reset5h, 100, reset7d, 100), emptyGraph, { calibrationPath: calPath, fitPath, nowMs: t0 });
+    attachQuotaBudgetEstimates(snap(t0 + 30 * 60_000, reset5h, 60, reset7d, 90), emptyGraph, {
+      calibrationPath: calPath,
+      fitPath,
+      nowMs: t0 + 30 * 60_000,
+    });
+
+    // 2) Server resets 5h mid-window back to 0% used (same reset5h!) — Poll 1 holds pendingRewind (no false alarm on single glitch)
+    const poll1 = attachQuotaBudgetEstimates(snap(t0 + 40 * 60_000, reset5h, 100, reset7d, 90), emptyGraph, {
+      calibrationPath: calPath,
+      fitPath,
+      nowMs: t0 + 40 * 60_000,
+    });
+    assert.equal(poll1.accountLedger.recentResets.length, 0, 'single rewind poll should wait for 2nd-poll confirmation');
+
+    // 3) Poll 2 confirms reset and already shows +2% fresh post-reset burn (rem5 = 98%)
+    const poll2 = attachQuotaBudgetEstimates(snap(t0 + 42 * 60_000, reset5h, 98, reset7d, 89.5), emptyGraph, {
+      calibrationPath: calPath,
+      fitPath,
+      nowMs: t0 + 42 * 60_000,
+    });
+    assert.equal(poll2.accountLedger.recentResets.length, 1);
+    assert.equal(poll2.accountLedger.recentResets[0].kind, 'in_window_rewind');
+    assert.equal(poll2.accountLedger.recentResets[0].spanKey, '5h');
+    assert.ok(Math.abs(poll2.accountLedger.recentResets[0].reclaimedPct - 40) < 0.05);
+
+    // 4) Subsequent +10% burn after reset must NOT be frozen at old 40% high-water mark!
+    const poll3 = attachQuotaBudgetEstimates(snap(t0 + 50 * 60_000, reset5h, 88, reset7d, 87), emptyGraph, {
+      calibrationPath: calPath,
+      fitPath,
+      nowMs: t0 + 50 * 60_000,
+    });
+    // Total 5h burned today = 40 (pre-reset) + 2 (post-reset during confirm) + 10 (after confirm) = 52%!
+    assert.ok(
+      Math.abs(poll3.accountLedger.today.pct5hSum - 52) < 0.1,
+      `expected 52% total 5h burned across reset, got ${poll3.accountLedger.today.pct5hSum}`,
+    );
+    assert.ok(poll3.accountLedger.today.usd > 0);
+    assert.equal(poll3.accountLedger.today.resets, 1);
+
+    // 5) Early window shift: server jumps reset5h forward while >2h remained and clears 12% -> 0%
+    const newReset5h = t0 + 6 * HR_MS;
+    const poll4 = attachQuotaBudgetEstimates(snap(t0 + 60 * 60_000, newReset5h, 100, reset7d, 87), emptyGraph, {
+      calibrationPath: calPath,
+      fitPath,
+      nowMs: t0 + 60 * 60_000,
+    });
+    assert.equal(poll4.accountLedger.recentResets.length, 2);
+    assert.equal(poll4.accountLedger.recentResets[0].kind, 'early_window_shift');
+    assert.ok(Math.abs(poll4.accountLedger.recentResets[0].reclaimedPct - 12) < 0.05);
+    assert.equal(poll4.accountLedger.all.resets, 2);
+
+    // Verify model fitter samples stayed completely clean (0 negative/remote samples)
+    const persisted = JSON.parse(readFileSync(fitPath, 'utf8'));
+    const ps = Object.values(persisted.pools)[0] as any;
+    assert.equal(ps.samples.length, 0);
+    assert.equal(ps.resetEvents.length, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

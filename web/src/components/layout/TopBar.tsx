@@ -218,7 +218,7 @@ export function TopBar({
   const convId = snap?.conversationId || '';
   const jPath = snap?.jsonlPath || '';
   const fPath = snap?.jsonlFullPath || '';
-  const hasSessionData = Boolean(snap?.found);
+  const hasSessionData = Boolean(snap?.found && !snap?.pendingSession);
   const showUpdatePill = Boolean(
     updateStatus?.updateAvailable && !updateStatus.isLinked && updateStatus.latestVersion,
   );

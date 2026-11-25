@@ -255,6 +255,16 @@ export interface Translations {
   poolFitTipLine: (modelsStr: string, gammaStr: string, shortCount: number, errLabel: string) => string;
   remoteWinBanner: (remoteUsd: string) => string;
   remoteWinBannerTip: string;
+  accountSpendScopeLabel: string;
+  accountSpendProvTag: string;
+  accountSpendWeek: string;
+  accountSpendTracked: string;
+  accountSpendDaysSub: (days: number, resets: number) => string;
+  accountSpendScopeTip: string;
+  accountResetBanner: (count: number, poolLabel: string, spanKey: string, reclaimedStr: string, clockStr: string) => string;
+  accountResetKindInWindow: string;
+  accountResetKindEarlyShift: string;
+  accountResetTipTitle: string;
   spendSession: string;
   spendToday: string;
   spendMonth: string;
@@ -466,6 +476,7 @@ export interface Translations {
   ttftLiveSlowSub: (mult: string, avgTtft: string) => string;
   ttftLiveStreamSub: (genSec: string, avgTtft: string) => string;
   ttftLiveLockedBadge: string;
+  ttftLiveSlowBadge: string;
   ttftLiveStallBadge: string;
   ttftBarsTip: (n: number, latestTtft: string, ttftSharePct: number, avgTtft: string) => string;
   liveQuotaTitle: string;

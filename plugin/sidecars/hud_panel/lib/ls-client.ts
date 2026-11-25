@@ -689,7 +689,17 @@ export async function fetchLiveActiveStep(
     }
   };
 
+  const prevFallback = cached?.value?.liveStep?.syntheticFallback ? cached.value.liveStep : null;
   const p = runFetch().then((val) => {
+    if (
+      val?.liveStep?.syntheticFallback &&
+      prevFallback &&
+      val.liveStep.idx === prevFallback.idx &&
+      prevFallback.createdAtMs > 0 &&
+      val.liveStep.createdAtMs > prevFallback.createdAtMs
+    ) {
+      val.liveStep.createdAtMs = prevFallback.createdAtMs;
+    }
     liveStepCache.set(cascadeId, { atMs: Date.now(), value: val, inFlight: null });
     if (liveStepCache.size > 24) {
       const oldest = liveStepCache.keys().next().value;

@@ -21,7 +21,10 @@ import type {
 } from '../types/telemetry';
 
 const POLL_ACTIVE_MS = 500;
+const POLL_PENDING_MS = 750;
 const POLL_IDLE_MS = 1500;
+const UUID_RE = /^[0-9a-f-]{8,}$/i;
+const HOST_CONV_CAP_KEY = 'agy_hud_host_conv_cap';
 
 function readStorage<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
@@ -32,9 +35,45 @@ function readStorage<T extends string>(key: string, allowed: readonly T[], fallb
   }
 }
 
-function getPaneConv(): string {
+interface PaneConvInfo {
+  convId: string;
+  paneEmpty: boolean;
+}
+
+function getPaneConvInfo(messageConvId = ''): PaneConvInfo {
   const params = new URLSearchParams(location.search);
-  return window.sidecar?.conversationId || params.get('conversationId') || '';
+  const urlHasConvParam = params.has('conversationId');
+  const urlConvRaw = (params.get('conversationId') || '').trim();
+  const sidecar = window.sidecar;
+  const sidecarHasProp = Boolean(sidecar && 'conversationId' in sidecar);
+  const sidecarConvRaw = typeof sidecar?.conversationId === 'string' ? sidecar.conversationId.trim() : '';
+  const msgConvRaw = messageConvId.trim();
+
+  const validId = [sidecarConvRaw, msgConvRaw, urlConvRaw].find((c) => UUID_RE.test(c)) || '';
+  if (validId) {
+    if (sidecar || urlHasConvParam) {
+      try {
+        localStorage.setItem(HOST_CONV_CAP_KEY, '1');
+      } catch {
+        /* ignore */
+      }
+    }
+    return { convId: validId, paneEmpty: false };
+  }
+
+  let hostKnownToProvideConvId = false;
+  try {
+    hostKnownToProvideConvId = localStorage.getItem(HOST_CONV_CAP_KEY) === '1';
+  } catch {
+    hostKnownToProvideConvId = false;
+  }
+
+  const paneEmpty = Boolean(
+    urlHasConvParam ||
+    sidecarHasProp ||
+    (sidecar && hostKnownToProvideConvId),
+  );
+  return { convId: '', paneEmpty };
 }
 
 function getSidecarFetch(): typeof fetch {
@@ -128,6 +167,8 @@ export function useHudStore(): HudStore {
   const bootIdRef = useRef<string>('');
   const assetKeyRef = useRef<string>('');
   const activeConvIdRef = useRef<string>('');
+  const lastPaneSigRef = useRef<string>('');
+  const messagePaneConvRef = useRef<string>('');
   const refreshQuotaOnceRef = useRef<boolean>(false);
   const pollSeqRef = useRef<number>(0);
   const pollAbortRef = useRef<AbortController | null>(null);
@@ -247,10 +288,18 @@ export function useHudStore(): HudStore {
 
     try {
       const curMode = modeRef.current;
+      const paneInfo = curMode === 'auto' ? getPaneConvInfo(messagePaneConvRef.current) : null;
+      if (paneInfo) {
+        const nextPaneSig = `${paneInfo.convId}|${paneInfo.paneEmpty ? 1 : 0}`;
+        if (lastPaneSigRef.current && lastPaneSigRef.current !== nextPaneSig) {
+          etagRef.current = '';
+        }
+        lastPaneSigRef.current = nextPaneSig;
+      }
       const conv = curMode === 'custom'
         ? selectedConvRef.current
         : curMode === 'auto'
-          ? getPaneConv()
+          ? (paneInfo?.convId || '')
           : '';
       const apiMode = curMode === 'latest' ? 'latest' : 'auto';
       const includeQuota = Boolean(usedRefreshQuota || tabRef.current === 'account');
@@ -259,6 +308,7 @@ export function useHudStore(): HudStore {
         includeQuota: includeQuota ? '1' : '0',
       });
       if (conv) qs.set('conversationId', conv);
+      if (curMode === 'auto' && paneInfo?.paneEmpty && !conv) qs.set('paneEmpty', '1');
       if (etagRef.current) qs.set('etag', etagRef.current);
       if (usedRefreshQuota) qs.set('refreshQuota', '1');
 
@@ -304,13 +354,16 @@ export function useHudStore(): HudStore {
 
       if (nextSnap.etag) etagRef.current = nextSnap.etag;
       if (nextSnap.serverTimeMs) {
-        setClockSkewMs(Date.now() - nextSnap.serverTimeMs);
+        // Ignore sub-1.5s local sidecar IPC latency so live stopwatches never jitter backwards
+        const rawSkew = Date.now() - nextSnap.serverTimeMs;
+        setClockSkewMs(Math.abs(rawSkew) > 1500 ? rawSkew : 0);
       }
       setRetrying(false);
 
       if (!nextSnap.unchanged) {
-        if (nextSnap.conversationId && nextSnap.conversationId !== activeConvIdRef.current) {
-          activeConvIdRef.current = nextSnap.conversationId;
+        const nextConvKey = nextSnap.conversationId || '';
+        if (nextConvKey !== activeConvIdRef.current) {
+          activeConvIdRef.current = nextConvKey;
           setExpandedRows(new Set());
           setExpandedCompacts(new Set());
           setCollapsedTurns(new Set());
@@ -328,7 +381,11 @@ export function useHudStore(): HudStore {
         if (pollAbortRef.current === ac) pollAbortRef.current = null;
         if (timerRef.current) clearTimeout(timerRef.current);
         if (!document?.hidden) {
-          const delay = snapRef.current?.activeStep ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+          const delay = snapRef.current?.activeStep
+            ? POLL_ACTIVE_MS
+            : snapRef.current?.pendingSession
+              ? POLL_PENDING_MS
+              : POLL_IDLE_MS;
           timerRef.current = setTimeout(() => {
             void poll();
           }, delay);
@@ -359,6 +416,30 @@ export function useHudStore(): HudStore {
       }
     };
 
+    const syncPaneContext = () => {
+      if (modeRef.current !== 'auto' || document.hidden) return;
+      const info = getPaneConvInfo(messagePaneConvRef.current);
+      const nextSig = `${info.convId}|${info.paneEmpty ? 1 : 0}`;
+      if (nextSig !== lastPaneSigRef.current) {
+        triggerImmediatePoll(true);
+      }
+    };
+
+    const onHostContextMessage = (event: MessageEvent) => {
+      const msg = event?.data;
+      if (!msg || typeof msg !== 'object') return;
+      const type = typeof msg.type === 'string' ? msg.type : '';
+      if (!/conversation|context|pane/i.test(type)) return;
+      const hasDirect = 'conversationId' in msg;
+      const hasPayload = Boolean(msg.payload && typeof msg.payload === 'object' && 'conversationId' in msg.payload);
+      if (!hasDirect && !hasPayload) return;
+      const raw = hasDirect ? msg.conversationId : msg.payload.conversationId;
+      messagePaneConvRef.current = typeof raw === 'string' ? raw.trim() : '';
+      if (modeRef.current === 'auto' && !document.hidden) {
+        triggerImmediatePoll(true);
+      }
+    };
+
     const onVis = () => {
       if (document.hidden) {
         stopAll();
@@ -367,11 +448,19 @@ export function useHudStore(): HudStore {
       }
     };
     document.addEventListener('visibilitychange', onVis);
+    window.addEventListener?.('focus', syncPaneContext);
+    window.addEventListener?.('popstate', syncPaneContext);
+    window.addEventListener?.('hashchange', syncPaneContext);
+    window.addEventListener?.('message', onHostContextMessage);
     if (!document.hidden) {
       void poll();
     }
     return () => {
       document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener?.('focus', syncPaneContext);
+      window.removeEventListener?.('popstate', syncPaneContext);
+      window.removeEventListener?.('hashchange', syncPaneContext);
+      window.removeEventListener?.('message', onHostContextMessage);
       stopAll();
     };
   }, [poll, triggerImmediatePoll]);

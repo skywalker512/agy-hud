@@ -4,19 +4,100 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AGY-HUD Live Demo</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:ROND,opsz,slnt,wdth,wght@0..100,6..144,-10..0,92..100,100..1000&family=Google+Sans+Code:ital,wght@0,300..800;1,300..800&display=swap" />
+  <script>
+    (function () {
+      var p = new URLSearchParams(location.search);
+      var mode = p.get('mode') === 'light' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = mode;
+      document.documentElement.style.colorScheme = mode;
+      // Defer optional Google Fonts past first paint so slow/blocked font networks never delay demo render
+      window.addEventListener('DOMContentLoaded', function () {
+        setTimeout(function () {
+          var l = document.createElement('link');
+          l.rel = 'stylesheet';
+          l.href = 'https://fonts.googleapis.com/css2?family=Google+Sans+Flex:ROND,opsz,slnt,wdth,wght@0..100,6..144,-10..0,92..100,100..1000&family=Google+Sans+Code:ital,wght@0,300..800;1,300..800&display=swap';
+          document.head.appendChild(l);
+        }, 120);
+      });
+    })();
+  </script>
   <link rel="stylesheet" href="./styles.css" />
   <style>
     html, body {
       min-height: 100%;
     }
+    .demo-skel-shell {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 10px 10px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .demo-skel-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .demo-skel-card {
+      border-radius: 11px;
+      background: var(--hud-card, rgba(255, 255, 255, 0.04));
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .demo-skel-bar {
+      border-radius: 6px;
+      background: linear-gradient(90deg, rgba(148, 163, 184, 0.1) 25%, rgba(148, 163, 184, 0.2) 50%, rgba(148, 163, 184, 0.1) 75%);
+      background-size: 200% 100%;
+      animation: demoSkel 1.2s ease-in-out infinite;
+    }
+    @keyframes demoSkel {
+      0% { background-position: 180% 0; }
+      100% { background-position: -180% 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .demo-skel-bar { animation: none; }
+    }
   </style>
 </head>
 <body>
-  <div id="app"><div style="padding:12px;font:600 12px/1.4 system-ui,-apple-system,sans-serif;color:var(--muted-foreground,#8b9198)">AGY HUD · Loading…</div></div>
-  <script src="./demo-fixture.js"></script>
-  <script src="./demo-bridge.js"></script>
-  <script src="./app.js"></script>
+  <div id="app">
+    <div class="demo-skel-shell" aria-busy="true" aria-label="Loading AGY-HUD">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 0">
+        <div class="demo-skel-bar" style="height:20px;width:96px"></div>
+        <div class="demo-skel-bar" style="height:20px;width:124px;border-radius:999px"></div>
+      </div>
+      <div class="demo-skel-bar" style="height:30px;width:100%;border-radius:9px"></div>
+      <div class="demo-skel-row">
+        <div class="demo-skel-card" style="height:108px">
+          <div class="demo-skel-bar" style="height:10px;width:58%"></div>
+          <div class="demo-skel-bar" style="height:26px;width:72%"></div>
+          <div class="demo-skel-bar" style="height:22px;width:100%;margin-top:auto"></div>
+        </div>
+        <div class="demo-skel-card" style="height:108px">
+          <div class="demo-skel-bar" style="height:10px;width:54%"></div>
+          <div class="demo-skel-bar" style="height:26px;width:64%"></div>
+          <div class="demo-skel-bar" style="height:22px;width:100%;margin-top:auto"></div>
+        </div>
+      </div>
+      <div class="demo-skel-card" style="height:152px">
+        <div class="demo-skel-bar" style="height:10px;width:44%"></div>
+        <div class="demo-skel-bar" style="height:10px;width:100%;border-radius:999px"></div>
+        <div class="demo-skel-bar" style="height:44px;width:100%"></div>
+        <div class="demo-skel-bar" style="height:32px;width:100%;margin-top:auto"></div>
+      </div>
+      <div class="demo-skel-card" style="height:112px">
+        <div class="demo-skel-bar" style="height:10px;width:40%"></div>
+        <div class="demo-skel-bar" style="height:12px;width:100%;border-radius:999px"></div>
+        <div class="demo-skel-bar" style="height:12px;width:85%;border-radius:999px"></div>
+      </div>
+    </div>
+  </div>
+  <script src="./demo-fixture.js" defer></script>
+  <script src="./demo-bridge.js" defer></script>
+  <script src="./app.js" defer></script>
 </body>
 </html>

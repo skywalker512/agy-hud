@@ -368,7 +368,31 @@
     pointer-events: none;
   }
 
-  /* Live First-Token waiting radar scan (amber -> red when stalled, green arrival flash when locked) */
+  /* Live First-Token waiting radar scan (calm emerald -> amber when slow -> red when stalled, green arrival flash when locked) */
+  .hud-card.is-waiting-calm::before,
+  .history-row.is-waiting-calm::before {
+    content: "";
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--seg-cache) 25%, transparent) 30%,
+      var(--seg-cache) 50%,
+      color-mix(in srgb, var(--seg-cache) 25%, transparent) 70%,
+      transparent 100%
+    );
+    background-size: 220% 100%;
+    animation: hud-ttft-scan 2s linear infinite;
+    pointer-events: none;
+  }
+  .hud-card.is-waiting-calm {
+    border-color: color-mix(in srgb, var(--seg-cache) 30%, transparent);
+  }
   .hud-card.is-waiting-ttft::before,
   .history-row.is-waiting-ttft::before {
     content: "";
@@ -387,7 +411,7 @@
       transparent 100%
     );
     background-size: 220% 100%;
-    animation: hud-ttft-scan 1.75s linear infinite;
+    animation: hud-ttft-scan 1.55s linear infinite;
     pointer-events: none;
   }
   .hud-card.is-waiting-ttft {
@@ -411,7 +435,7 @@
       transparent 100%
     );
     background-size: 220% 100%;
-    animation: hud-ttft-scan 1.15s linear infinite;
+    animation: hud-ttft-scan 1.1s linear infinite;
     pointer-events: none;
   }
   .hud-card.is-waiting-stalled {
@@ -421,18 +445,27 @@
     animation: hud-ttft-arrive 0.9s ease-out 1;
   }
 
+  .ttft-bars-svg rect {
+    transition: height 110ms linear, y 110ms linear, fill 200ms ease;
+  }
+  .ttft-avg-line {
+    transition: y1 110ms linear, y2 110ms linear;
+  }
   .ttft-bar-live {
-    transition: height 180ms linear, y 180ms linear, fill 220ms ease;
     animation: hud-bar-pulse 1.1s ease-in-out infinite;
   }
 
   .ttft-wait-track {
     @apply relative w-full h-[3px] rounded-full overflow-hidden mt-1.5;
     background: color-mix(in srgb, var(--hud-fg) 9%, transparent);
+    transition: opacity 200ms ease;
+  }
+  .ttft-wait-track.is-idle {
+    opacity: 0.42;
   }
   .ttft-wait-fill {
     @apply h-full rounded-full;
-    transition: width 180ms linear, background-color 220ms ease;
+    transition: width 110ms linear, background-color 220ms ease;
     background-image: linear-gradient(
       90deg,
       transparent 0%,
@@ -441,6 +474,10 @@
     );
     background-size: 200% 100%;
     animation: hud-shimmer 1.4s linear infinite;
+  }
+  .ttft-wait-fill.is-locked {
+    background-image: none;
+    animation: none;
   }
   .ttft-wait-avg-tick {
     @apply pointer-events-none absolute top-0 bottom-0 w-[1.5px];
@@ -719,9 +756,13 @@
   }
 
   .live-pill {
-    @apply font-hud font-semibold px-1.5 py-[1px] rounded-full text-hud-ok inline-flex items-center gap-1;
+    @apply font-hud font-semibold px-1.5 py-[1px] rounded-full text-hud-ok inline-flex items-center gap-1 whitespace-nowrap shrink-0;
     font-size: calc(9.5px * var(--hud-font-scale, 1));
     background: var(--tint-ok);
+  }
+  .live-pill.is-wait-calm {
+    color: var(--seg-cache);
+    background: color-mix(in srgb, var(--seg-cache) 14%, transparent);
   }
   .live-pill.is-wait {
     @apply text-hud-warn;
@@ -1383,12 +1424,17 @@
 
 @media (prefers-reduced-motion: reduce) {
   .hud-card.is-streaming::before,
+  .hud-card.is-waiting-calm::before,
   .hud-card.is-waiting-ttft::before,
   .hud-card.is-waiting-stalled::before,
+  .history-row.is-waiting-calm::before,
   .history-row.is-waiting-ttft::before,
   .history-row.is-waiting-stalled::before,
   .hud-card.is-ttft-locked,
+  .ttft-bars-svg rect,
+  .ttft-avg-line,
   .ttft-bar-live,
+  .ttft-wait-track,
   .ttft-wait-fill,
   .hud-expand-anim,
   .more-popover,

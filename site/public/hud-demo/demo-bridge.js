@@ -22,26 +22,37 @@
     liveTtftTimers = [];
   }
 
+  function nudgeHudPoll() {
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   function startLiveTtftSim() {
     clearLiveTtftTimers();
     var now = Date.now();
-    // 5.6s waiting for first token (climbs green -> amber -> red), then 4.6s live streaming
+    // 5.6s waiting for first token (climbs calm -> amber -> red), then 4.6s live streaming
     liveTtftSim = {
       startMs: now,
       firstTokenAtMs: now + 5600,
       endAtMs: now + 10200,
     };
     etagCounter += 1;
+    nudgeHudPoll();
     liveTtftTimers.push(
       setTimeout(function () {
         etagCounter += 1;
-      }, 5650),
+        nudgeHudPoll();
+      }, 5620),
     );
     liveTtftTimers.push(
       setTimeout(function () {
         liveTtftSim = null;
         etagCounter += 1;
-      }, 10300),
+        nudgeHudPoll();
+      }, 10250),
     );
   }
 
@@ -65,8 +76,8 @@
       streamStartMs: isStreaming ? liveTtftSim.firstTokenAtMs : 0,
       thinkingPreview: isStreaming
         ? (isZh
-            ? '首字在 5.6s 到达：对比当前全球 Neon 30m P50（6.4s），本轮等待主要源于大盘排队波动，现已进入高速流式输出。'
-            : 'First token arrived at 5.6s: matches elevated global Neon 30m P50 (6.4s), now streaming smoothly.')
+            ? '首字在 5.6s 到达，已锁定 TTFT 并切入高速流式输出。'
+            : 'First token locked at 5.6s; now streaming smoothly.')
         : '',
       replyPreview: isStreaming
         ? (isZh
@@ -89,13 +100,15 @@
     /* ignore */
   }
 
-  var fixtures = {
-    en: window.__AGY_HUD_BUILD_FIXTURE__('en', bootNowMs),
-    zh: window.__AGY_HUD_BUILD_FIXTURE__('zh', bootNowMs),
-  };
+  // Lazy-build language fixtures on demand so first paint only computes the active locale
+  var fixtures = {};
 
-  function getFx() {
-    return fixtures[currentLang] || fixtures.en;
+  function getFx(lang) {
+    var key = lang || currentLang;
+    if (!fixtures[key]) {
+      fixtures[key] = window.__AGY_HUD_BUILD_FIXTURE__(key, bootNowMs);
+    }
+    return fixtures[key];
   }
 
   var WORKER_MODEL_META = {
@@ -223,13 +236,24 @@
   }
 
   function jsonResponse(data, status) {
-    return new Response(JSON.stringify(data), {
-      status: status || 200,
+    var code = status || 200;
+    return {
+      ok: code >= 200 && code < 300,
+      status: code,
       headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'no-store',
+        get: function (name) {
+          return String(name || '').toLowerCase() === 'content-type'
+            ? 'application/json; charset=utf-8'
+            : null;
+        },
       },
-    });
+      json: function () {
+        return Promise.resolve(data);
+      },
+      text: function () {
+        return Promise.resolve(JSON.stringify(data));
+      },
+    };
   }
 
   function demoFetch(input) {
@@ -239,31 +263,51 @@
 
     if (url.pathname.endsWith('/api/stats')) {
       var reqConv = url.searchParams.get('conversationId') || url.searchParams.get('conv') || '';
+      var reqEtag = url.searchParams.get('etag') || '';
       var isSwitchingWorker = Boolean(reqConv && reqConv !== fx.snapshot.conversationId);
       var simActive = isSwitchingWorker ? null : getSimulatedActiveStep(currentLang === 'zh');
-      var snap = isSwitchingWorker
-        ? buildWorkerSnapshot(fx.snapshot, reqConv)
-        : Object.assign({}, fx.snapshot, {
-            serverTimeMs: Date.now(),
-            activeStep: simActive,
-            currentModel: simActive
-              ? Object.assign({}, fx.snapshot.currentModel, {
-                  model: simActive.model,
-                  modelId: simActive.modelId,
-                  modelDisplay: simActive.modelDisplay,
-                  isActive: true,
-                  stepType: 15,
-                  statusName: simActive.statusName,
-                })
-              : fx.snapshot.currentModel,
-            etag: 'demo-coord-' + currentLang + '-' + etagCounter + (simActive ? (simActive.streamStartMs > 0 ? '-stream' : '-wait') : ''),
-          });
-      if (isSwitchingWorker && window.scrollY > 120) {
+      if (!isSwitchingWorker) {
+        var coordEtag =
+          'demo-coord-' +
+          currentLang +
+          '-' +
+          etagCounter +
+          (simActive ? (simActive.streamStartMs > 0 ? '-stream' : '-wait') : '');
+        if (reqEtag && reqEtag === coordEtag) {
+          return Promise.resolve(
+            jsonResponse({ unchanged: true, etag: coordEtag, serverTimeMs: Date.now() }),
+          );
+        }
+        var snap = Object.assign({}, fx.snapshot, {
+          serverTimeMs: Date.now(),
+          activeStep: simActive,
+          currentModel: simActive
+            ? Object.assign({}, fx.snapshot.currentModel, {
+                model: simActive.model,
+                modelId: simActive.modelId,
+                modelDisplay: simActive.modelDisplay,
+                isActive: true,
+                stepType: 15,
+                statusName: simActive.statusName,
+              })
+            : fx.snapshot.currentModel,
+          etag: coordEtag,
+        });
+        return Promise.resolve(jsonResponse(snap));
+      }
+
+      var workerSnap = buildWorkerSnapshot(fx.snapshot, reqConv);
+      if (reqEtag && reqEtag === workerSnap.etag) {
+        return Promise.resolve(
+          jsonResponse({ unchanged: true, etag: workerSnap.etag, serverTimeMs: Date.now() }),
+        );
+      }
+      if (window.scrollY > 120) {
         setTimeout(function () {
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }, 60);
       }
-      return Promise.resolve(jsonResponse(snap));
+      return Promise.resolve(jsonResponse(workerSnap));
     }
 
     if (url.pathname.endsWith('/api/call-detail')) {

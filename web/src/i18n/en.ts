@@ -68,7 +68,7 @@ export const en: Translations = {
   badgeRetry: 'RETRY...',
   noDb: 'No session DB found',
   readErr: (e) => `Read err: ${e}`,
-  waitFirstCall: (id) => `Conv ${id}… · waiting for call`,
+  waitFirstCall: (id) => (id ? `Conv ${id}… · waiting for call` : 'New conversation · waiting for call'),
   sessionMeta: (turns, steps, calls) => `${turns} turns · ${steps} steps · ${calls} calls`,
   modelWaiting: (m) => `Waiting TTFT · ${m}`,
   modelRunning: (m) => `Streaming · ${m}`,
@@ -251,6 +251,18 @@ export const en: Translations = {
   remoteWinBanner: (remoteUsd) => `Other devices / cloud (not in local totals): ~+${remoteUsd}`,
   remoteWinBannerTip:
     'Estimated active-window quota usage outside this machine (e.g. another laptop, cloud/web sessions, or unlogged calls). Local totals above only count App + CLI DBs stored on this computer.',
+  accountSpendScopeLabel: 'ACCOUNT TOTAL (ALL DEVICES)',
+  accountSpendProvTag: 'USD est.',
+  accountSpendWeek: '7 DAYS',
+  accountSpendTracked: 'TRACKED',
+  accountSpendDaysSub: (days, resets) => (resets > 0 ? `${days}d · ${resets} reset${resets > 1 ? 's' : ''}` : `${days}d tracked`),
+  accountSpendScopeTip:
+    'Account-wide total consumption aggregated from server quota snapshots across all devices (preserves pre-reset usage when mid-window resets occur). Quota % is exact across devices; USD is converted using each pool’s latest cap.',
+  accountResetBanner: (count, poolLabel, spanKey, reclaimedStr, clockStr) =>
+    `${count} server quota reset${count > 1 ? 's' : ''} in 30d (latest: ${poolLabel} ${spanKey} +${reclaimedStr} · ${clockStr})`,
+  accountResetKindInWindow: 'mid-window reset',
+  accountResetKindEarlyShift: 'early window shift',
+  accountResetTipTitle: 'Detected server-side mid-window resets (pre-reset usage preserved in account totals)',
   spendSession: 'SESSION',
   spendToday: 'TODAY',
   spendMonth: 'MONTH',
@@ -482,6 +494,7 @@ export const en: Translations = {
   ttftLiveSlowSub: (mult, avgTtft) => `${mult}× avg (${avgTtft}) · still waiting…`,
   ttftLiveStreamSub: (genSec, avgTtft) => `1st tok in · gen ${genSec}s (avg ${avgTtft})`,
   ttftLiveLockedBadge: '1ST TOK',
+  ttftLiveSlowBadge: 'WAIT LONG',
   ttftLiveStallBadge: 'SLOW TTFT',
   ttftBarsTip: (n, latestTtft, ttftSharePct, avgTtft) =>
     `Last ${n} calls Time-To-First-Token (TTFT)\nLatest: ${latestTtft} (${ttftSharePct}% of turn wall time) · Session avg: ${avgTtft}\nGreen <2s · Amber 2–6s · Red >6s (dashed line = avg)`,

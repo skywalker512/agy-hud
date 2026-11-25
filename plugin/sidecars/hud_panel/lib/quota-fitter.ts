@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { resolveQuotaFitPath, statSafe } from './constants.ts';
+import { localDayKey, resolveQuotaFitPath, statSafe } from './constants.ts';
 import { getCurrentPricingSig, poolKeyForGroupLabel, resolveModelPricing } from './pricing.ts';
 import {
   FAMILY_CLASSIFIER_VERSION,
@@ -20,6 +20,7 @@ import {
   computeBaseReferenceUSD,
   getFamilyBaseRates,
   getFamilyPriorK,
+  getPoolPriorFull5h,
   getPoolPriorGamma,
   getPoolPriorRefBeta,
   hasTrustedPoolFit,
@@ -29,14 +30,33 @@ import {
   selectConsensusGamma,
   solvePoolFitModel,
 } from './quota-solver.ts';
-import type { QuotaFitStore, QuotaPoolState, QuotaSample } from './quota-solver.ts';
+import type {
+  QuotaBurnInterval,
+  QuotaDailyBurnEntry,
+  QuotaFitStore,
+  QuotaPoolState,
+  QuotaResetEvent,
+  QuotaSample,
+  QuotaWindowPeak,
+} from './quota-solver.ts';
 
-export type { QuotaFitStore, QuotaModelFitEntry, QuotaPoolFit, QuotaPoolState, QuotaSample } from './quota-solver.ts';
+export type {
+  QuotaBurnInterval,
+  QuotaDailyBurnEntry,
+  QuotaFitStore,
+  QuotaModelFitEntry,
+  QuotaPoolFit,
+  QuotaPoolState,
+  QuotaResetEvent,
+  QuotaSample,
+  QuotaWindowPeak,
+} from './quota-solver.ts';
 export {
   FAMILY_CLASSIFIER_VERSION,
   computeBaseReferenceUSD,
   getFamilyBaseRates,
   getFamilyPriorK,
+  getPoolPriorFull5h,
   getPoolPriorGamma,
   getPoolPriorRefBeta,
   hasPoolPrior,
@@ -47,9 +67,265 @@ export {
 } from './quota-solver.ts';
 
 const MAX_SAMPLES_PER_POOL = 200;
+const MAX_BURN_LOG_ENTRIES = 600;
+const BURN_LOG_RETENTION_MS = 32 * 86_400_000;
+const BURN_LOG_FINE_WINDOW_MS = 48 * 3_600_000;
+const BURN_LOG_FINE_BUCKET_MS = 5 * 60_000;
+const DAILY_BURN_RETENTION_DAYS = 365;
+const MAX_RESET_EVENTS_PER_POOL = 64;
+const RESET_EVENT_RETENTION_MS = 90 * 86_400_000;
+const WIN_PEAK_5H_RETENTION_MS = 32 * 86_400_000;
+const WIN_PEAK_7D_RETENTION_MS = 45 * 86_400_000;
+const MAX_WIN_PEAKS_5H = 200;
+const MAX_WIN_PEAKS_7D = 12;
 const MAX_ACCOUNT_TIMELINE_SPANS = 64;
 const BOUNDARY_GEN_PAD_MS = 1500;
 const fitStoreMemCache = new Map<string, { store: QuotaFitStore; mtimeMs: number; size: number }>();
+
+function sameResetWindow(a?: number, b?: number): boolean {
+  const na = a || 0;
+  const nb = b || 0;
+  if (na === 0 && nb === 0) return true;
+  if (na === 0 || nb === 0) return false;
+  return Math.abs(na - nb) < 60_000;
+}
+
+function compactOldBurnLog(log: QuotaBurnInterval[], nowMs: number): void {
+  const minTs = nowMs - BURN_LOG_RETENTION_MS;
+  const coarseCutoff = nowMs - BURN_LOG_FINE_WINDOW_MS;
+  const out: QuotaBurnInterval[] = [];
+  for (const item of log) {
+    if (item.t1 < minTs) continue;
+    const prev = out[out.length - 1];
+    if (
+      prev
+      && item.t1 <= coarseCutoff
+      && prev.t1 <= coarseCutoff
+      && sameResetWindow(prev.w5ResetAtMs, item.w5ResetAtMs)
+      && sameResetWindow(prev.w7ResetAtMs, item.w7ResetAtMs)
+      && (prev.du7 === null) === (item.du7 === null)
+      && Math.floor(prev.t0 / 3_600_000) === Math.floor(item.t0 / 3_600_000)
+      && item.t1 - prev.t0 <= 3_600_000
+    ) {
+      prev.t1 = Math.max(prev.t1, item.t1);
+      prev.du5 += item.du5;
+      if (prev.du7 !== null && item.du7 !== null) {
+        prev.du7 += item.du7;
+      }
+      if (!item.remoteOnly) delete prev.remoteOnly;
+      continue;
+    }
+    out.push(item);
+  }
+  if (out.length > MAX_BURN_LOG_ENTRIES) {
+    out.splice(0, out.length - MAX_BURN_LOG_ENTRIES);
+  }
+  log.length = 0;
+  log.push(...out);
+}
+
+function addDailyBurnRange(
+  ps: QuotaPoolState,
+  t0: number,
+  t1: number,
+  du5: number,
+  du7: number | null,
+  nowMs: number,
+): void {
+  const totalMs = t1 - t0;
+  if (!(totalMs > 0)) return;
+  const add5 = du5 > 0 ? du5 : 0;
+  const add7 = du7 !== null && du7 > 0 ? du7 : 0;
+  if (!(add5 > 0) && !(add7 > 0)) return;
+  if (!ps.dailyBurn || typeof ps.dailyBurn !== 'object') ps.dailyBurn = {};
+
+  let cursor = t0;
+  let guard = 0;
+  while (cursor < t1 && guard++ < 40) {
+    const dk = localDayKey(cursor);
+    if (!dk) break;
+    const [y, m, d] = dk.split('-').map(Number);
+    const nextMid = new Date(y, m - 1, d + 1, 0, 0, 0).getTime();
+    const segEnd = Number.isFinite(nextMid) && nextMid > cursor ? Math.min(t1, nextMid) : t1;
+    const frac = (segEnd - cursor) / totalMs;
+    if (frac > 0) {
+      const cur: QuotaDailyBurnEntry = ps.dailyBurn[dk] || { pct5h: 0, pct7d: 0 };
+      if (add5 > 0) cur.pct5h = Number((cur.pct5h + add5 * frac).toFixed(6));
+      if (add7 > 0) cur.pct7d = Number((cur.pct7d + add7 * frac).toFixed(6));
+      ps.dailyBurn[dk] = cur;
+    }
+    if (segEnd <= cursor) break;
+    cursor = segEnd;
+  }
+
+  const keys = Object.keys(ps.dailyBurn);
+  if (keys.length > DAILY_BURN_RETENTION_DAYS + 16) {
+    const minDay = localDayKey(nowMs - DAILY_BURN_RETENTION_DAYS * 86_400_000);
+    if (minDay) {
+      for (const k of keys) {
+        if (k < minDay) delete ps.dailyBurn[k];
+      }
+    }
+  }
+}
+
+function backfillDailyBurnIfNeeded(ps: QuotaPoolState, nowMs: number): boolean {
+  if (ps.dailyBurn && Object.keys(ps.dailyBurn).length > 0) return false;
+  if (!Array.isArray(ps.burnLog) || !ps.burnLog.length) return false;
+  ps.dailyBurn = {};
+  for (const e of ps.burnLog) {
+    addDailyBurnRange(ps, e.t0, e.t1, e.du5, e.du7, nowMs);
+  }
+  return Object.keys(ps.dailyBurn).length > 0;
+}
+
+function recordResetEvent(ps: QuotaPoolState, ev: QuotaResetEvent): boolean {
+  if (!(ev.reclaimedPct > 0.05) || !(ev.ts > 0)) return false;
+  if (!Array.isArray(ps.resetEvents)) ps.resetEvents = [];
+  const last = ps.resetEvents[ps.resetEvents.length - 1];
+  if (last && last.spanKey === ev.spanKey && last.kind === ev.kind && Math.abs(last.ts - ev.ts) < 30_000) {
+    return false;
+  }
+  ps.resetEvents.push({
+    ...ev,
+    beforeUsedPct: Number(ev.beforeUsedPct.toFixed(4)),
+    afterUsedPct: Number(ev.afterUsedPct.toFixed(4)),
+    reclaimedPct: Number(ev.reclaimedPct.toFixed(4)),
+  });
+  const cutoff = ev.ts - RESET_EVENT_RETENTION_MS;
+  if (ps.resetEvents[0].ts < cutoff || ps.resetEvents.length > MAX_RESET_EVENTS_PER_POOL) {
+    const kept = ps.resetEvents.filter((r) => r.ts >= cutoff);
+    if (kept.length > MAX_RESET_EVENTS_PER_POOL) {
+      kept.splice(0, kept.length - MAX_RESET_EVENTS_PER_POOL);
+    }
+    ps.resetEvents = kept;
+  }
+
+  const dk = localDayKey(ev.ts);
+  if (dk) {
+    if (!ps.dailyBurn || typeof ps.dailyBurn !== 'object') ps.dailyBurn = {};
+    const cur: QuotaDailyBurnEntry = ps.dailyBurn[dk] || { pct5h: 0, pct7d: 0 };
+    cur.resets = (cur.resets || 0) + 1;
+    if (ev.spanKey === '5h') {
+      cur.reclaimedPct5h = Number(((cur.reclaimedPct5h || 0) + ev.reclaimedPct).toFixed(4));
+    } else {
+      cur.reclaimedPct7d = Number(((cur.reclaimedPct7d || 0) + ev.reclaimedPct).toFixed(4));
+    }
+    ps.dailyBurn[dk] = cur;
+  }
+  return true;
+}
+
+function recordBurnInterval(ps: QuotaPoolState, entry: QuotaBurnInterval, nowMs: number): boolean {
+  const du5 = Number.isFinite(entry.du5) && entry.du5 > 0 ? entry.du5 : 0;
+  const du7 = typeof entry.du7 === 'number' && Number.isFinite(entry.du7) ? Math.max(0, entry.du7) : null;
+  if (!(du5 >= 0.0003) && !(du7 !== null && du7 >= 0.0003)) return false;
+  if (!(entry.t1 > entry.t0)) return false;
+
+  if (!Array.isArray(ps.burnLog)) ps.burnLog = [];
+  const clean: QuotaBurnInterval = {
+    t0: entry.t0,
+    t1: entry.t1,
+    du5,
+    du7,
+    ...(entry.w5ResetAtMs ? { w5ResetAtMs: entry.w5ResetAtMs } : {}),
+    ...(entry.w7ResetAtMs ? { w7ResetAtMs: entry.w7ResetAtMs } : {}),
+    ...(entry.remoteOnly ? { remoteOnly: true } : {}),
+  };
+
+  const last = ps.burnLog[ps.burnLog.length - 1];
+  if (
+    last
+    && last.t0 === clean.t0
+    && last.t1 === clean.t1
+    && sameResetWindow(last.w5ResetAtMs, clean.w5ResetAtMs)
+    && sameResetWindow(last.w7ResetAtMs, clean.w7ResetAtMs)
+    && (last.du7 === null) === (clean.du7 === null)
+  ) {
+    return false;
+  }
+
+  if (
+    last
+    && clean.t0 >= last.t1 - 1000
+    && sameResetWindow(last.w5ResetAtMs, clean.w5ResetAtMs)
+    && sameResetWindow(last.w7ResetAtMs, clean.w7ResetAtMs)
+    && (last.du7 === null) === (clean.du7 === null)
+    && Math.floor(last.t0 / BURN_LOG_FINE_BUCKET_MS) === Math.floor(clean.t0 / BURN_LOG_FINE_BUCKET_MS)
+    && clean.t1 - last.t0 <= BURN_LOG_FINE_BUCKET_MS
+  ) {
+    last.t1 = Math.max(last.t1, clean.t1);
+    last.du5 += clean.du5;
+    if (last.du7 !== null && clean.du7 !== null) {
+      last.du7 += clean.du7;
+    }
+    if (!clean.remoteOnly) delete last.remoteOnly;
+  } else {
+    ps.burnLog.push(clean);
+  }
+
+  addDailyBurnRange(ps, clean.t0, clean.t1, clean.du5, clean.du7, nowMs);
+
+  if (ps.burnLog.length > MAX_BURN_LOG_ENTRIES || (ps.burnLog[0]?.t1 ?? nowMs) < nowMs - BURN_LOG_RETENTION_MS) {
+    compactOldBurnLog(ps.burnLog, nowMs);
+  }
+  return true;
+}
+
+function recordWindowPeak(
+  peaks: QuotaWindowPeak[],
+  {
+    resetAtMs,
+    usedPct,
+    fetchedAtMs,
+    retentionMs,
+    maxEntries,
+  }: {
+    resetAtMs: number;
+    usedPct: number;
+    fetchedAtMs: number;
+    retentionMs: number;
+    maxEntries: number;
+  },
+): boolean {
+  if (!(resetAtMs > 0) || !Number.isFinite(usedPct)) return false;
+  let changed = false;
+  const existing = peaks.find((p) => Math.abs(p.resetAtMs - resetAtMs) < 60_000);
+  if (existing) {
+    if (fetchedAtMs > existing.lastSeenMs) {
+      existing.lastSeenMs = fetchedAtMs;
+      changed = true;
+    }
+    if (usedPct > existing.maxUsedPct + 0.0005) {
+      existing.maxUsedPct = usedPct;
+      existing.peakReachedAtMs = fetchedAtMs;
+      changed = true;
+    }
+  } else if (usedPct >= 0.05) {
+    peaks.push({
+      resetAtMs,
+      maxUsedPct: usedPct,
+      firstSeenMs: fetchedAtMs,
+      lastSeenMs: fetchedAtMs,
+      peakReachedAtMs: fetchedAtMs,
+    });
+    changed = true;
+  }
+
+  const cutoff = fetchedAtMs - retentionMs;
+  if (peaks.length > 0 && (peaks[0].resetAtMs < cutoff || peaks.length > maxEntries)) {
+    const kept = peaks.filter((p) => p.resetAtMs >= cutoff);
+    if (kept.length > maxEntries) {
+      kept.splice(0, kept.length - maxEntries);
+    }
+    if (kept.length !== peaks.length) {
+      peaks.length = 0;
+      peaks.push(...kept);
+      changed = true;
+    }
+  }
+  return changed;
+}
 
 export function resolveAccountId(accountQuota: any): string {
   const rawEmail = typeof accountQuota?.email === 'string' ? accountQuota.email.trim().toLowerCase() : '';
@@ -461,8 +737,12 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
     const currClean = !hasActiveInFlight && isSnapshotBoundaryClean(allCalls, pk, reqStartedAtMs, fetchedAtMs);
     const prev = ps.lastSnap;
 
+    if (backfillDailyBurnIfNeeded(ps, fetchedAtMs)) dirty = true;
+
     let addedSample = false;
     let deferSnapAdvance = false;
+    let confirmedInWindowReset = false;
+    let resetFromPending: { firstSeenMs: number; w5UsedPct?: number; w7UsedPct?: number } | null = null;
     const pushSample = (sample) => {
       const { appCallCount: _ac, cliCallCount: _cc, ...persistedSample } = sample;
       const last = ps.samples[ps.samples.length - 1];
@@ -511,9 +791,74 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
         }
       }
 
-      if (same5h && du5 !== null && du5 < -0.0005) {
-        // Quota usage within an active 5h window is strictly non-decreasing; ignore stale rewind reads.
-        deferSnapAdvance = true;
+      const isRewind5h = same5h && du5 !== null && du5 < -0.0005;
+      const isRewind7d = same7d && du7 !== null && du7 < -0.0005;
+      if (isRewind5h || isRewind7d) {
+        // Distinguish transient single-poll stale reads (e.g. degraded user_status cache) from confirmed
+        // mid-window server quota resets (2 consecutive non-user_status polls with significant drop).
+        const big5 = isRewind5h && du5! <= -1.0;
+        const big7 = isRewind7d && du7! <= -0.5;
+        if (accountQuota.source !== 'user_status' && (big5 || big7)) {
+          const pend = ps.pendingRewind;
+          const matchesPending = Boolean(
+            pend
+            && fetchedAtMs > pend.firstSeenMs + 1000
+            && fetchedAtMs - pend.firstSeenMs <= 30 * 60_000
+            && (!big5 || (pend.w5UsedPct !== undefined && u5! >= pend.w5UsedPct - 0.05))
+            && (!big7 || (pend.w7UsedPct !== undefined && u7! >= pend.w7UsedPct - 0.05)),
+          );
+          if (matchesPending && pend) {
+            confirmedInWindowReset = true;
+            resetFromPending = pend;
+            ps.pendingRewind = null;
+            if (big5 && w5) {
+              const after5 = pend.w5UsedPct !== undefined ? Math.min(pend.w5UsedPct, u5!) : u5!;
+              recordResetEvent(ps, {
+                ts: pend.firstSeenMs,
+                spanKey: '5h',
+                kind: 'in_window_rewind',
+                beforeUsedPct: prev.w5UsedPct!,
+                afterUsedPct: after5,
+                reclaimedPct: Math.max(0, prev.w5UsedPct! - after5),
+                prevResetAtMs: prev.w5ResetAtMs,
+                nextResetAtMs: w5.resetAtMs,
+              });
+            }
+            if (big7 && w7) {
+              const after7 = pend.w7UsedPct !== undefined ? Math.min(pend.w7UsedPct, u7!) : u7!;
+              recordResetEvent(ps, {
+                ts: pend.firstSeenMs,
+                spanKey: '7d',
+                kind: 'in_window_rewind',
+                beforeUsedPct: prev.w7UsedPct!,
+                afterUsedPct: after7,
+                reclaimedPct: Math.max(0, prev.w7UsedPct! - after7),
+                prevResetAtMs: prev.w7ResetAtMs,
+                nextResetAtMs: w7.resetAtMs,
+              });
+            }
+            dirty = true;
+          } else {
+            deferSnapAdvance = true;
+            ps.pendingRewind = {
+              ...(big5 ? { w5UsedPct: u5! } : {}),
+              ...(big7 ? { w7UsedPct: u7! } : {}),
+              firstSeenMs: fetchedAtMs,
+              count: 1,
+            };
+            dirty = true;
+          }
+        } else {
+          // Quota usage within an active window is non-decreasing; ignore transient/small stale rewind reads.
+          deferSnapAdvance = true;
+        }
+      } else if (ps.pendingRewind) {
+        ps.pendingRewind = null;
+        dirty = true;
+      }
+
+      if (confirmedInWindowReset || isRewind5h || isRewind7d) {
+        // Never push negative or mid-reset deltas into ps.samples (keeps model parameter fit clean).
       } else if (same5h && du5 !== null && du5 >= -0.0005) {
         const agg = aggregateCallsInInterval(allCalls, pk, prev.fetchedAtMs, fetchedAtMs, aggOpts);
         const cliOnly = agg.appCallCount === 0 && agg.cliCallCount > 0;
@@ -627,6 +972,193 @@ export function ingestQuotaObservation(accountQuota: any, graph: any, opts: Inge
     }
 
     if (!deferSnapAdvance && (!prev || fetchedAtMs > prev.fetchedAtMs)) {
+      // Record account-wide burn intervals (including pure remote / other-device burn where local callCount === 0)
+      // strictly outside ps.samples so model parameter fitting stays clean while runway reflects all devices.
+      const w7StartMs = w7 ? w7.resetAtMs - 7 * 24 * 3_600_000 : 0;
+      const isRemoteAnchor = (winStart: number, pct: number) =>
+        pct >= 0.25 && aggregateCallsInInterval(allCalls, pk, winStart, fetchedAtMs, aggOpts).callCount === 0;
+      if (confirmedInWindowReset && resetFromPending) {
+        // Capture any fresh consumption that already occurred between the reset detection and confirmation poll.
+        const postDu5 = u5 !== null && resetFromPending.w5UsedPct !== undefined
+          ? Math.max(0, u5 - resetFromPending.w5UsedPct)
+          : 0;
+        const postDu7 = u7 !== null && resetFromPending.w7UsedPct !== undefined
+          ? Math.max(0, u7 - resetFromPending.w7UsedPct)
+          : null;
+        if (postDu5 >= 0.0003 || (postDu7 !== null && postDu7 >= 0.0003)) {
+          const postCalls = aggregateCallsInInterval(allCalls, pk, resetFromPending.firstSeenMs, fetchedAtMs, aggOpts).callCount;
+          if (recordBurnInterval(ps, {
+            t0: resetFromPending.firstSeenMs,
+            t1: fetchedAtMs,
+            du5: postDu5,
+            du7: postDu7,
+            w5ResetAtMs: w5?.resetAtMs || 0,
+            w7ResetAtMs: w7?.resetAtMs || 0,
+            remoteOnly: postCalls === 0 && (postDu5 >= 0.05 || (postDu7 ?? 0) >= 0.05),
+          }, fetchedAtMs)) {
+            dirty = true;
+          }
+        }
+      } else if (prev && fetchedAtMs > prev.fetchedAtMs + 1000) {
+        const same5h = Boolean(w5 && prev.w5ResetAtMs && Math.abs(w5.resetAtMs - prev.w5ResetAtMs) < 60_000);
+        const same7d = Boolean(w7 && prev.w7ResetAtMs && Math.abs(w7.resetAtMs - prev.w7ResetAtMs) < 60_000);
+        const du5 = same5h && u5 !== null && prev.w5UsedPct !== null ? u5 - prev.w5UsedPct : null;
+        const du7 = same7d && u7 !== null && prev.w7UsedPct !== null ? u7 - prev.w7UsedPct : null;
+        const intervalCalls = aggregateCallsInInterval(allCalls, pk, prev.fetchedAtMs, fetchedAtMs, aggOpts).callCount;
+
+        // Detect early server window shifts (previous window had >5m/15m remaining yet reset early with reclaimed quota).
+        if (!same5h && w5 && prev.w5ResetAtMs > fetchedAtMs + 5 * 60_000 && (prev.w5UsedPct ?? 0) >= 1.0 && u5 !== null && u5 < prev.w5UsedPct! - 1.0) {
+          if (recordResetEvent(ps, {
+            ts: fetchedAtMs,
+            spanKey: '5h',
+            kind: 'early_window_shift',
+            beforeUsedPct: prev.w5UsedPct!,
+            afterUsedPct: u5,
+            reclaimedPct: prev.w5UsedPct! - u5,
+            prevResetAtMs: prev.w5ResetAtMs,
+            nextResetAtMs: w5.resetAtMs,
+          })) {
+            dirty = true;
+          }
+        }
+        if (!same7d && w7 && prev.w7ResetAtMs > fetchedAtMs + 15 * 60_000 && (prev.w7UsedPct ?? 0) >= 0.5 && u7 !== null && u7 < prev.w7UsedPct! - 0.5) {
+          if (recordResetEvent(ps, {
+            ts: fetchedAtMs,
+            spanKey: '7d',
+            kind: 'early_window_shift',
+            beforeUsedPct: prev.w7UsedPct!,
+            afterUsedPct: u7,
+            reclaimedPct: prev.w7UsedPct! - u7,
+            prevResetAtMs: prev.w7ResetAtMs,
+            nextResetAtMs: w7.resetAtMs,
+          })) {
+            dirty = true;
+          }
+        }
+
+        if (same5h) {
+          const posDu5 = du5 !== null && du5 >= 0.0003 ? du5 : 0;
+          const posDu7 = same7d && du7 !== null ? Math.max(0, du7 >= 0.0003 ? du7 : 0) : null;
+          if (posDu5 > 0 || (posDu7 !== null && posDu7 > 0)) {
+            if (recordBurnInterval(ps, {
+              t0: prev.fetchedAtMs,
+              t1: fetchedAtMs,
+              du5: posDu5,
+              du7: posDu7,
+              w5ResetAtMs: w5?.resetAtMs || 0,
+              w7ResetAtMs: same7d ? (w7?.resetAtMs || 0) : 0,
+              remoteOnly: intervalCalls === 0 && (posDu5 >= 0.05 || (posDu7 ?? 0) >= 0.05),
+            }, fetchedAtMs)) {
+              dirty = true;
+            }
+          }
+          if (!same7d && w7 && u7 !== null && u7 >= 0.0005) {
+            if (recordBurnInterval(ps, {
+              t0: Math.min(w7StartMs, fetchedAtMs - 1000),
+              t1: fetchedAtMs,
+              du5: 0,
+              du7: u7,
+              w5ResetAtMs: 0,
+              w7ResetAtMs: w7.resetAtMs,
+              remoteOnly: isRemoteAnchor(w7StartMs, u7),
+            }, fetchedAtMs)) {
+              dirty = true;
+            }
+          }
+        } else {
+          if (same7d && du7 !== null && du7 >= 0.0003 && w7) {
+            if (recordBurnInterval(ps, {
+              t0: prev.fetchedAtMs,
+              t1: fetchedAtMs,
+              du5: 0,
+              du7,
+              w5ResetAtMs: 0,
+              w7ResetAtMs: w7.resetAtMs,
+              remoteOnly: intervalCalls === 0 && du7 >= 0.05,
+            }, fetchedAtMs)) {
+              dirty = true;
+            }
+          } else if (!same7d && w7 && u7 !== null && u7 >= 0.0005) {
+            if (recordBurnInterval(ps, {
+              t0: Math.min(w7StartMs, fetchedAtMs - 1000),
+              t1: fetchedAtMs,
+              du5: 0,
+              du7: u7,
+              w5ResetAtMs: 0,
+              w7ResetAtMs: w7.resetAtMs,
+              remoteOnly: isRemoteAnchor(w7StartMs, u7),
+            }, fetchedAtMs)) {
+              dirty = true;
+            }
+          }
+          if (w5 && u5 !== null && u5 >= 0.0005) {
+            if (recordBurnInterval(ps, {
+              t0: Math.min(w5StartMs, fetchedAtMs - 1000),
+              t1: fetchedAtMs,
+              du5: u5,
+              du7: null,
+              w5ResetAtMs: w5.resetAtMs,
+              w7ResetAtMs: 0,
+              remoteOnly: (w5CumAgg?.callCount ?? 0) === 0 && u5 >= 0.25,
+            }, fetchedAtMs)) {
+              dirty = true;
+            }
+          }
+        }
+      } else if (!prev) {
+        if (w5 && u5 !== null && u5 >= 0.0005) {
+          if (recordBurnInterval(ps, {
+            t0: Math.min(w5StartMs, fetchedAtMs - 1000),
+            t1: fetchedAtMs,
+            du5: u5,
+            du7: null,
+            w5ResetAtMs: w5.resetAtMs,
+            w7ResetAtMs: 0,
+            remoteOnly: (w5CumAgg?.callCount ?? 0) === 0 && u5 >= 0.25,
+          }, fetchedAtMs)) {
+            dirty = true;
+          }
+        }
+        if (w7 && u7 !== null && u7 >= 0.0005) {
+          if (recordBurnInterval(ps, {
+            t0: Math.min(w7StartMs, fetchedAtMs - 1000),
+            t1: fetchedAtMs,
+            du5: 0,
+            du7: u7,
+            w5ResetAtMs: 0,
+            w7ResetAtMs: w7.resetAtMs,
+            remoteOnly: isRemoteAnchor(w7StartMs, u7),
+          }, fetchedAtMs)) {
+            dirty = true;
+          }
+        }
+      }
+
+      if (w5 && u5 !== null) {
+        if (!Array.isArray(ps.winPeaks5h)) ps.winPeaks5h = [];
+        if (recordWindowPeak(ps.winPeaks5h, {
+          resetAtMs: w5.resetAtMs,
+          usedPct: u5,
+          fetchedAtMs,
+          retentionMs: WIN_PEAK_5H_RETENTION_MS,
+          maxEntries: MAX_WIN_PEAKS_5H,
+        })) {
+          dirty = true;
+        }
+      }
+      if (w7 && u7 !== null) {
+        if (!Array.isArray(ps.winPeaks7d)) ps.winPeaks7d = [];
+        if (recordWindowPeak(ps.winPeaks7d, {
+          resetAtMs: w7.resetAtMs,
+          usedPct: u7,
+          fetchedAtMs,
+          retentionMs: WIN_PEAK_7D_RETENTION_MS,
+          maxEntries: MAX_WIN_PEAKS_7D,
+        })) {
+          dirty = true;
+        }
+      }
+
       ps.lastSnap = {
         fetchedAtMs,
         reqStartedAtMs,

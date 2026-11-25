@@ -148,7 +148,10 @@ export function HeroSpeedCards({
   if (isStreaming) {
     livePill = isActivelyGenerating
       ? { cls: 'live-pill', text: t.liveRowTagStream }
-      : { cls: isTtftStalled ? 'live-pill is-bad' : 'live-pill is-wait', text: t.liveWaitBadge };
+      : {
+          cls: isTtftStalled ? 'live-pill is-bad' : isTtftSlow ? 'live-pill is-wait' : 'live-pill is-wait-calm',
+          text: t.liveWaitBadge,
+        };
   } else if (found && activeStep?.stepType === 23) {
     livePill = { cls: 'live-pill is-compact', text: t.compactLiveBadge };
   }
@@ -157,7 +160,9 @@ export function HeroSpeedCards({
   if (isWaitingTtft) {
     ttftLivePill = isTtftStalled
       ? { cls: 'live-pill is-bad', text: t.ttftLiveStallBadge }
-      : { cls: 'live-pill is-wait', text: t.liveWaitBadge };
+      : isTtftSlow
+        ? { cls: 'live-pill is-wait', text: t.ttftLiveSlowBadge }
+        : { cls: 'live-pill is-wait-calm', text: t.liveWaitBadge };
   } else if (isActivelyGenerating && liveLockedTtftSec !== null) {
     ttftLivePill = { cls: 'live-pill', text: t.ttftLiveLockedBadge };
   }
@@ -289,6 +294,25 @@ export function HeroSpeedCards({
       inFlight: attr.inFlightCount,
     });
 
+    const calmGlobal = gP50
+      ? {
+          isAlert: false,
+          dotCls:
+            attr.globalStatus === 'outage'
+              ? 'bg-hud-bad'
+              : attr.globalStatus === 'degraded'
+                ? 'bg-hud-warn'
+                : 'bg-hud-ok',
+          pillCls: 'text-hud-muted',
+          text: t.ttftGlobalInline(gP50),
+          tip,
+        }
+      : null;
+
+    // During active first-token wait, show only the neutral global P50 reference so alerts
+    // from the previous completed call never bleed onto a fresh in-flight stopwatch.
+    if (isWaitingTtft) return calmGlobal;
+
     if (attr.verdict === 'upstream_degraded') {
       return { isAlert: true, dotCls: 'bg-hud-bad', pillCls: 'text-hud-bad bg-tint-bad', text: t.ttftVerdictUpstream(gP50), tip };
     }
@@ -304,15 +328,8 @@ export function HeroSpeedCards({
     if (attr.verdict === 'account_or_network') {
       return { isAlert: true, dotCls: 'bg-seg-input', pillCls: 'text-seg-input bg-tint-input', text: t.ttftVerdictLocalSlow(gP50), tip };
     }
-    if (!gP50) return null;
-    const dotCls =
-      attr.globalStatus === 'outage'
-        ? 'bg-hud-bad'
-        : attr.globalStatus === 'degraded'
-          ? 'bg-hud-warn'
-          : 'bg-hud-ok';
-    return { isAlert: false, dotCls, pillCls: 'text-hud-muted', text: t.ttftGlobalInline(gP50), tip };
-  }, [found, geminiPulse?.attribution, t]);
+    return calmGlobal;
+  }, [found, geminiPulse?.attribution, isWaitingTtft, t]);
 
   return (
     <div className="hero-speed-grid grid grid-cols-2 gap-2">
@@ -323,16 +340,15 @@ export function HeroSpeedCards({
         }`}
       >
         <div>
-          <div className="flex items-center justify-between gap-1.5 min-w-0">
+          <div className="flex items-center justify-between gap-1.5 min-w-0 min-h-[18px]">
             <span className="card-k truncate">{t.genLabel}</span>
-            <div className="flex items-center gap-1 shrink-0">
-              {deltaInfo && (
-                <span className={`hero-delta cursor-help ${deltaInfo.cls}`} data-tip={deltaInfo.tip}>
-                  {deltaInfo.label}
-                </span>
-              )}
-              {livePill && <span className={livePill.cls}>{livePill.text}</span>}
-            </div>
+            {livePill ? (
+              <span className={livePill.cls}>{livePill.text}</span>
+            ) : deltaInfo ? (
+              <span className={`hero-delta cursor-help shrink-0 ${deltaInfo.cls}`} data-tip={deltaInfo.tip}>
+                {deltaInfo.label}
+              </span>
+            ) : null}
           </div>
           <div className="hero-v mt-1.5 flex items-baseline gap-1 font-hud-mono text-[24px] font-bold leading-[1.08] tabular-nums min-w-0">
             <span className="truncate">{genValue}</span>
@@ -390,19 +406,21 @@ export function HeroSpeedCards({
         className={`hud-card min-w-0 max-w-full flex flex-col justify-between overflow-hidden${
           isTtftStalled
             ? ' is-waiting-stalled'
-            : isWaitingTtft
+            : isTtftSlow
               ? ' is-waiting-ttft'
-              : isActivelyGenerating && liveLockedTtftSec !== null
-                ? ' is-streaming is-ttft-locked'
-                : ''
+              : isWaitingTtft
+                ? ' is-waiting-calm'
+                : isActivelyGenerating && liveLockedTtftSec !== null
+                  ? ' is-streaming is-ttft-locked'
+                  : ''
         }`}
       >
         <div>
-          <div className="flex items-center justify-between gap-1.5 min-w-0">
+          <div className="flex items-center justify-between gap-1.5 min-w-0 min-h-[18px]">
             <span className="card-k truncate">{t.ttftHeroLabel}</span>
             {ttftLivePill ? (
-              <span className={`${ttftLivePill.cls} shrink-0`}>
-                {isWaitingTtft && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}
+              <span className={ttftLivePill.cls}>
+                {isWaitingTtft && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse shrink-0" />}
                 <span>{ttftLivePill.text}</span>
               </span>
             ) : found && latest && latest.cacheHitPct !== null ? (
@@ -423,13 +441,13 @@ export function HeroSpeedCards({
               isTtftStalled ? ' text-hud-bad' : isTtftSlow ? ' text-hud-warn' : isActivelyGenerating && liveLockedTtftSec !== null ? ' text-hud-ok' : ''
             }`}
           >
-            <div className="flex items-baseline gap-1 min-w-0">
-              <span className="truncate">{ttftDisp.num}</span>
+            <div className="flex items-baseline gap-1 shrink-0">
+              <span>{ttftDisp.num}</span>
               {ttftDisp.unit && <span className="hud-unit text-[11px] shrink-0">{ttftDisp.unit}</span>}
             </div>
             {pulseIndicator && (
               <span
-                className={`inline-flex items-center gap-1 cursor-help font-hud text-[9.5px] leading-none shrink-0 max-w-[110px] truncate ${
+                className={`inline-flex items-center gap-1 cursor-help font-hud text-[9.5px] leading-none min-w-0 max-w-[110px] ${
                   pulseIndicator.isAlert
                     ? `px-1.5 py-[2.5px] rounded-full font-semibold ${pulseIndicator.pillCls}`
                     : `font-medium ${pulseIndicator.pillCls}`
@@ -443,15 +461,29 @@ export function HeroSpeedCards({
           </div>
           <div className="card-sub truncate whitespace-nowrap" data-tip={ttftSub}>{ttftSub}</div>
 
-          {isWaitingTtft && (() => {
+          {found && (latest || isWaitingTtft || liveLockedTtftSec !== null) && (() => {
+            const isLiveTrack = isWaitingTtft || (isActivelyGenerating && liveLockedTtftSec !== null);
+            const activeSec = isWaitingTtft
+              ? liveWaitSec
+              : isActivelyGenerating && liveLockedTtftSec !== null
+                ? liveLockedTtftSec
+                : Math.max(0, latest?.ttftSec || 0);
             const scaleMax = Math.max(8, baselineTtft * 3);
-            const fillPct = Math.min(100, Math.max(6, (liveWaitSec / scaleMax) * 100));
+            const fillPct = activeSec > 0 ? Math.min(100, Math.max(6, (activeSec / scaleMax) * 100)) : 0;
             const avgTickPct = Math.min(88, Math.max(10, (baselineTtft / scaleMax) * 100));
-            const fillColor = isTtftStalled ? 'var(--hud-bad)' : isTtftSlow ? 'var(--hud-warn)' : 'var(--seg-cache)';
+            const fillColor = isWaitingTtft
+              ? isTtftStalled
+                ? 'var(--hud-bad)'
+                : isTtftSlow
+                  ? 'var(--hud-warn)'
+                  : 'var(--seg-cache)'
+              : isActivelyGenerating && liveLockedTtftSec !== null
+                ? 'var(--hud-ok)'
+                : ttftBarColor(activeSec);
             return (
-              <div className="ttft-wait-track" aria-hidden="true">
+              <div className={`ttft-wait-track${!isLiveTrack ? ' is-idle' : ''}`} aria-hidden="true">
                 <div
-                  className="ttft-wait-fill"
+                  className={`ttft-wait-fill${!isWaitingTtft ? ' is-locked' : ''}`}
                   style={{ width: `${fillPct.toFixed(1)}%`, backgroundColor: fillColor }}
                 />
                 <span className="ttft-wait-avg-tick" style={{ left: `${avgTickPct.toFixed(1)}%` }} />
@@ -465,7 +497,7 @@ export function HeroSpeedCards({
             <svg
               viewBox={`0 0 ${ttftBars.w} ${ttftBars.h}`}
               preserveAspectRatio="none"
-              className="block w-full h-[24px]"
+              className="block w-full h-[24px] ttft-bars-svg"
               aria-hidden="true"
             >
               {ttftBars.avgY !== null && (
@@ -479,6 +511,7 @@ export function HeroSpeedCards({
                   stroke-width="0.8"
                   stroke-dasharray="2.5 2.5"
                   vector-effect="non-scaling-stroke"
+                  className="ttft-avg-line"
                 />
               )}
               {ttftBars.bars.map((b, i) => (

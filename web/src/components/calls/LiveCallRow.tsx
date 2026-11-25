@@ -53,7 +53,9 @@ export function LiveCallRow({
     !isCompact && !st.isStreaming && liveTtftSec !== null
       ? liveTtftTier === 'slow'
         ? ' is-waiting-stalled'
-        : ' is-waiting-ttft'
+        : liveTtftTier === 'mid'
+          ? ' is-waiting-ttft'
+          : ' is-waiting-calm'
       : '';
 
   return (

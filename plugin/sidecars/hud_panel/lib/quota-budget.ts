@@ -10,6 +10,8 @@ import {
   buildAccountTierKey,
   evaluatePoolWindowResidual,
   getFamilyBaseRates,
+  getPoolPriorFull5h,
+  getPoolPriorGamma,
   hasPoolPrior,
   hasTrustedPoolFit,
   ingestQuotaObservation,
@@ -61,6 +63,11 @@ const COLD_PRIOR_MATCH_HI = 1.25;
 const HIST_LOOKBACK_DAYS = 30;
 const HIST_MIN_ACTIVE_DAYS = 2;
 const HIST_MIN_ACTIVE_HOURS = 2;
+const ACCOUNT_HIST_MIN_5H_COVERED_HR = 1.0;
+const ACCOUNT_HIST_MIN_7D_COVERED_HR = 24.0;
+const HIST_EWMA_HALF_LIFE_5H_DAYS = 4.0;
+const HIST_EWMA_HALF_LIFE_7D_DAYS = 14.0;
+const REMOTE_ACTIVITY_LOOKBACK_MS = 14 * 86_400_000;
 const RUNWAY_SHRINKAGE_TAU_7D_HR = 24.0;
 const RUNWAY_SHRINKAGE_TAU_5H_HR = 1.0;
 
@@ -406,9 +413,122 @@ interface HistoricalPace {
   activeHoursPerDay: number;
   activeDays: number;
   activeHours: number;
+  source: 'account' | 'local';
 }
 
-function computeHistoricalPace({
+function computeAccountActiveHoursPerDay(ps: QuotaPoolState | undefined, startMs: number): number {
+  const burnLog = ps?.burnLog;
+  if (!Array.isArray(burnLog) || !burnLog.length) return 0;
+  const minTs = startMs - HIST_LOOKBACK_DAYS * 86_400_000;
+  const hoursByDay = new Map<string, Set<number>>();
+  for (const e of burnLog) {
+    if (!(e?.t1 > e?.t0) || e.t0 >= startMs || e.t1 < minTs) continue;
+    // Skip coarse sleep/anchor spans (>2h) so offline gaps never inflate active hours/day.
+    if (e.t1 - e.t0 > 2 * 3_600_000) continue;
+    if (!(e.du5 > 0) && !((e.du7 ?? 0) > 0)) continue;
+    const midTs = Math.min(startMs - 1, Math.floor((e.t0 + e.t1) / 2));
+    const hourBucket = Math.floor(midTs / 3_600_000);
+    const dk = localDayKey(midTs);
+    if (!dk) continue;
+    let daySet = hoursByDay.get(dk);
+    if (!daySet) {
+      daySet = new Set<number>();
+      hoursByDay.set(dk, daySet);
+    }
+    daySet.add(hourBucket);
+  }
+  if (hoursByDay.size < HIST_MIN_ACTIVE_DAYS) return 0;
+  let sumDailyHours = 0;
+  for (const daySet of hoursByDay.values()) sumDailyHours += daySet.size;
+  return Number((sumDailyHours / hoursByDay.size).toFixed(2));
+}
+
+function computeAccountHistoricalPace({
+  ps,
+  spanKey,
+  startMs,
+  resetAtMs,
+}: {
+  ps: QuotaPoolState | undefined;
+  spanKey: string;
+  startMs: number;
+  resetAtMs: number;
+}): HistoricalPace | null {
+  if (!ps) return null;
+  const lookbackStartMs = startMs - HIST_LOOKBACK_DAYS * 86_400_000;
+
+  if (spanKey === '7d') {
+    const peaks = ps.winPeaks7d;
+    if (!Array.isArray(peaks) || !peaks.length) return null;
+    let weightedPct = 0;
+    let weightedHr = 0;
+    let totalCoveredHr = 0;
+    let windowCount = 0;
+    for (const p of peaks) {
+      if (!(p?.resetAtMs > 0) || !(p.maxUsedPct > 0)) continue;
+      if (Math.abs(p.resetAtMs - resetAtMs) <= 60_000) continue;
+      if (p.resetAtMs > startMs + 60_000 || p.resetAtMs < lookbackStartMs) continue;
+      const wStart = p.resetAtMs - 7 * 24 * 3_600_000;
+      const endObs = p.maxUsedPct >= 99.5 && p.peakReachedAtMs ? p.peakReachedAtMs : p.lastSeenMs;
+      const coveredHr = Math.min(168, Math.max(1, (endObs - wStart) / 3_600_000));
+      const ageDays = Math.max(0, (startMs - p.resetAtMs) / 86_400_000);
+      const decay = Math.pow(0.5, ageDays / HIST_EWMA_HALF_LIFE_7D_DAYS);
+      weightedPct += decay * p.maxUsedPct;
+      weightedHr += decay * coveredHr;
+      totalCoveredHr += coveredHr;
+      windowCount++;
+    }
+    if (windowCount < 1 || totalCoveredHr < ACCOUNT_HIST_MIN_7D_COVERED_HR || !(weightedPct > 0) || !(weightedHr > 0)) {
+      return null;
+    }
+    const histRatePerHr = weightedPct / weightedHr;
+    if (!Number.isFinite(histRatePerHr) || !(histRatePerHr > 0.005)) return null;
+    return {
+      histRatePerHr,
+      activeHoursPerDay: computeAccountActiveHoursPerDay(ps, startMs),
+      activeDays: Math.max(1, Math.round(totalCoveredHr / 24)),
+      activeHours: Math.round(totalCoveredHr),
+      source: 'account',
+    };
+  }
+
+  const peaks = ps.winPeaks5h;
+  if (!Array.isArray(peaks) || !peaks.length) return null;
+  let weightedPct = 0;
+  let weightedHr = 0;
+  let totalCoveredHr = 0;
+  let windowCount = 0;
+  for (const p of peaks) {
+    if (!(p?.resetAtMs > 0) || !(p.maxUsedPct > 0)) continue;
+    if (Math.abs(p.resetAtMs - resetAtMs) <= 60_000) continue;
+    if (p.resetAtMs > startMs + 60_000 || p.resetAtMs < lookbackStartMs) continue;
+    const wStart = p.resetAtMs - 5 * 3_600_000;
+    const rawElapsedMs = p.lastSeenMs - wStart;
+    if (rawElapsedMs < 15 * 60_000 && p.maxUsedPct < 1.0) continue;
+    const endObs = p.maxUsedPct >= 99.5 && p.peakReachedAtMs ? p.peakReachedAtMs : p.lastSeenMs;
+    const coveredHr = Math.min(5, Math.max(0.5, (endObs - wStart) / 3_600_000));
+    const ageDays = Math.max(0, (startMs - p.resetAtMs) / 86_400_000);
+    const decay = Math.pow(0.5, ageDays / HIST_EWMA_HALF_LIFE_5H_DAYS);
+    weightedPct += decay * p.maxUsedPct;
+    weightedHr += decay * coveredHr;
+    totalCoveredHr += coveredHr;
+    windowCount++;
+  }
+  if (windowCount < 1 || totalCoveredHr < ACCOUNT_HIST_MIN_5H_COVERED_HR || !(weightedPct > 0) || !(weightedHr > 0)) {
+    return null;
+  }
+  const histRatePerHr = weightedPct / weightedHr;
+  if (!Number.isFinite(histRatePerHr) || !(histRatePerHr > 0.005)) return null;
+  return {
+    histRatePerHr,
+    activeHoursPerDay: computeAccountActiveHoursPerDay(ps, startMs),
+    activeDays: windowCount,
+    activeHours: Math.round(totalCoveredHr),
+    source: 'account',
+  };
+}
+
+function computeLocalHistoricalPace({
   histCalls,
   spanKey,
   startMs,
@@ -482,7 +602,39 @@ function computeHistoricalPace({
     activeHoursPerDay,
     activeDays,
     activeHours,
+    source: 'local',
   };
+}
+
+function computeHistoricalPace({
+  ps,
+  histCalls,
+  spanKey,
+  startMs,
+  resetAtMs,
+  callPct,
+  allowLocalFallback = true,
+}: {
+  ps: QuotaPoolState | undefined;
+  histCalls: any[];
+  spanKey: string;
+  startMs: number;
+  resetAtMs: number;
+  callPct: (c: any) => number;
+  allowLocalFallback?: boolean;
+}): HistoricalPace | null {
+  const accountPace = computeAccountHistoricalPace({ ps, spanKey, startMs, resetAtMs });
+  if (accountPace) {
+    const localActiveHours = accountPace.activeHoursPerDay > 0
+      ? accountPace.activeHoursPerDay
+      : (computeLocalHistoricalPace({ histCalls, spanKey, startMs, callPct })?.activeHoursPerDay || 0);
+    return {
+      ...accountPace,
+      activeHoursPerDay: localActiveHours,
+    };
+  }
+  if (!allowLocalFallback) return null;
+  return computeLocalHistoricalPace({ histCalls, spanKey, startMs, callPct });
 }
 
 function computeWindowRunway({
@@ -497,6 +649,7 @@ function computeWindowRunway({
   quotaSnapMs,
   fitStore,
   tierKey,
+  remoteUSD = 0,
 }) {
   if (w.disabled || !w.resetAtMs || w.resetAtMs <= nowMs) return null;
   if (heldByWeekly && w.spanKey === '5h') return null;
@@ -566,16 +719,49 @@ function computeWindowRunway({
 
   let recentObsPct = 0;
   const gamma = ps?.fit?.gamma || ps?.gamma || null;
-  for (const s of ps?.samples || []) {
-    if (!(s.t1 > tRecent0) || !(s.t0 < nowMs)) continue;
-    if (w.spanKey === '5h' && (s.source === '7d_scaled' || s.t0 < startMs - 60_000)) continue;
-    const sampleDu = w.spanKey === '7d'
-      ? (typeof s.du7 === 'number' ? s.du7 : (gamma > 0 ? (s.du5 || 0) / gamma : 0))
-      : (s.du5 || 0);
-    if (!(sampleDu > 0)) continue;
-    const overlapMs = Math.max(0, Math.min(nowMs, s.t1) - Math.max(tRecent0, s.t0));
-    const frac = Math.min(1, overlapMs / Math.max(1000, s.t1 - s.t0));
-    recentObsPct += sampleDu * frac;
+  const burnLog = Array.isArray(ps?.burnLog) ? ps.burnLog : [];
+  let firstBurnLogT0 = Infinity;
+
+  if (burnLog.length > 0) {
+    const has7dBurnEntries = burnLog.some((e) => typeof e.du7 === 'number' && e.du7 > 0);
+    for (const e of burnLog) {
+      if (!(e.t1 > e.t0)) continue;
+      let entryDu = 0;
+      if (w.spanKey === '5h') {
+        if (!(e.du5 > 0)) continue;
+        if (e.w5ResetAtMs && Math.abs(e.w5ResetAtMs - w.resetAtMs) >= 60_000) continue;
+        if (!e.w5ResetAtMs && e.t0 < startMs - 60_000) continue;
+        entryDu = e.du5;
+      } else {
+        if (e.w7ResetAtMs && Math.abs(e.w7ResetAtMs - w.resetAtMs) >= 60_000) continue;
+        if (!e.w7ResetAtMs && e.t0 < startMs - 60_000) continue;
+        entryDu = typeof e.du7 === 'number'
+          ? e.du7
+          : (!has7dBurnEntries && gamma > 0 ? (e.du5 || 0) / gamma : 0);
+      }
+      if (!(entryDu > 0)) continue;
+      if (e.t0 < firstBurnLogT0) firstBurnLogT0 = e.t0;
+      if (!(e.t1 > tRecent0) || !(e.t0 < nowMs)) continue;
+      const overlapMs = Math.max(0, Math.min(nowMs, e.t1) - Math.max(tRecent0, e.t0));
+      const frac = Math.min(1, overlapMs / Math.max(1000, e.t1 - e.t0));
+      recentObsPct += entryDu * frac;
+    }
+  }
+
+  // Seamless upgrade fallback: stitch pre-burnLog ps.samples strictly before firstBurnLogT0.
+  const sampleEndCap = Math.min(nowMs, firstBurnLogT0);
+  if (sampleEndCap > tRecent0) {
+    for (const s of ps?.samples || []) {
+      if (!(s.t1 > tRecent0) || !(s.t0 < sampleEndCap)) continue;
+      if (w.spanKey === '5h' && (s.source === '7d_scaled' || s.t0 < startMs - 60_000)) continue;
+      const sampleDu = w.spanKey === '7d'
+        ? (typeof s.du7 === 'number' ? s.du7 : (gamma > 0 ? (s.du5 || 0) / gamma : 0))
+        : (s.du5 || 0);
+      if (!(sampleDu > 0)) continue;
+      const overlapMs = Math.max(0, Math.min(sampleEndCap, s.t1) - Math.max(tRecent0, s.t0));
+      const frac = Math.min(1, overlapMs / Math.max(1000, s.t1 - s.t0));
+      recentObsPct += sampleDu * frac;
+    }
   }
 
   const recentBurnPct = Math.min(effectiveUsedPct, Math.max(recentLocalPct, recentObsPct));
@@ -585,11 +771,24 @@ function computeWindowRunway({
     ? (0.6 * recentRatePerHr + 0.4 * avgRatePerHr)
     : avgRatePerHr;
 
+  const hasRemoteActivity = remoteUSD > 0
+    || burnLog.some((e) => (
+      e.remoteOnly === true
+      && e.t1 >= nowMs - REMOTE_ACTIVITY_LOOKBACK_MS
+      && (w.spanKey === '5h' ? e.du5 > 0 : (e.du7 ?? 0) > 0)
+    ));
+  const localWindowPct = sumCallsPct(callsInNow);
+  const isProvisionalLocalInflated = !hasTrustedPoolFit(ps?.fit, 2)
+    && localWindowPct > Math.max(effectiveUsedPct * 1.35, effectiveUsedPct + 1.0);
+
   const histPace = computeHistoricalPace({
+    ps,
     histCalls,
     spanKey: w.spanKey,
     startMs,
+    resetAtMs: w.resetAtMs,
     callPct,
+    allowLocalFallback: !hasRemoteActivity && !isProvisionalLocalInflated,
   });
 
   let burnPctPerHour = curRate;
@@ -623,6 +822,7 @@ function computeWindowRunway({
     ...(habitBlended && histPace
       ? {
           habitBlended: true,
+          habitSource: histPace.source,
           habitWeight,
           histBurnPctPerHour: histPace.histRatePerHr,
           activeHoursPerDay: histPace.activeHoursPerDay,
@@ -892,6 +1092,7 @@ export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: 
           quotaSnapMs,
           fitStore,
           tierKey,
+          remoteUSD: rem,
         });
         if (rw) w.runway = rw;
       }
@@ -919,6 +1120,14 @@ export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: 
     saveQuotaCalibration(calPath, store);
   }
 
+  const accountLedger = buildAccountQuotaLedger({
+    pools,
+    fitStore,
+    tierKey,
+    poolCalKeyMap,
+    nowMs,
+  });
+
   return {
     ...accountQuota,
     pools,
@@ -929,6 +1138,164 @@ export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: 
       window7dUSD: remote7dUSD,
       snapshotAtMs: quotaSnapMs,
     },
+    ...(accountLedger ? { accountLedger } : {}),
+  };
+}
+
+function buildAccountQuotaLedger({
+  pools,
+  fitStore,
+  tierKey,
+  poolCalKeyMap,
+  nowMs,
+}: {
+  pools: any[];
+  fitStore: QuotaFitStore | null | undefined;
+  tierKey: string;
+  poolCalKeyMap: WeakMap<object, string>;
+  nowMs: number;
+}) {
+  const todayKey = localDayKey(nowMs);
+  if (!todayKey || !fitStore?.pools) return null;
+  const monthPrefix = todayKey.slice(0, 7);
+  const weekStartKey = localDayKey(nowMs - 6 * 86_400_000) || todayKey;
+  const resetCutoffMs = nowMs - 30 * 86_400_000;
+
+  const emptyPeriod = () => ({
+    usd: 0,
+    pct5hSum: 0,
+    pct7dSum: 0,
+    resets: 0,
+    reclaimedPct5h: 0,
+    reclaimedPct7d: 0,
+  });
+  const today = emptyPeriod();
+  const week7d = emptyPeriod();
+  const month = emptyPeriod();
+  const all = emptyPeriod();
+
+  const allDays = new Set<string>();
+  const poolRows: any[] = [];
+  const recentResets: any[] = [];
+  let hasProvisionalCap = false;
+
+  for (const p of pools) {
+    const calPoolKey = poolCalKeyMap.get(p) || '';
+    if (!calPoolKey) continue;
+    const ps = fitStore.pools[`${tierKey}|${calPoolKey}`];
+    if (!ps) continue;
+
+    const w5 = (p.windows || []).find((w) => w.spanKey === '5h');
+    const w7 = (p.windows || []).find((w) => w.spanKey === '7d');
+    const gamma = p.fitSummary?.gamma || ps.gamma || getPoolPriorGamma(calPoolKey) || 4;
+    const full5h = p.fitSummary?.full5hUSD || w5?.estFullUSD || getPoolPriorFull5h(calPoolKey) || 0;
+    const full7d = p.fitSummary?.full7dUSD || w7?.estFullUSD || (full5h > 0 && gamma > 0 ? full5h * gamma : 0);
+    const estQuality: 'high' | 'provisional' = hasTrustedPoolFit(ps.fit, 2) && ps.fit?.quality === 'high' ? 'high' : 'provisional';
+
+    const daily = ps.dailyBurn || {};
+    const dayKeys = Object.keys(daily);
+    const row = {
+      poolKey: calPoolKey,
+      label: p.label || calPoolKey,
+      todayPct5h: 0,
+      todayPct7d: 0,
+      todayUsd: 0,
+      weekPct7d: 0,
+      weekUsd: 0,
+      monthPct7d: 0,
+      monthUsd: 0,
+      allPct7d: 0,
+      allUsd: 0,
+      resets30d: 0,
+      estQuality,
+    };
+
+    let poolHasBurn = false;
+    for (const dk of dayKeys) {
+      const entry = daily[dk];
+      if (!entry) continue;
+      const raw5 = entry.pct5h > 0 ? entry.pct5h : 0;
+      const raw7 = entry.pct7d > 0 ? entry.pct7d : 0;
+      const resets = entry.resets || 0;
+      const rec5 = entry.reclaimedPct5h || 0;
+      const rec7 = entry.reclaimedPct7d || 0;
+      if (!(raw5 > 0) && !(raw7 > 0) && !(resets > 0)) continue;
+
+      poolHasBurn = true;
+      allDays.add(dk);
+
+      const effPct7 = raw7 > 0 ? raw7 : (raw5 > 0 && gamma > 0 ? raw5 / gamma : 0);
+      const effPct5 = raw5 > 0 ? raw5 : (raw7 > 0 && gamma > 0 ? raw7 * gamma : 0);
+      const dayUsd = raw7 > 0 && full7d > 0
+        ? (raw7 / 100) * full7d
+        : (raw5 > 0 && full5h > 0 ? (raw5 / 100) * full5h : 0);
+
+      const addTo = (bucket: ReturnType<typeof emptyPeriod>) => {
+        bucket.usd += dayUsd;
+        bucket.pct5hSum += effPct5;
+        bucket.pct7dSum += effPct7;
+        bucket.resets += resets;
+        bucket.reclaimedPct5h += rec5;
+        bucket.reclaimedPct7d += rec7;
+      };
+
+      addTo(all);
+      row.allPct7d += effPct7;
+      row.allUsd += dayUsd;
+      if (dk === todayKey) {
+        addTo(today);
+        row.todayPct5h += effPct5;
+        row.todayPct7d += effPct7;
+        row.todayUsd += dayUsd;
+      }
+      if (dk >= weekStartKey && dk <= todayKey) {
+        addTo(week7d);
+        row.weekPct7d += effPct7;
+        row.weekUsd += dayUsd;
+      }
+      if (dk.startsWith(monthPrefix)) {
+        addTo(month);
+        row.monthPct7d += effPct7;
+        row.monthUsd += dayUsd;
+      }
+    }
+
+    for (const ev of ps.resetEvents || []) {
+      if (ev.ts >= resetCutoffMs) {
+        row.resets30d++;
+        recentResets.push({
+          ts: ev.ts,
+          poolKey: calPoolKey,
+          poolLabel: p.label || calPoolKey,
+          spanKey: ev.spanKey,
+          kind: ev.kind,
+          beforeUsedPct: ev.beforeUsedPct,
+          afterUsedPct: ev.afterUsedPct,
+          reclaimedPct: ev.reclaimedPct,
+        });
+      }
+    }
+
+    if (poolHasBurn || row.resets30d > 0) {
+      if (estQuality !== 'high') hasProvisionalCap = true;
+      poolRows.push(row);
+    }
+  }
+
+  if (allDays.size === 0 && recentResets.length === 0) return null;
+  recentResets.sort((a, b) => b.ts - a.ts);
+  const sortedDays = [...allDays].sort();
+
+  return {
+    trackedDays: sortedDays.length,
+    firstDay: sortedDays[0] || todayKey,
+    hasProvisionalCap,
+    today,
+    week7d,
+    month,
+    all,
+    pools: poolRows,
+    recentResets: recentResets.slice(0, 8),
   };
 }
 

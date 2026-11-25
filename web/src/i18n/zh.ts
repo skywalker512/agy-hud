@@ -68,7 +68,7 @@ export const zh: Translations = {
   badgeRetry: '重连中…',
   noDb: '暂未检测到会话数据库',
   readErr: (e) => `读取失败: ${e}`,
-  waitFirstCall: (id) => `会话 ${id}… · 等待首次模型调用`,
+  waitFirstCall: (id) => (id ? `会话 ${id}… · 等待首次模型调用` : '新对话 · 等待首次模型调用'),
   sessionMeta: (turns, steps, calls) => `${turns}轮 ${steps}步 · ${calls}次`,
   modelWaiting: (m) => `等首字 · ${m}`,
   modelRunning: (m) => `生成中 · ${m}`,
@@ -251,6 +251,18 @@ export const zh: Translations = {
   remoteWinBanner: (remoteUsd) => `他机/云端差额（未计入本机统计）: +约 ${remoteUsd}`,
   remoteWinBannerTip:
     '根据当前活跃窗口的账户配额残差推算的其他设备/云端用量（未计入上方「本月/本机全部」本地账单）。上方金额仅统计本机 App + CLI 落盘数据库。',
+  accountSpendScopeLabel: '全账号消耗（所有端）',
+  accountSpendProvTag: '金额初估',
+  accountSpendWeek: '近7日',
+  accountSpendTracked: '已追踪',
+  accountSpendDaysSub: (days, resets) => (resets > 0 ? `${days}天 · ${resets}次重置` : `已追踪 ${days}天`),
+  accountSpendScopeTip:
+    '基于服务端账号级配额快照累计的所有设备总消耗（即使中途发生 Gemini 重置也会保留重置前用量）。百分比为云端实测、多端同口径；美元按各池最新满额折算。',
+  accountResetBanner: (count, poolLabel, spanKey, reclaimedStr, clockStr) =>
+    `近30天记录 ${count} 次服务端重置（最近: ${poolLabel} ${spanKey} 返还 +${reclaimedStr} · ${clockStr}）`,
+  accountResetKindInWindow: '同窗重置',
+  accountResetKindEarlyShift: '提前换窗',
+  accountResetTipTitle: '检测到的服务端中途重置（重置前消耗已保留计入全账号总计）',
   spendSession: '当前会话',
   spendToday: '今日',
   spendMonth: '本月',
@@ -482,6 +494,7 @@ export const zh: Translations = {
   ttftLiveSlowSub: (mult, avgTtft) => `超均值 ${mult}× · 仍在等首字 (均 ${avgTtft})`,
   ttftLiveStreamSub: (genSec, avgTtft) => `首字已出 · 生成中 ${genSec}s (均 ${avgTtft})`,
   ttftLiveLockedBadge: '首字已出',
+  ttftLiveSlowBadge: '等待偏长',
   ttftLiveStallBadge: '首字偏慢',
   ttftBarsTip: (n, latestTtft, ttftSharePct, avgTtft) =>
     `近 ${n} 次调用首字等待 (TTFT) 趋势\n本轮：${latestTtft}（占本轮耗时 ${ttftSharePct}%）· 会话均值：${avgTtft}\n绿 <2s · 黄 2–6s · 红 >6s（虚线为均值）`,

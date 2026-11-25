@@ -368,6 +368,7 @@ export interface QuotaWindowRunway {
   projectedRemAtResetPct: number;
   basis?: string;
   habitBlended?: boolean;
+  habitSource?: 'account' | 'local';
   habitWeight?: number;
   histBurnPctPerHour?: number;
   activeHoursPerDay?: number;
@@ -451,6 +452,54 @@ export interface RemoteQuotaEstimate {
   snapshotAtMs: number;
 }
 
+export interface AccountLedgerPeriod {
+  usd: number;
+  pct5hSum: number;
+  pct7dSum: number;
+  resets: number;
+  reclaimedPct5h: number;
+  reclaimedPct7d: number;
+}
+
+export interface AccountLedgerPoolRow {
+  poolKey: string;
+  label: string;
+  todayPct5h: number;
+  todayPct7d: number;
+  todayUsd: number;
+  weekPct7d: number;
+  weekUsd: number;
+  monthPct7d: number;
+  monthUsd: number;
+  allPct7d: number;
+  allUsd: number;
+  resets30d: number;
+  estQuality: 'high' | 'provisional';
+}
+
+export interface AccountResetEventItem {
+  ts: number;
+  poolKey: string;
+  poolLabel: string;
+  spanKey: '5h' | '7d';
+  kind: 'in_window_rewind' | 'early_window_shift';
+  beforeUsedPct: number;
+  afterUsedPct: number;
+  reclaimedPct: number;
+}
+
+export interface AccountQuotaLedger {
+  trackedDays: number;
+  firstDay: string;
+  hasProvisionalCap: boolean;
+  today: AccountLedgerPeriod;
+  week7d: AccountLedgerPeriod;
+  month: AccountLedgerPeriod;
+  all: AccountLedgerPeriod;
+  pools: AccountLedgerPoolRow[];
+  recentResets: AccountResetEventItem[];
+}
+
 export interface AccountQuota {
   available: boolean;
   deferred?: boolean;
@@ -463,6 +512,7 @@ export interface AccountQuota {
   availableCredits?: number | null;
   pools?: QuotaPool[];
   remoteEstimate?: RemoteQuotaEstimate;
+  accountLedger?: AccountQuotaLedger | null;
   source?: string;
   ttlMs?: number;
   fetchedAtMs?: number;
@@ -777,6 +827,7 @@ export interface GeminiPulseSnapshot {
 export interface StatsSnapshot {
   unchanged?: boolean;
   found?: boolean;
+  pendingSession?: boolean;
   error?: string;
   etag?: string;
   bootId?: string;

@@ -730,6 +730,43 @@ export function stripInvocationDetails(inv) {
   };
 }
 
+export function createEmptyTelemetry() {
+  return {
+    invocations: [],
+    latest: null,
+    latestSustained: null,
+    currentModel: null,
+    summary: {
+      count: 0,
+      userTurns: 0,
+      totalSteps: 0,
+      toolStepCount: 0,
+      totalOutput: 0,
+      totalThinking: 0,
+      totalCandidate: 0,
+      totalCachedInput: 0,
+      totalNewInput: 0,
+      avgCacheHitPct: null,
+      avgTtftSec: 0,
+      totalModelSec: 0,
+      totalToolSec: 0,
+      avgGenTps: 0,
+      avgE2eTps: 0,
+      peakGenTps: 0,
+      totalCostUSD: 0,
+      totalSavedUSD: 0,
+      pricedCount: 0,
+      unpricedCount: 0,
+      latestCallMs: 0,
+    },
+    activeStep: null,
+    pendingCompact: null,
+    compactions: [],
+    turns: [],
+    contextBreakdown: null,
+  };
+}
+
 export function toLightTelemetryPayload(telemetry) {
   return {
     ...telemetry,

@@ -240,6 +240,49 @@ body {
   }
 }
 
+@keyframes siteTtftScan {
+  0% {
+    background-position: 180% 0;
+  }
+  100% {
+    background-position: -180% 0;
+  }
+}
+
+@keyframes siteTtftArrive {
+  0% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--seg-cache) 60%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.site-ttft-scan {
+  background-size: 220% 100%;
+  animation: siteTtftScan 1.85s linear infinite;
+}
+.site-ttft-scan.is-slow {
+  animation-duration: 1.5s;
+}
+.site-ttft-scan.is-stalled {
+  animation-duration: 1.1s;
+}
+.site-ttft-scan.is-paused {
+  animation-play-state: paused;
+}
+.site-ttft-arrive {
+  animation: siteTtftArrive 0.85s ease-out 1;
+}
+.site-ttft-shimmer {
+  background-image: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.35) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: siteTtftScan 1.4s linear infinite;
+}
+.site-ttft-shimmer.is-paused {
+  animation-play-state: paused;
+}
+
 .animate-hud-pulse {
   animation: hudPulse 2s ease-in-out infinite;
 }
@@ -248,7 +291,10 @@ body {
   html {
     scroll-behavior: auto;
   }
-  .animate-hud-pulse {
+  .animate-hud-pulse,
+  .site-ttft-scan,
+  .site-ttft-arrive,
+  .site-ttft-shimmer {
     animation: none;
   }
 }
