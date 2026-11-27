@@ -9,12 +9,12 @@ function getCommand(method: InstallMethod, locale: Locale): { prompt: string; cm
     case 'unix':
       return {
         prompt: '$',
-        cmd: 'curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | sh',
+        cmd: 'curl -fsSL https://h.512.pub | sh',
       };
     case 'windows':
       return {
         prompt: 'PS>',
-        cmd: 'irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex',
+        cmd: 'irm https://h.512.pub | iex',
       };
     case 'agent':
       return {

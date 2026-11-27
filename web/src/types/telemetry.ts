@@ -316,6 +316,8 @@ export interface ChildSessionItem {
   unpricedCount: number;
   updatedMs: number;
   latestTsMs: number;
+  isActive?: boolean;
+  activeKind?: 'gen' | 'compact' | 'tool' | 'running' | '';
   quotaUsage?: SessionQuotaUsage | null;
   swarm?: SwarmMemberMeta | null;
 }
@@ -371,6 +373,7 @@ export interface SessionInfo {
   quotaUsage?: SessionQuotaUsage | null;
   parentSession: ParentSessionItem | null;
   childSessions: ChildSessionItem[];
+  activeChildCount?: number;
   treeTotals?: SessionTreeTotals | null;
   rootTreeTotals?: RootTreeTotals | null;
   swarm?: SwarmOverview | null;
@@ -389,6 +392,22 @@ export interface QuotaWindowRunway {
   habitWeight?: number;
   histBurnPctPerHour?: number;
   activeHoursPerDay?: number;
+}
+
+export interface QuotaWindowTokenCapacity {
+  remainingTotalTokens: number;
+  fullTotalTokens: number;
+  remainingNewInputTokens: number;
+  fullNewInputTokens: number;
+  remainingCachedTokens: number;
+  fullCachedTokens: number;
+  remainingOutputTokens: number;
+  fullOutputTokens: number;
+  cacheHitPct: number;
+  outSharePct: number;
+  sampleCalls: number;
+  basisWindow: '7d' | '30d';
+  isProvisional: boolean;
 }
 
 export interface QuotaWindow {
@@ -416,6 +435,7 @@ export interface QuotaWindow {
   estPricedCalls?: number;
   estUnpricedCalls?: number;
   runway?: QuotaWindowRunway | null;
+  estTokenCapacity?: QuotaWindowTokenCapacity | null;
 }
 
 export interface QuotaPoolFitModel {

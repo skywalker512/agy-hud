@@ -1,12 +1,30 @@
 {
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "agy-hud",
   "displayName": "AGY-HUD",
   "version": "1.2.0",
-  "description": "Native side-pane telemetry for Google Antigravity: live GEN/E2E TPS, live first-token TTFT monitor, Gemini Global Pulse & Arena PK, Cache TTL survival, calibrated 5h/7d quota runway, Swarm Cockpit, and 2x Wrapped posters.",
+  "description": "Live telemetry for Google Antigravity: GEN/E2E TPS, TTFT, Context X-Ray, Cache TTL survival, calibrated 5h/7d quota runway, Swarm Cockpit, and CLI /statusline.",
   "logo": "assets/logo.svg",
+  "author": {
+    "name": "skywalker512",
+    "url": "https://github.com/skywalker512"
+  },
+  "homepage": "https://agy-hud.512.pub/",
+  "repository": "https://github.com/skywalker512/agy-hud",
+  "license": "MIT",
+  "keywords": [
+    "telemetry",
+    "hud",
+    "quota",
+    "context-window",
+    "cache-ttl",
+    "swarm",
+    "statusline",
+    "performance"
+  ],
   "suggestedPrompts": [
-    "Open the AGY-HUD panel",
-    "Check the current turn's GEN TPS, E2E TPS, and TTFT",
-    "Inspect context window composition, call log, and quota windows"
+    "Inspect the current turn's GEN/E2E TPS, TTFT, and context window breakdown",
+    "Check my 5h/7d quota runway, spend, and Prompt Cache TTL survival",
+    "Set up the AGY-HUD terminal /statusline for Antigravity CLI"
   ]
 }

@@ -78,6 +78,25 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
             const rem7Pct = w7 ? Math.max(0, Math.min(100, w7.remainingPct || 0)) : null;
             const rem5UsdStr = full5h > 0 ? fmtUsd((rem5Pct / 100) * full5h) : '';
             const rem7UsdStr = full7d > 0 && rem7Pct !== null ? fmtUsd((rem7Pct / 100) * full7d) : '';
+            const tc5 = w5?.estTokenCapacity || null;
+            const tc7 = w7?.estTokenCapacity || null;
+            const buildTokTip = (spanLabel: string, tc: NonNullable<typeof tc5>) =>
+              t.winTokCapTip({
+                spanLabel,
+                remTok: fmtNum(tc.remainingTotalTokens),
+                fullTok: fmtNum(tc.fullTotalTokens),
+                remCacheTok: fmtNum(tc.remainingCachedTokens),
+                remNewTok: fmtNum(tc.remainingNewInputTokens),
+                remOutTok: fmtNum(tc.remainingOutputTokens),
+                fullCacheTok: fmtNum(tc.fullCachedTokens),
+                fullNewTok: fmtNum(tc.fullNewInputTokens),
+                fullOutTok: fmtNum(tc.fullOutputTokens),
+                cachePct: `${tc.cacheHitPct.toFixed(1)}%`,
+                outSharePct: `${tc.outSharePct.toFixed(1)}%`,
+                calls: tc.sampleCalls,
+                basisWindow: tc.basisWindow,
+                isProv: tc.isProvisional,
+              });
 
             const errNum = fs.oosRelErrPct !== null && fs.holdoutCount > 0 ? fs.oosRelErrPct : fs.relErrPct;
             const errStr = formatErrPct(errNum);
@@ -132,6 +151,18 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
                           {t.rulesTankRemSub(`${rem5Pct.toFixed(1)}%`, rem5UsdStr)}
                         </span>
                       )}
+                      {tc5 && (
+                        <span
+                          className="font-hud-mono text-[9px] text-hud-fg-2/85 tabular-nums truncate cursor-help"
+                          data-tip={buildTokTip('5h', tc5)}
+                        >
+                          {t.rulesTankTokSub(
+                            fmtNum(tc5.remainingTotalTokens),
+                            fmtNum(tc5.fullTotalTokens),
+                            `${tc5.cacheHitPct.toFixed(0)}%`,
+                          )}
+                        </span>
+                      )}
                     </div>
 
                     {full7d > 0 && (
@@ -147,6 +178,18 @@ export function QuotaRulesCard({ quota, t }: QuotaRulesCardProps) {
                         {rem7UsdStr && rem7Pct !== null && (
                           <span className="font-hud-mono text-[9.5px] text-hud-muted tabular-nums truncate">
                             {t.rulesTankRemSub(`${rem7Pct.toFixed(1)}%`, rem7UsdStr)}
+                          </span>
+                        )}
+                        {tc7 && (
+                          <span
+                            className="font-hud-mono text-[9px] text-hud-fg-2/85 tabular-nums truncate cursor-help"
+                            data-tip={buildTokTip('7d', tc7)}
+                          >
+                            {t.rulesTankTokSub(
+                              fmtNum(tc7.remainingTotalTokens),
+                              fmtNum(tc7.fullTotalTokens),
+                              `${tc7.cacheHitPct.toFixed(0)}%`,
+                            )}
                           </span>
                         )}
                       </div>

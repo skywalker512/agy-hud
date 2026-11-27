@@ -69,6 +69,15 @@
   border-color: transparent;
 }
 
+.swarm-pill-idle {
+  color: var(--hud-muted);
+  background: var(--hud-fill);
+  border-color: transparent;
+}
+.swarm-pill-idle:hover {
+  color: var(--hud-fg);
+}
+
 .swarm-surface-well {
   background: var(--swarm-surface);
   border: 1px solid transparent;
@@ -117,4 +126,7 @@
 }
 :root[data-contrast="strong"] .swarm-pill-branch {
   border-color: var(--swarm-branch-border);
+}
+:root[data-contrast="strong"] .swarm-pill-idle {
+  border-color: color-mix(in srgb, var(--hud-border) 75%, var(--hud-fg) 25%);
 }

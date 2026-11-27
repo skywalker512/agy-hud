@@ -4,11 +4,12 @@ Zero-cost (**$0/month, no credit card required**) 5-minute telemetry collector &
 
 - **Cron**: Runs every **5 minutes** (`*/5 * * * *`) → **288 KV writes/day** (28.8% of the 1,000/day Free Tier limit). Refreshes 7d comparison curves every 30 minutes per model and reuses them from KV between ticks.
 - **Storage**: Compact JSON snapshot with a rolling **24-hour 5-minute ring buffer (288 points)** + 7d TTFT / E2E / TPS / Cache / Uptime series + evenly downsampled 24h availability + P99 tail latency + Tool Call error rate + Google Cloud Service Health incidents.
-- **Unified Custom Domain (`https://agy-hud.512.pub`)**:
-  - `GET /` → Official AGY-HUD Website (served via Cloudflare Workers Static Assets)
-  - `GET /pulse/` → Standalone Gemini 5m Live Pulse Radar (Workers Static Assets)
-  - `GET /v1/pulse.json` → Full CORS-enabled, edge-cached (`max-age=90`, ETag/304) Gemini telemetry feed
-  - `GET /v1/health` → Edge-cached (`max-age=30`) collector health & 5m ring-buffer point count
+- **Unified Custom Domains (`https://agy-hud.512.pub` & `https://h.512.pub`)**:
+  - `GET agy-hud.512.pub/` → Official AGY-HUD Website (served via Cloudflare Workers Static Assets)
+  - `GET agy-hud.512.pub/pulse/` → Standalone Gemini 5m Live Pulse Radar (Workers Static Assets)
+  - `GET agy-hud.512.pub/v1/pulse.json` → Full CORS-enabled, edge-cached (`max-age=90`, ETag/304) Gemini telemetry feed
+  - `GET agy-hud.512.pub/v1/health` → Edge-cached (`max-age=30`) collector health & 5m ring-buffer point count
+  - `GET h.512.pub/` → Smart short-link installer: returns `install.sh` for `curl`/`wget`, `install.ps1` for PowerShell (`irm h.512.pub | iex`), and `302` redirects browsers to `https://agy-hud.512.pub/` (explicit `/sh`, `/ps1`, `/install.sh`, `/install.ps1` also supported)
 
 ## Deploy in 3 Minutes ($0 Free Tier)
 

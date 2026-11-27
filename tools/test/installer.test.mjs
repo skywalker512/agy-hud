@@ -125,6 +125,11 @@ test('parseCliArgs handles all flags, custom --target, conflicts, and unknown op
   assert.equal(parseCliArgs(['--doctor', '--target=/tmp/b', '--json']).targetDir, '/tmp/b');
   assert.equal(parseCliArgs(['--update', '--force', '--ref', 'v1.3.0']).force, true);
   assert.equal(parseCliArgs(['--update', '--force', '--ref', 'v1.3.0']).versionTag, 'v1.3.0');
+  assert.equal(parseCliArgs(['--statusline', '--two-line', '--stack', '--settings', '/tmp/s.json']).command, 'statusline');
+  assert.equal(parseCliArgs(['--statusline', '--two-line', '--stack', '--settings', '/tmp/s.json']).twoLine, true);
+  assert.equal(parseCliArgs(['--statusline', '--two-line', '--stack', '--settings', '/tmp/s.json']).stackWithDefault, true);
+  assert.equal(parseCliArgs(['--statusline', '--two-line', '--stack', '--settings', '/tmp/s.json']).settingsPath, '/tmp/s.json');
+  assert.equal(parseCliArgs(['--uninstall-statusline', '--force']).command, 'uninstall-statusline');
   assert.ok(parseCliArgs(['--link', '--uninstall']).error);
   assert.ok(parseCliArgs(['--bogus']).error);
   assert.ok(parseCliArgs(['--target']).error);
@@ -326,6 +331,29 @@ test('CLI subprocess end-to-end: --install, --doctor --json, --uninstall on isol
     const doctorJson = JSON.parse(doctorJsonRaw);
     assert.equal(doctorJson.ok, true);
     assert.equal(doctorJson.targetDir, targetDir);
+    assert.equal(existsSync(join(targetDir, 'sidecars', 'hud_panel', 'statusline.ts')), true);
+    assert.equal(existsSync(join(targetDir, 'skills', 'agy-hud', 'SKILL.md')), true);
+    assert.equal(existsSync(join(targetDir, 'skills', 'agy-hud', 'scripts', 'inspect.mjs')), true);
+
+    const settingsPath = join(root, 'antigravity-cli', 'settings.json');
+    const slInstallRaw = execFileSync(
+      process.execPath,
+      [INSTALLER_CLI, '--statusline', '--target', targetDir, '--settings', settingsPath, '--json'],
+      { encoding: 'utf8' },
+    );
+    const slInstall = JSON.parse(slInstallRaw);
+    assert.equal(slInstall.ok, true);
+    assert.equal(slInstall.action, 'configured');
+    assert.match(slInstall.command, /statusline\.ts/);
+
+    const slRemoveRaw = execFileSync(
+      process.execPath,
+      [INSTALLER_CLI, '--uninstall-statusline', '--target', targetDir, '--settings', settingsPath, '--json'],
+      { encoding: 'utf8' },
+    );
+    const slRemove = JSON.parse(slRemoveRaw);
+    assert.equal(slRemove.ok, true);
+    assert.equal(slRemove.action, 'removed');
 
     const uninstallOut = execFileSync(process.execPath, [INSTALLER_CLI, '--uninstall', '--target', targetDir], {
       encoding: 'utf8',

@@ -13,5 +13,5 @@
     "types": ["node"],
     "typeRoots": ["../../../web/node_modules/@types"]
   },
-  "include": ["server.ts", "lib/**/*.ts", "test/**/*.ts"]
+  "include": ["server.ts", "statusline.ts", "lib/**/*.ts", "test/**/*.ts"]
 }

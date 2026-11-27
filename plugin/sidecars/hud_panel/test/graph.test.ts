@@ -805,4 +805,81 @@ test('run_workflow children link via trajectory_metadata_blob & root_cascade_id 
   }
 });
 
+test('buildSessionInfo exposes live vs ended child status and honors authoritative LS IDLE over stale SQLite steps', () => {
+  const root = mkdtempSync(join(tmpdir(), 'agy-hud-child-live-'));
+  try {
+    const convDir = join(root, 'conversations');
+    const annoDir = join(root, 'annotations');
+    mkdirSync(convDir, { recursive: true });
+    mkdirSync(annoDir, { recursive: true });
+
+    const nowSec = 1_795_000_000;
+    const nowMs = nowSec * 1000;
+    const parentId = '10000000-0000-4000-8000-000000000001';
+    const runningChildId = '10000000-0000-4000-8000-000000000002';
+    const toolChildId = '10000000-0000-4000-8000-000000000003';
+    const endedChildId = '10000000-0000-4000-8000-000000000004';
+
+    // Parent conversation
+    const pDb = createSchema(join(convDir, `${parentId}.db`));
+    pDb.prepare('INSERT INTO gen_metadata (idx, data) VALUES (?, ?)').run(0, buildGenMetadataBlob({ output: 100 }));
+    pDb.prepare('INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)').run(
+      0, 15, 3, buildStepMetadata({ createdSec: nowSec - 60, completedSec: nowSec - 50, gmIdx: 0 }), null,
+    );
+    pDb.close();
+
+    // Child 1: active LLM generation step (status 8 = GENERATING, no endAtMs)
+    const c1Db = createSchema(join(convDir, `${runningChildId}.db`));
+    c1Db.prepare('INSERT INTO parent_references (idx, data) VALUES (?, ?)').run(0, bField(6, parentId));
+    c1Db.prepare('INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)').run(
+      0, 15, 8, buildStepMetadata({ createdSec: nowSec - 15 }), null,
+    );
+    c1Db.close();
+
+    // Child 2: active tool execution step (step_type 132, status 2 = RUNNING, no endAtMs)
+    const c2Db = createSchema(join(convDir, `${toolChildId}.db`));
+    c2Db.prepare('INSERT INTO parent_references (idx, data) VALUES (?, ?)').run(0, bField(6, parentId));
+    c2Db.prepare('INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)').run(
+      0, 132, 2, buildStepMetadata({ createdSec: nowSec - 10 }), null,
+    );
+    c2Db.close();
+
+    // Child 3: completed conversation (status 3 = DONE + completedSec)
+    const c3Db = createSchema(join(convDir, `${endedChildId}.db`));
+    c3Db.prepare('INSERT INTO parent_references (idx, data) VALUES (?, ?)').run(0, bField(6, parentId));
+    c3Db.prepare('INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)').run(
+      0, 15, 3, buildStepMetadata({ createdSec: nowSec - 40, completedSec: nowSec - 30, gmIdx: 0 }), null,
+    );
+    c3Db.close();
+
+    const convs = listConversations(convDir, annoDir, 0);
+    const graph = getConversationGraph(convs, { requiredConvId: parentId, syncAll: true });
+
+    // Offline fallback (no lsSummaries): SQLite detects gen + tool active children, ended child is false
+    const offlineInfo = buildSessionInfo(parentId, graph, null, nowMs);
+    assert.equal(offlineInfo.activeChildCount, 2);
+    const offById = new Map<string, any>(offlineInfo.childSessions.map((c: any) => [c.id, c]));
+    assert.equal(offById.get(runningChildId)?.isActive, true);
+    assert.equal(offById.get(runningChildId)?.activeKind, 'gen');
+    assert.equal(offById.get(toolChildId)?.isActive, true);
+    assert.equal(offById.get(toolChildId)?.activeKind, 'tool');
+    assert.equal(offById.get(endedChildId)?.isActive, false);
+
+    // Authoritative LS overlay: LS reports runningChildId is now IDLE while toolChildId is RUNNING
+    const liveInfo = buildSessionInfo(parentId, graph, {
+      [runningChildId]: { status: 'CASCADE_RUN_STATUS_IDLE' },
+      [toolChildId]: { status: 'CASCADE_RUN_STATUS_RUNNING' },
+      [endedChildId]: { status: 'CASCADE_RUN_STATUS_IDLE' },
+    }, nowMs);
+    assert.equal(liveInfo.activeChildCount, 1);
+    const liveById = new Map<string, any>(liveInfo.childSessions.map((c: any) => [c.id, c]));
+    assert.equal(liveById.get(runningChildId)?.isActive, false, 'LS IDLE must clear stale SQLite active highlight');
+    assert.equal(liveById.get(toolChildId)?.isActive, true);
+    assert.equal(liveById.get(endedChildId)?.isActive, false);
+    assert.notEqual(liveInfo.childKeys, offlineInfo.childKeys, 'childKeys must change when child active state flips');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 

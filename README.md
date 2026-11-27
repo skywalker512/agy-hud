@@ -71,14 +71,16 @@
 ### macOS & Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | sh
+curl -fsSL https://h.512.pub | sh
 ```
 
 ### Windows (PowerShell 5.1+ / 7+)
 
 ```powershell
-irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex
+irm https://h.512.pub | iex
 ```
+
+<sub><code>h.512.pub</code> automatically serves <a href="scripts/install.sh"><code>install.sh</code></a> to <code>curl</code>/<code>wget</code>, <a href="scripts/install.ps1"><code>install.ps1</code></a> to PowerShell, and redirects browsers to <a href="https://agy-hud.512.pub/">agy-hud.512.pub</a> (inspect directly at <code>https://h.512.pub/sh</code> or <code>/ps1</code>).</sub>
 
 ### AI Agent Install (1 Sentence)
 
@@ -87,14 +89,19 @@ Paste this into Antigravity, Claude Code, Codex, or any coding agent (instructio
 > `Install agy-hud from https://github.com/skywalker512/agy-hud following AGENTS.md and verify the installation.`
 
 <details>
-<summary><strong>Source install, dev hot-reload (<code>--link</code>), <code>--doctor</code>, and uninstall</strong></summary>
+<summary><strong>Official <code>agy plugin install</code>, CLI <code>/statusline</code>, dev hot-reload (<code>--link</code>), <code>--doctor</code>, and uninstall</strong></summary>
 
 ```bash
 git clone https://github.com/skywalker512/agy-hud.git && cd agy-hud
-node plugin/install.mjs          # Atomic copy-install to ~/.gemini/config/plugins/agy-hud
-node plugin/install.mjs --link   # Dev symlink (macOS/Linux) or junction (Windows)
-node plugin/install.mjs --doctor # Run 6 environment & bundle health checks
-node plugin/install.mjs --update # Safe CLI upgrade with automatic rollback
+agy plugin validate --strict ./plugin  # Verify manifest, /agy-hud skill & sidecar against official loader
+agy plugin install ./plugin            # Install via official Antigravity CLI plugin manager
+# Or use the built-in zero-dependency installer:
+node plugin/install.mjs                # Atomic copy-install to ~/.gemini/config/plugins/agy-hud
+node plugin/install.mjs --statusline   # Enable width-adaptive AGY-HUD terminal /statusline for `agy` CLI
+node plugin/install.mjs --link         # Dev symlink (macOS/Linux) or junction (Windows)
+node plugin/install.mjs --doctor       # Run 6 environment & bundle health checks
+node plugin/install.mjs --update       # Safe CLI upgrade with automatic rollback
+node plugin/install.mjs --uninstall-statusline
 node plugin/install.mjs --uninstall
 ```
 
@@ -134,6 +141,7 @@ AGY-HUD organizes everything into three calm, glanceable views designed for a na
 - **True Telemetry Fidelity** — Opens local SQLite + WAL databases strictly read-only (`node:sqlite`, `?mode=ro`), decodes Protobuf `gen_metadata.f1.f19` for the actual backend routed model ID and `f9.f10.f4` for the real context cap, isolates single-packet `BUF` bursts so sustained `AVG GEN` never exceeds `PEAK`, separates `THK` from `TC-WAIT` tool stalls, and unifies App + CLI (`agy`) + ACP + IDE sibling stores.
 - **First-Class Native AGY Swarm Cockpit** — Directly reads Antigravity's on-disk swarm state (`swarm.json`, `members.json`, `plan.json`, bounded tail reads of `board.jsonl`) with combined `mtime` caching. Surfaces live pulsing `@rosterName` states, task summaries, `Flat | By Thread` grouping, `share`/`branch` worktree badges, `Board #seq`, rolled-up swarm quota/cost, and reverse-indexed worker→coordinator navigation.
 - **Account Insights, Smart Locale & Hardened Self-Updater** — Combines 16w/52w Activity Heatmaps and the Monochrome Token Iceberg view with multi-signal EN/中文 detection (zero-weighting macOS `PingFang.ttc` to avoid false positives) and a zero-dependency in-app updater enforced by a strict GitHub HTTPS allowlist, zip-slip protection, SHA-256 backend diff detection, and atomic swap with rollback.
+- **Antigravity CLI `/statusline` & Bundled `/agy-hud` Read-Only Skill** — Ships a zero-dependency terminal status-line adapter ([`statusline.ts`](plugin/sidecars/hud_panel/statusline.ts)) that consumes Antigravity CLI's official `/statusline` JSON stdin stream and enriches it with live `GEN TPS`, `TTFT`, Context headroom, and Cache TTL survival (`--two-line` and `--stack` supported), paired with the bundled [`/agy-hud`](plugin/skills/agy-hud/SKILL.md) skill so starter prompts and chat queries can inspect telemetry directly on demand.
 
 ---
 

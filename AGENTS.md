@@ -35,12 +35,14 @@ The official installers validate Node.js `>= 22.18`, verify GitHub URLs and arch
 
 - **macOS / Linux**:
   ```sh
-  curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | sh
+  curl -fsSL https://h.512.pub | sh
   ```
 - **Windows (PowerShell 5.1+ / PowerShell 7+)**:
   ```powershell
-  irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex
+  irm https://h.512.pub | iex
   ```
+
+*(Direct GitHub raw fallbacks: `https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh` and `install.ps1`.)*
 
 Optional environment variables supported by both scripts:
 - `AGY_HUD_VERSION` — pin a release tag (e.g. `v1.2.0`)
@@ -51,11 +53,18 @@ Optional environment variables supported by both scripts:
 ### Option B — Local Repository Install (When already inside a clone of `agy-hud`)
 
 ```bash
-# Atomic copy-install (recommended for regular users)
+# Official Antigravity CLI validation & install
+agy plugin validate --strict ./plugin
+agy plugin install ./plugin
+
+# Or atomic copy-install via built-in installer (recommended for regular users)
 node plugin/install.mjs
 
 # Or symlink/junction for local plugin development & live reload
 node plugin/install.mjs --link
+
+# Optional: enable the AGY-HUD terminal /statusline for Antigravity CLI (`agy`)
+node plugin/install.mjs --statusline
 ```
 
 ---

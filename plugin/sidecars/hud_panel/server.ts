@@ -282,7 +282,7 @@ async function startServer() {
     }
 
     const graph = getConversationGraph(conversations, { requiredConvId: explicitConvId, appDataRoots });
-    const lsSummaries = (!explicitConvId || mode === 'latest') && !paneEmpty
+    const lsSummaries = !paneEmpty
       ? await getCascadeSummariesCached(600)
       : undefined;
 
@@ -315,7 +315,7 @@ async function startServer() {
     if (hasInFlight && !(graph.inFlightCount > 0)) {
       graph.inFlightCount = 1;
     }
-    const sessionInfoFull = buildSessionInfo(targetId, graph);
+    const sessionInfoFull = buildSessionInfo(targetId, graph, lsSummaries);
     const { childKeys, swarmSig, ...sessionInfo } = sessionInfoFull;
     const accountHistory = buildAccountHistory(graph);
     if (!graph.indexing && accountHistory.totalCalls > 0) {

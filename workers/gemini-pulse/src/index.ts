@@ -30,6 +30,120 @@ export interface Env {
 const KV_KEY_SNAPSHOT = 'gemini:pulse:v4';
 const KV_KEY_SEED_LOCK = 'gemini:pulse:seed-lock';
 const SERIES_7D_TTL_MS = 30 * 60_000;
+const SHORT_INSTALL_HOSTS = new Set(['h.512.pub']);
+const CANONICAL_SITE_ORIGIN = 'https://agy-hud.512.pub';
+const GITHUB_RAW_SCRIPT_BASE = 'https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts';
+
+const POWERSHELL_UA_RE = /\b(?:WindowsPowerShell|PowerShell)\//i;
+const UNIX_CLI_UA_RE = /^(?:curl|wget|fetch|libfetch|httpie|xh|aria2|python-urllib|python-requests|go-http-client)\b/i;
+
+export type ShortLinkAction =
+  | { kind: 'script'; script: 'sh' | 'ps1'; uaDependent: boolean }
+  | { kind: 'redirect'; location: string; uaDependent: boolean }
+  | { kind: 'passthrough' };
+
+export function classifyInstallerRoute(url: URL, userAgent: string): ShortLinkAction {
+  const path = url.pathname.toLowerCase();
+  const isShortHost = SHORT_INSTALL_HOSTS.has(url.hostname.toLowerCase());
+
+  if (path === '/install.sh' || path === '/sh') {
+    return { kind: 'script', script: 'sh', uaDependent: false };
+  }
+  if (path === '/install.ps1' || path === '/ps1' || path === '/win') {
+    return { kind: 'script', script: 'ps1', uaDependent: false };
+  }
+
+  if (!isShortHost) {
+    return { kind: 'passthrough' };
+  }
+
+  if (path === '/' || path === '') {
+    const osParam = (url.searchParams.get('os') || '').toLowerCase();
+    if (osParam === 'win' || osParam === 'ps1' || osParam === 'powershell') {
+      return { kind: 'script', script: 'ps1', uaDependent: false };
+    }
+    if (osParam === 'sh' || osParam === 'unix' || osParam === 'mac' || osParam === 'linux') {
+      return { kind: 'script', script: 'sh', uaDependent: false };
+    }
+
+    const ua = String(userAgent || '').trim();
+    if (POWERSHELL_UA_RE.test(ua)) {
+      return { kind: 'script', script: 'ps1', uaDependent: true };
+    }
+    if (UNIX_CLI_UA_RE.test(ua)) {
+      return { kind: 'script', script: 'sh', uaDependent: true };
+    }
+    return {
+      kind: 'redirect',
+      location: `${CANONICAL_SITE_ORIGIN}/${url.search}`,
+      uaDependent: true,
+    };
+  }
+
+  return {
+    kind: 'redirect',
+    location: `${CANONICAL_SITE_ORIGIN}${url.pathname}${url.search}`,
+    uaDependent: false,
+  };
+}
+
+async function serveInstallerScript(
+  script: 'sh' | 'ps1',
+  method: string,
+  uaDependent: boolean,
+  env: Env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Response> {
+  const filename = script === 'ps1' ? 'install.ps1' : 'install.sh';
+  let bodyText: string | null = null;
+
+  if (env.ASSETS) {
+    try {
+      const assetRes = await env.ASSETS.fetch(new Request(`${CANONICAL_SITE_ORIGIN}/${filename}`, { method: 'GET' }));
+      if (assetRes.ok) {
+        bodyText = await assetRes.text();
+      }
+    } catch {
+      /* fall back to GitHub raw */
+    }
+  }
+
+  if (bodyText === null) {
+    try {
+      const upstream = await fetchImpl(`${GITHUB_RAW_SCRIPT_BASE}/${filename}`, {
+        headers: { 'User-Agent': 'agy-hud-worker/1.0' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (upstream.ok) {
+        bodyText = await upstream.text();
+      }
+    } catch {
+      /* handled below */
+    }
+  }
+
+  if (bodyText === null) {
+    return new Response(`Installer script (${filename}) temporarily unavailable.\n`, {
+      status: 502,
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
+    });
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Disposition': `inline; filename="${filename}"`,
+    // Prevent shared/edge caches from mixing browser redirects and CLI scripts on UA-negotiated `/`
+    'Cache-Control': uaDependent ? 'no-store' : 'public, max-age=300',
+  };
+  if (uaDependent) {
+    headers.Vary = 'User-Agent';
+  }
+  return new Response(method === 'HEAD' ? null : bodyText, { status: 200, headers });
+}
 
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -353,6 +467,24 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    // Short-link smart installer (`h.512.pub`) & explicit `/install.sh`, `/install.ps1`, `/sh`, `/ps1`
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      const route = classifyInstallerRoute(url, request.headers.get('User-Agent') || '');
+      if (route.kind === 'script') {
+        return serveInstallerScript(route.script, request.method, route.uaDependent, env);
+      }
+      if (route.kind === 'redirect') {
+        const headers: Record<string, string> = {
+          Location: route.location,
+          'Cache-Control': route.uaDependent ? 'no-store' : 'public, max-age=300',
+        };
+        if (route.uaDependent) {
+          headers.Vary = 'User-Agent';
+        }
+        return new Response(null, { status: 302, headers });
+      }
+    }
 
     if (url.pathname === '/v1/health') {
       const cache = caches.default;

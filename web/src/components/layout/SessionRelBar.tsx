@@ -5,7 +5,6 @@ import {
   fmtUsd,
   formatSessionQuotaCompact,
   formatSessionQuotaTip,
-  kindBadgeClass,
   kindBadgeText,
   shortTitleLabel,
 } from '../../utils/format';
@@ -67,10 +66,24 @@ export function SessionRelBar({
     : '';
   const combinedParentTip = [rootTreeTipLine, parentQuotaTip].filter(Boolean).join('\n\n') || undefined;
 
+  const activeChildrenCount = children.filter((c) =>
+    c.isActive !== undefined ? Boolean(c.isActive) : c.swarm?.swarmState === 'working',
+  ).length;
+  const hasActiveChildren = activeChildrenCount > 0;
+  const isSelfActive = Boolean(snap?.activeStep);
+  const selfActiveKind = snap?.activeStep
+    ? snap.activeStep.stepType === 15
+      ? 'gen'
+      : snap.activeStep.stepType === 23
+        ? 'compact'
+        : 'tool'
+    : '';
+
   // Swarm Worker Breadcrumb View
   if (isSwarmWorker && swarm) {
     const self = swarm.selfMember;
-    const selfState: SwarmMemberState = self?.swarmState || 'waiting';
+    const rawSelfState: SwarmMemberState = self?.swarmState || 'waiting';
+    const selfState: SwarmMemberState = rawSelfState === 'working' && !isSelfActive ? 'waiting' : rawSelfState;
     const coordLabel = shortTitleLabel(swarm.swarmTitle, swarm.coordinatorConvId);
     const coordTip = sw.backCoordinatorTip(swarm.swarmTitle, swarm.coordinatorConvId, combinedParentTip);
     const selfTip = self
@@ -107,7 +120,7 @@ export function SessionRelBar({
                 ? 'swarm-pill-working'
                 : selfState === 'stopped'
                   ? 'swarm-pill-stopped'
-                  : 'border-transparent bg-hud-fill text-hud-fg'
+                  : 'border-transparent bg-hud-fill text-hud-muted'
             }`}
           >
             <WorkerStateDot state={selfState} />
@@ -125,9 +138,16 @@ export function SessionRelBar({
             <button
               type="button"
               onClick={onInspectChildren}
-              className="swarm-interactive-pill swarm-pill-branch px-[7px] py-[1px] rounded-full border font-hud text-[10px] font-semibold cursor-pointer whitespace-nowrap shrink-0 transition-colors"
+              className={`swarm-interactive-pill inline-flex items-center gap-1 px-[7px] py-[1px] rounded-full border font-hud text-[10px] font-semibold cursor-pointer whitespace-nowrap shrink-0 tabular-nums transition-colors ${
+                hasActiveChildren ? 'swarm-pill-working' : 'swarm-pill-idle'
+              }`}
             >
-              {t.linkedCount(children.length)}
+              {hasActiveChildren && <span className="swarm-dot-working w-[5px] h-[5px] rounded-full shrink-0" aria-hidden="true" />}
+              <span>
+                {hasActiveChildren
+                  ? t.linkedRunningCount(activeChildrenCount, children.length)
+                  : t.linkedCount(children.length)}
+              </span>
             </button>
           )}
         </div>
@@ -151,16 +171,31 @@ export function SessionRelBar({
           </span>
         </button>
       )}
-      <span className={`rel-kind-pill ${kindBadgeClass(kind)}`}>
-        {kindBadgeText(kind, t)}
-      </span>
+      {isSelfActive ? (
+        <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full border font-hud text-[9.5px] font-semibold swarm-pill-working shrink-0">
+          <span className="swarm-dot-working w-[5px] h-[5px] rounded-full shrink-0" aria-hidden="true" />
+          <span>{kindBadgeText(kind, t)} · {t.childRunningBadge(selfActiveKind)}</span>
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded font-hud text-[9.5px] font-medium bg-hud-fill text-hud-muted shrink-0">
+          <span className="w-[5px] h-[5px] rounded-full bg-hud-muted/50 shrink-0" aria-hidden="true" />
+          <span>{kindBadgeText(kind, t)} · {t.childFinishedBadge}</span>
+        </span>
+      )}
       {children.length > 0 && (
         <button
           type="button"
           onClick={onInspectChildren}
-          className="swarm-interactive-pill swarm-pill-branch ml-auto px-[7px] py-[1px] rounded-full border font-hud text-[10px] font-semibold cursor-pointer whitespace-nowrap shrink-0 transition-colors"
+          className={`swarm-interactive-pill ml-auto inline-flex items-center gap-1 px-[7px] py-[1px] rounded-full border font-hud text-[10px] font-semibold cursor-pointer whitespace-nowrap shrink-0 tabular-nums transition-colors ${
+            hasActiveChildren ? 'swarm-pill-working' : 'swarm-pill-idle'
+          }`}
         >
-          {t.linkedCount(children.length)}
+          {hasActiveChildren && <span className="swarm-dot-working w-[5px] h-[5px] rounded-full shrink-0" aria-hidden="true" />}
+          <span>
+            {hasActiveChildren
+              ? t.linkedRunningCount(activeChildrenCount, children.length)
+              : t.linkedCount(children.length)}
+          </span>
         </button>
       )}
     </div>

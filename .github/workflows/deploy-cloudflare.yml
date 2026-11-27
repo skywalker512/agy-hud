@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'site/**'
+      - 'scripts/**'
       - 'plugin/sidecars/hud_panel/ui/**'
       - 'plugin/sidecars/hud_panel/lib/pulse-core.ts'
       - 'workers/gemini-pulse/**'

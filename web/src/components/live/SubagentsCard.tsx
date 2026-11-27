@@ -169,7 +169,13 @@ interface MemberRowProps {
 function SwarmMemberRow({ item: c, boardSeq, sw, t, onJumpConversation }: MemberRowProps) {
   const m = c.swarm;
   const isRealConv = REAL_UUID_RE.test(c.id);
-  const state: SwarmMemberState = m?.swarmState || 'waiting';
+  const rawState: SwarmMemberState = m?.swarmState || 'waiting';
+  const state: SwarmMemberState =
+    rawState === 'working' && c.isActive === false
+      ? 'waiting'
+      : rawState === 'waiting' && c.isActive === true
+        ? 'working'
+        : rawState;
   const isKilled = state === 'killed';
   const costStr = c.pricedCount > 0 ? fmtUsd(c.costUSD) : '';
   const qStr = c.quotaUsage ? formatSessionQuotaCompact(c.quotaUsage, true) : '';
@@ -178,35 +184,66 @@ function SwarmMemberRow({ item: c, boardSeq, sw, t, onJumpConversation }: Member
   const tip = buildMemberTooltip(c, boardSeq, sw, t);
 
   if (!m) {
+    const isRunning = Boolean(c.isActive);
     const badge = kindBadgeText(c.kind, t);
-    const cls = kindBadgeClass(c.kind);
+    const cls = isRunning ? kindBadgeClass(c.kind) : 'kind-main';
     const lbl = c.title || sw.subagentRoleFallback(c.subagentType, c.id.slice(0, 8));
     const fullMeta = t.linkedMeta(c.calls || 0, fmtNum(c.outputTokens || 0), costStr, qStr);
+    const statusLabel = isRunning ? t.childRunningBadge(c.activeKind) : t.childFinishedBadge;
+    const rowTip = [`${lbl} · ${statusLabel}`, tip].filter(Boolean).join('\n\n');
     return (
       <button
         type="button"
         onClick={() => onJumpConversation(c.id)}
-        data-tip={tip}
+        data-tip={rowTip}
         className="swarm-member-card w-full text-left px-2.5 py-2 text-inherit cursor-pointer flex flex-col gap-1"
+        style={
+          isRunning
+            ? { background: 'color-mix(in srgb, var(--hud-ok) 5%, transparent)' }
+            : undefined
+        }
       >
         <div className="flex items-center justify-between gap-1.5 min-w-0">
           <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            {isRunning ? (
+              <span className="swarm-dot-working w-[7px] h-[7px] rounded-full shrink-0" aria-hidden="true" />
+            ) : (
+              <span className="w-[6px] h-[6px] rounded-full bg-hud-muted/45 shrink-0" aria-hidden="true" />
+            )}
             <span className={`rel-kind-pill ${cls}`}>{badge}</span>
+            {isRunning && (
+              <span className="px-1.5 py-[0.5px] rounded-full font-hud text-[9px] font-semibold text-hud-ok bg-tint-ok shrink-0">
+                {statusLabel}
+              </span>
+            )}
             {c.subagentType && c.subagentType !== 'worker' && (
               <span className="px-1.5 py-[0.5px] rounded bg-hud-card font-hud-mono text-[9.5px] text-hud-muted shrink-0">
                 {c.subagentType}
               </span>
             )}
-            <span className="text-[11.5px] font-semibold text-hud-fg truncate">{lbl}</span>
+            <span
+              className={`text-[11.5px] truncate ${
+                isRunning ? 'font-semibold text-hud-fg' : 'font-medium text-hud-fg-2'
+              }`}
+            >
+              {lbl}
+            </span>
           </div>
-          <span className="inline-flex items-center gap-0.5 font-hud text-[10.5px] font-medium text-hud-accent-ink shrink-0">
+          <span
+            className={`inline-flex items-center gap-0.5 font-hud text-[10.5px] font-medium shrink-0 ${
+              isRunning ? 'text-hud-accent-ink' : 'text-hud-muted'
+            }`}
+          >
             <span>{t.jumpAction}</span>
             <IconArrowRight size={11} />
           </span>
         </div>
-        <div className="flex items-center justify-between gap-2 font-hud-mono text-[10px] text-hud-muted tabular-nums">
+        <div className="flex items-center justify-between gap-2 font-hud-mono text-[10px] text-hud-muted tabular-nums pl-[13px]">
           <span className="truncate">{fullMeta}</span>
-          {clockStr && <span className="shrink-0 text-hud-faint">{clockStr}</span>}
+          <div className="flex items-center gap-1.5 shrink-0 text-hud-faint">
+            {!isRunning && <span className="font-hud text-[9.5px] text-hud-muted/80">{t.childFinishedBadge}</span>}
+            {clockStr && <span>{clockStr}</span>}
+          </div>
         </div>
       </button>
     );
@@ -407,6 +444,9 @@ function SubagentsCardImpl({
     const totalChildQuotaTip = totalChildQuotaStr ? formatSessionQuotaTip(totalChildQuota, t) : undefined;
     const childCostUSD = tree ? tree.childCostUSD : children.reduce((acc, c) => acc + (c.costUSD || 0), 0);
     const childCountLabel = tree && tree.descendantCount > children.length ? `${children.length}/${tree.descendantCount}` : `${children.length}`;
+    const activeCount = sortedChildren.filter((c) =>
+      c.isActive !== undefined ? Boolean(c.isActive) : c.swarm?.swarmState === 'working',
+    ).length;
 
     return (
       <section id="child-sessions-card" className="hud-card flex flex-col gap-2">
@@ -417,6 +457,16 @@ function SubagentsCardImpl({
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">
             <span className="card-k">{t.linkedTitle}</span>
             <span className="micro-badge">{childCountLabel}</span>
+            {activeCount > 0 ? (
+              <span className="inline-flex items-center gap-1 px-1.5 py-[0.5px] rounded-full font-hud text-[9.5px] font-semibold text-hud-ok bg-tint-ok tabular-nums">
+                <span className="swarm-dot-working w-[5px] h-[5px] rounded-full shrink-0" aria-hidden="true" />
+                <span>{t.childHeaderRunning(activeCount)}</span>
+              </span>
+            ) : (
+              <span className="px-1.5 py-[0.5px] rounded-full font-hud text-[9.5px] font-medium text-hud-muted bg-hud-fill">
+                {t.childFinishedBadge}
+              </span>
+            )}
             {childCostUSD > 0 && (
               <span className="font-hud-mono text-[10px] font-semibold text-hud-fg-2 tabular-nums">
                 +{fmtUsd(childCostUSD)}
@@ -515,6 +565,16 @@ function SubagentsCardImpl({
       ? `${candGoalTitle}\n${candGoalLine}`
       : subtitle || undefined;
 
+  const effectiveWorkingCount = children.length > 0
+    ? children.filter((c) =>
+        c.isActive !== undefined ? Boolean(c.isActive) : c.swarm?.swarmState === 'working',
+      ).length
+    : swarm.workingCount;
+  const effectiveWaitingCount =
+    children.length > 0
+      ? Math.max(0, swarm.waitingCount + (swarm.workingCount - effectiveWorkingCount))
+      : swarm.waitingCount;
+
   return (
     <section id="child-sessions-card" className="hud-card flex flex-col gap-2">
       {/* Swarm Header Strip */}
@@ -566,16 +626,16 @@ function SubagentsCardImpl({
         {/* Calm borderless state summary + optional [Flat | By Thread] toggle */}
         <div className="flex flex-wrap items-center justify-between gap-1.5">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-hud text-[10.5px] tabular-nums">
-            {swarm.workingCount > 0 && (
+            {effectiveWorkingCount > 0 && (
               <span className="inline-flex items-center gap-1.5 px-1.5 py-[1px] rounded-full font-semibold text-hud-ok bg-tint-ok">
                 <span className="swarm-dot-working w-[5.5px] h-[5.5px] rounded-full shrink-0" />
-                <span>{sw.workingPill(swarm.workingCount)}</span>
+                <span>{sw.workingPill(effectiveWorkingCount)}</span>
               </span>
             )}
-            {swarm.waitingCount > 0 && (
+            {effectiveWaitingCount > 0 && (
               <span className="inline-flex items-center gap-1 text-hud-muted">
                 <span className="w-[5.5px] h-[5.5px] rounded-full border border-hud-muted opacity-75 shrink-0" />
-                <span>{sw.waitingPill(swarm.waitingCount)}</span>
+                <span>{sw.waitingPill(effectiveWaitingCount)}</span>
               </span>
             )}
             {swarm.stoppedCount > 0 && (
@@ -636,7 +696,9 @@ function SubagentsCardImpl({
         <div className="hud-expand-anim flex flex-col gap-2">
           {threadGroups.map((group) => {
             const isCollapsed = collapsedThreads.has(group.id);
-            const activeInGroup = group.items.filter((i) => i.swarm?.swarmState === 'working').length;
+            const activeInGroup = group.items.filter((i) =>
+              i.isActive !== undefined ? Boolean(i.isActive) : i.swarm?.swarmState === 'working',
+            ).length;
             return (
               <div key={group.id} className="flex flex-col gap-1 min-w-0">
                 <button

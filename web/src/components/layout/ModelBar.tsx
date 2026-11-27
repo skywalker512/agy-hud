@@ -95,13 +95,21 @@ export function ModelBar({ snap, lang = 'en', t, onInspectChildren }: ModelBarPr
   };
 
   let swarmActionNode = null;
+  const activeChildrenCount = children.filter((c) =>
+    c.isActive !== undefined ? Boolean(c.isActive) : c.swarm?.swarmState === 'working',
+  ).length;
   if (showFoldedSwarm && swarm && onInspectChildren) {
-    const hasWorking = swarm.workingCount > 0;
+    const workingCount = children.length > 0 ? activeChildrenCount : swarm.workingCount;
+    const effectiveWaitingCount =
+      children.length > 0
+        ? Math.max(0, swarm.waitingCount + (swarm.workingCount - workingCount))
+        : swarm.waitingCount;
+    const hasWorking = workingCount > 0;
     const totalCount = swarm.memberCount || children.length;
     const pillTip = sw.coordSwarmPillTip(
       swarm.swarmTitle,
-      swarm.workingCount,
-      swarm.waitingCount,
+      workingCount,
+      effectiveWaitingCount,
       swarm.stoppedCount,
       swarm.killedCount,
       swarm.boardSeq,
@@ -113,25 +121,33 @@ export function ModelBar({ snap, lang = 'en', t, onInspectChildren }: ModelBarPr
         onClick={onInspectChildren}
         data-tip={pillTip}
         className={`swarm-interactive-pill inline-flex items-center gap-1.5 px-2 py-[1.5px] rounded-full border font-hud text-[10px] font-semibold cursor-pointer whitespace-nowrap shrink-0 tabular-nums transition-colors ${
-          hasWorking ? 'swarm-pill-working' : 'swarm-pill-branch'
+          hasWorking ? 'swarm-pill-working' : 'swarm-pill-idle'
         }`}
       >
         {hasWorking && <span className="swarm-dot-working w-[5.5px] h-[5.5px] rounded-full shrink-0" aria-hidden="true" />}
         <span>
           {hasWorking
-            ? sw.coordSwarmPillWorking(swarm.workingCount, totalCount)
+            ? sw.coordSwarmPillWorking(workingCount, totalCount)
             : sw.coordSwarmPillIdle(totalCount)}
         </span>
       </button>
     );
   } else if (showFoldedLinked && onInspectChildren) {
+    const hasActiveChild = activeChildrenCount > 0;
     swarmActionNode = (
       <button
         type="button"
         onClick={onInspectChildren}
-        className="swarm-interactive-pill swarm-pill-branch inline-flex items-center px-2 py-[1.5px] rounded-full border font-hud text-[10px] font-semibold cursor-pointer whitespace-nowrap shrink-0 transition-colors"
+        className={`swarm-interactive-pill inline-flex items-center gap-1.5 px-2 py-[1.5px] rounded-full border font-hud text-[10px] font-semibold cursor-pointer whitespace-nowrap shrink-0 tabular-nums transition-colors ${
+          hasActiveChild ? 'swarm-pill-working' : 'swarm-pill-idle'
+        }`}
       >
-        {t.linkedCount(children.length)}
+        {hasActiveChild && <span className="swarm-dot-working w-[5.5px] h-[5.5px] rounded-full shrink-0" aria-hidden="true" />}
+        <span>
+          {hasActiveChild
+            ? t.linkedRunningCount(activeChildrenCount, children.length)
+            : t.linkedCount(children.length)}
+        </span>
       </button>
     );
   }

@@ -1451,16 +1451,110 @@ export async function runDoctor({
 // CLI argument parsing & output formatting
 // ---------------------------------------------------------------------------
 
+export function runConfigureStatusline({
+  targetDir = getDefaultTargetDir(),
+  settingsPath = '',
+  twoLine = false,
+  noColor = false,
+  stackWithDefault = false,
+} = {}) {
+  const resolvedTarget = resolve(targetDir);
+  const scriptPath = join(resolvedTarget, 'sidecars', 'hud_panel', 'statusline.ts');
+  if (!existsSync(scriptPath)) {
+    return {
+      ok: false,
+      action: 'missing_plugin',
+      targetDir: resolvedTarget,
+      message: `AGY-HUD statusline script not found at ${scriptPath}. Install AGY-HUD first with "node plugin/install.mjs".`,
+    };
+  }
+  const args = [scriptPath, '--setup-statusline', '--json'];
+  if (settingsPath) args.push('--settings', resolve(settingsPath));
+  if (twoLine) args.push('--two-line');
+  if (noColor) args.push('--no-color');
+  if (stackWithDefault) args.push('--stack');
+
+  try {
+    const raw = execFileSync(process.execPath, args, {
+      encoding: 'utf8',
+      timeout: 10_000,
+      windowsHide: true,
+    });
+    return JSON.parse(raw);
+  } catch (err) {
+    if (err?.stdout) {
+      try {
+        return JSON.parse(String(err.stdout));
+      } catch {
+        /* fall through */
+      }
+    }
+    return {
+      ok: false,
+      action: 'error',
+      targetDir: resolvedTarget,
+      message: err?.message || String(err),
+    };
+  }
+}
+
+export function runRemoveStatusline({
+  targetDir = getDefaultTargetDir(),
+  sourceDir = defaultSourceDir,
+  settingsPath = '',
+  force = false,
+} = {}) {
+  const installedScript = join(resolve(targetDir), 'sidecars', 'hud_panel', 'statusline.ts');
+  const fallbackScript = join(resolve(sourceDir), 'sidecars', 'hud_panel', 'statusline.ts');
+  const scriptPath = existsSync(installedScript) ? installedScript : fallbackScript;
+  if (!existsSync(scriptPath)) {
+    return {
+      ok: false,
+      action: 'missing_plugin',
+      message: `Could not locate statusline.ts in ${targetDir} or ${sourceDir}.`,
+    };
+  }
+  const args = [scriptPath, '--remove-statusline', '--json'];
+  if (settingsPath) args.push('--settings', resolve(settingsPath));
+  if (force) args.push('--force');
+
+  try {
+    const raw = execFileSync(process.execPath, args, {
+      encoding: 'utf8',
+      timeout: 10_000,
+      windowsHide: true,
+    });
+    return JSON.parse(raw);
+  } catch (err) {
+    if (err?.stdout) {
+      try {
+        return JSON.parse(String(err.stdout));
+      } catch {
+        /* fall through */
+      }
+    }
+    return {
+      ok: false,
+      action: 'error',
+      message: err?.message || String(err),
+    };
+  }
+}
+
 export function parseCliArgs(argv) {
   const opts = {
     command: 'install',
     explicitCommand: null,
     targetDir: null,
     sourceDir: null,
+    settingsPath: null,
     versionTag: '',
     force: false,
     json: false,
     allowBuild: true,
+    twoLine: false,
+    noColor: false,
+    stackWithDefault: false,
     help: false,
     showVersion: false,
     error: null,
@@ -1493,12 +1587,22 @@ export function parseCliArgs(argv) {
       setCommand('update');
     } else if (arg === '--doctor') {
       setCommand('doctor');
+    } else if (arg === '--statusline') {
+      setCommand('statusline');
+    } else if (arg === '--uninstall-statusline') {
+      setCommand('uninstall-statusline');
     } else if (arg === '--force') {
       opts.force = true;
     } else if (arg === '--json') {
       opts.json = true;
     } else if (arg === '--no-build') {
       opts.allowBuild = false;
+    } else if (arg === '--two-line') {
+      opts.twoLine = true;
+    } else if (arg === '--no-color') {
+      opts.noColor = true;
+    } else if (arg === '--stack') {
+      opts.stackWithDefault = true;
     } else if (arg === '--target') {
       const next = argv[++i];
       if (!next || next.startsWith('-')) {
@@ -1510,6 +1614,19 @@ export function parseCliArgs(argv) {
       opts.targetDir = arg.slice('--target='.length);
       if (!opts.targetDir) {
         opts.error = 'Missing value for --target=';
+        break;
+      }
+    } else if (arg === '--settings') {
+      const next = argv[++i];
+      if (!next || next.startsWith('-')) {
+        opts.error = 'Missing value for --settings';
+        break;
+      }
+      opts.settingsPath = next;
+    } else if (arg.startsWith('--settings=')) {
+      opts.settingsPath = arg.slice('--settings='.length);
+      if (!opts.settingsPath) {
+        opts.error = 'Missing value for --settings=';
         break;
       }
     } else if (arg === '--source') {
@@ -1545,21 +1662,27 @@ Usage:
   node plugin/install.mjs [command] [options]
 
 Commands:
-  --install        Atomic staged copy into ~/.gemini/config/plugins/agy-hud (default)
-  --link           Symlink/junction plugin folder for live development
-  --uninstall      Remove the installed plugin cleanly
-  --check-update   Check GitHub (${GITHUB_OWNER}/${GITHUB_REPO}) for newer releases
-  --update         Download, verify, and atomically upgrade installed plugin
-  --doctor         Run full environment & installation diagnostics
+  --install               Atomic staged copy into ~/.gemini/config/plugins/agy-hud (default)
+  --link                  Symlink/junction plugin folder for live development
+  --uninstall             Remove the installed plugin cleanly
+  --check-update          Check GitHub (${GITHUB_OWNER}/${GITHUB_REPO}) for newer releases
+  --update                Download, verify, and atomically upgrade installed plugin
+  --doctor                Run full environment & installation diagnostics
+  --statusline            Configure Antigravity CLI /statusline in ~/.gemini/antigravity-cli/settings.json
+  --uninstall-statusline  Remove AGY-HUD from Antigravity CLI settings.json
 
 Options:
-  --target <dir>   Custom plugin installation directory (for testing / enterprise)
-  --force          Allow --update to replace a --link dev symlink or reinstall same version
-  --no-build       Do not auto-build web UI if pre-built bundle is missing
-  --ref <tag>      Specific release tag to install during --update (e.g. v1.3.0)
-  --json           Output machine-readable JSON (supported by --doctor, --check-update, --update)
-  -v, --version    Print local plugin version
-  -h, --help       Show this help message`;
+  --target <dir>          Custom plugin installation directory (for testing / enterprise)
+  --settings <path>       Custom Antigravity CLI settings.json path (for --statusline)
+  --two-line              Use 2-line rich layout when configuring --statusline
+  --no-color              Disable ANSI colors when configuring --statusline
+  --stack                 Stack below built-in status line when configuring --statusline
+  --force                 Allow --update to replace a --link dev symlink, or force --uninstall-statusline
+  --no-build              Do not auto-build web UI if pre-built bundle is missing
+  --ref <tag>             Specific release tag to install during --update (e.g. v1.3.0)
+  --json                  Output machine-readable JSON
+  -v, --version           Print local plugin version
+  -h, --help              Show this help message`;
 
 function formatDoctorHuman(report) {
   const lines = [`AGY-HUD Doctor (${report.targetDir})`, ''];
@@ -1634,6 +1757,35 @@ export async function main(argv = process.argv.slice(2)) {
     if (opts.json) console.log(JSON.stringify(res, null, 2));
     else console.log(res.message);
     return 0;
+  }
+
+  if (opts.command === 'statusline') {
+    const res = runConfigureStatusline({
+      targetDir,
+      settingsPath: opts.settingsPath || '',
+      twoLine: opts.twoLine,
+      noColor: opts.noColor,
+      stackWithDefault: opts.stackWithDefault,
+    });
+    if (opts.json) console.log(JSON.stringify(res, null, 2));
+    else if (res.ok) console.log(res.message);
+    else console.error(res.message);
+    if (!res.ok) process.exitCode = 1;
+    return res.ok ? 0 : 1;
+  }
+
+  if (opts.command === 'uninstall-statusline') {
+    const res = runRemoveStatusline({
+      targetDir,
+      sourceDir,
+      settingsPath: opts.settingsPath || '',
+      force: opts.force,
+    });
+    if (opts.json) console.log(JSON.stringify(res, null, 2));
+    else if (res.ok) console.log(res.message);
+    else console.error(res.message);
+    if (!res.ok) process.exitCode = 1;
+    return res.ok ? 0 : 1;
   }
 
   const res = runInstall({

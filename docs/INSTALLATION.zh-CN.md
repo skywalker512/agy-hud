@@ -33,14 +33,16 @@ node -v
 ### macOS / Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | sh
+curl -fsSL https://h.512.pub | sh
 ```
 
 ### Windows（PowerShell）
 
 ```powershell
-irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex
+irm https://h.512.pub | iex
 ```
+
+> `https://h.512.pub` 会根据客户端自动分发：`curl`/`wget` 返回 `scripts/install.sh`，PowerShell 返回 `scripts/install.ps1`，浏览器访问自动跳转 `https://agy-hud.512.pub/`。也可以通过 `https://h.512.pub/sh`、`https://h.512.pub/ps1` 或 GitHub Raw（`https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.{sh,ps1}`）显式查看或下载。
 
 ### 一句话让 AI Agent 自动安装
 
@@ -64,13 +66,13 @@ irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.
 ```sh
 # macOS / Linux —— 安装指定版本到自定义目录
 AGY_HUD_VERSION=v1.2.0 AGY_HUD_TARGET=/custom/path/agy-hud \
-  curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | sh
+  curl -fsSL https://h.512.pub | sh
 ```
 
 ```powershell
 # Windows PowerShell —— 安装指定版本
 $env:AGY_HUD_VERSION = "v1.2.0"
-irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex
+irm https://h.512.pub | iex
 ```
 
 ---

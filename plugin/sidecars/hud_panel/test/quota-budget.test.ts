@@ -1002,3 +1002,137 @@ test('accountLedger preserves account-wide spend across mid-window Gemini resets
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('attachQuotaBudgetEstimates computes cache-ratio-projected token capacity for 5h and 7d windows', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-tok-cap-'));
+  const calPath = join(dir, 'quota-calibration.json');
+  const fitPath = join(dir, 'quota-model-fit.json');
+  try {
+    const nowMs = 1_800_000_000_000;
+    const reset5h = nowMs + 4 * 3_600_000;
+    const reset7d = nowMs + 6 * 86_400_000;
+
+    // 6 calls in last 7d with 90% prompt cache hit rate:
+    // Each call: 100k newInput ($0.30 @ $3/M), 900k cachedInput ($0.135 @ $0.15/M), 10k output ($0.15 @ $15/M)
+    // Total tokens/call = 1,010,000; cost/call = $0.585
+    // 6 calls -> total cost = $3.51; total tokens = 6,060,000
+    // With 5h remaining = 80% (20% used -> $17.55 full cap on legacy cold start, or $150 prior if Gemini)
+    const calls = Array.from({ length: 6 }, (_, i) => ({
+      ts: nowMs - (i + 1) * 60_000,
+      poolKey: 'gemini',
+      family: 'gemini-4-neon',
+      newInput: 100_000,
+      cachedInput: 900_000,
+      outputTokens: 10_000,
+      baseUSD: 0.585,
+      costUSD: 0.585,
+      priced: true,
+    }));
+
+    const res = attachQuotaBudgetEstimates(
+      {
+        available: true,
+        planName: 'Pro',
+        tierName: 'Pro',
+        teamsTier: 'PRO',
+        fetchedAtMs: nowMs,
+        pools: [
+          {
+            label: 'Gemini',
+            remainingPct: 80,
+            resetAtMs: reset5h,
+            windows: [
+              { spanKey: '5h', label: '5h', remainingPct: 80, resetTime: '', resetAtMs: reset5h },
+              { spanKey: '7d', label: '7d', remainingPct: 95, resetTime: '', resetAtMs: reset7d },
+            ],
+          },
+        ],
+      },
+      { summaries: [{ latestTsMs: nowMs, recentCalls: calls }] },
+      { calibrationPath: calPath, fitPath, nowMs },
+    );
+
+    const w5 = res.pools[0].windows.find((w: any) => w.spanKey === '5h');
+    const w7 = res.pools[0].windows.find((w: any) => w.spanKey === '7d');
+    assert.ok(w5?.estTokenCapacity, '5h window should include estTokenCapacity');
+    assert.ok(w7?.estTokenCapacity, '7d window should include estTokenCapacity');
+
+    const tc5 = w5.estTokenCapacity;
+    assert.equal(tc5.basisWindow, '7d');
+    assert.equal(tc5.sampleCalls, 6);
+    assert.equal(tc5.cacheHitPct, 90);
+    // Remaining should be 80% of full capacity
+    assert.ok(Math.abs(tc5.remainingTotalTokens / tc5.fullTotalTokens - 0.8) < 0.001);
+    assert.ok(tc5.fullTotalTokens > 25_000_000, `expected realistic multi-million token capacity, got ${tc5.fullTotalTokens}`);
+    assert.ok(tc5.fullCachedTokens > tc5.fullNewInputTokens * 8, 'cached share should reflect 90% cache hit ratio');
+
+    // 7d window with 95% remaining should reflect larger full capacity than 5h
+    const tc7 = w7.estTokenCapacity;
+    assert.ok(Math.abs(tc7.remainingTotalTokens / tc7.fullTotalTokens - 0.95) < 0.001);
+    assert.ok(tc7.fullTotalTokens > tc5.fullTotalTokens, '7d full token capacity should exceed 5h');
+
+    // Fallback to 30d when 7d has <5 calls
+    const oldCalls = [
+      {
+        ts: nowMs - 12 * 86_400_000,
+        poolKey: 'claude_gpt',
+        family: 'claude-sonnet-5-5',
+        newInput: 200_000,
+        cachedInput: 800_000,
+        outputTokens: 20_000,
+        baseUSD: 0.76,
+        costUSD: 0.76,
+        priced: true,
+      },
+    ];
+    const res30 = attachQuotaBudgetEstimates(
+      {
+        available: true,
+        planName: 'Pro',
+        tierName: 'Pro',
+        teamsTier: 'PRO',
+        fetchedAtMs: nowMs,
+        pools: [
+          {
+            label: 'Claude & GPT',
+            remainingPct: 50,
+            resetAtMs: reset5h,
+            windows: [
+              { spanKey: '5h', label: '5h', remainingPct: 50, resetTime: '', resetAtMs: reset5h },
+            ],
+          },
+        ],
+      },
+      {
+        summaries: [
+          {
+            latestTsMs: nowMs,
+            recentCalls: [
+              ...oldCalls,
+              {
+                ts: nowMs - 60_000,
+                poolKey: 'claude_gpt',
+                family: 'claude-sonnet-5-5',
+                newInput: 200_000,
+                cachedInput: 800_000,
+                outputTokens: 20_000,
+                baseUSD: 0.76,
+                costUSD: 0.76,
+                priced: true,
+              },
+            ],
+          },
+        ],
+      },
+      { calibrationPath: calPath, fitPath, nowMs },
+    );
+    const tc30 = res30.pools[0].windows[0].estTokenCapacity;
+    assert.ok(tc30, 'should fall back to 30d calls when <5 calls exist in 7d');
+    assert.equal(tc30.basisWindow, '30d');
+    assert.equal(tc30.sampleCalls, 2);
+    assert.equal(tc30.cacheHitPct, 80);
+    assert.ok(Math.abs(tc30.remainingTotalTokens / tc30.fullTotalTokens - 0.5) < 0.001);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

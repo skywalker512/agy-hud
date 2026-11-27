@@ -33,14 +33,16 @@ Both one-line installers automatically check Node.js `>= 22.18`, validate GitHub
 ### macOS & Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | sh
+curl -fsSL https://h.512.pub | sh
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex
+irm https://h.512.pub | iex
 ```
+
+> `https://h.512.pub` serves `scripts/install.sh` to `curl`/`wget`, `scripts/install.ps1` to PowerShell, and redirects browsers to `https://agy-hud.512.pub/`. You can also inspect or fetch them explicitly via `https://h.512.pub/sh`, `https://h.512.pub/ps1`, or GitHub raw (`https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.{sh,ps1}`).
 
 ### AI Agent Install (1 Sentence)
 
@@ -64,13 +66,13 @@ Both `scripts/install.sh` and `scripts/install.ps1` honor the same four optional
 ```sh
 # macOS / Linux — pin a release tag and custom target
 AGY_HUD_VERSION=v1.2.0 AGY_HUD_TARGET=/custom/path/agy-hud \
-  curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | sh
+  curl -fsSL https://h.512.pub | sh
 ```
 
 ```powershell
 # Windows PowerShell — pin a release tag
 $env:AGY_HUD_VERSION = "v1.2.0"
-irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex
+irm https://h.512.pub | iex
 ```
 
 ---

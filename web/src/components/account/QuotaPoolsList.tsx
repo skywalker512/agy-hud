@@ -1,7 +1,7 @@
 import { useNowMs } from '../../hooks/useNow';
 import type { Translations } from '../../i18n';
 import type { AccountQuota, QuotaWindow } from '../../types/telemetry';
-import { fmtClockHm, fmtDurationShort, fmtQuotaPct, fmtUsd, fmtUsdWithBand } from '../../utils/format';
+import { fmtClockHm, fmtDurationShort, fmtNum, fmtQuotaPct, fmtUsd, fmtUsdWithBand } from '../../utils/format';
 import { IconAlert } from '../common/Icons';
 
 interface QuotaPoolsListProps {
@@ -131,6 +131,34 @@ export function QuotaPoolsList({ quota, t }: QuotaPoolsListProps) {
                 const resetStr = remSec > 0 ? fmtDurationShort(remSec) : '';
                 const metaStr = t.winMeta(pct, resetStr);
                 const estLine = formatWinEst(w);
+                const tc = w.estTokenCapacity || null;
+                const spanTag = w.spanKey || w.label || '5h';
+                const tokLine = tc
+                  ? t.winTokCapLine(
+                      fmtNum(tc.remainingTotalTokens),
+                      fmtNum(tc.fullTotalTokens),
+                      `${tc.cacheHitPct.toFixed(1)}%`,
+                      tc.isProvisional,
+                    )
+                  : '';
+                const tokTip = tc
+                  ? t.winTokCapTip({
+                      spanLabel: spanTag,
+                      remTok: fmtNum(tc.remainingTotalTokens),
+                      fullTok: fmtNum(tc.fullTotalTokens),
+                      remCacheTok: fmtNum(tc.remainingCachedTokens),
+                      remNewTok: fmtNum(tc.remainingNewInputTokens),
+                      remOutTok: fmtNum(tc.remainingOutputTokens),
+                      fullCacheTok: fmtNum(tc.fullCachedTokens),
+                      fullNewTok: fmtNum(tc.fullNewInputTokens),
+                      fullOutTok: fmtNum(tc.fullOutputTokens),
+                      cachePct: `${tc.cacheHitPct.toFixed(1)}%`,
+                      outSharePct: `${tc.outSharePct.toFixed(1)}%`,
+                      calls: tc.sampleCalls,
+                      basisWindow: tc.basisWindow,
+                      isProv: tc.isProvisional,
+                    })
+                  : undefined;
                 const rw = w.runway;
 
                 // Hatched diagonal runway bar geometry:
@@ -226,7 +254,7 @@ export function QuotaPoolsList({ quota, t }: QuotaPoolsListProps) {
                       {metaStr}
                     </span>
 
-                    {(runwayCaption || estLine) && (
+                    {(runwayCaption || estLine || tokLine) && (
                       <div className="col-span-full w-0 min-w-full pl-[32px] flex flex-col gap-[2px]">
                         {runwayCaption && (
                           <span
@@ -248,6 +276,14 @@ export function QuotaPoolsList({ quota, t }: QuotaPoolsListProps) {
                         {estLine && (
                           <span className="font-hud-mono text-[9.5px] text-hud-muted/85 tabular-nums leading-[1.35] break-words">
                             {estLine}
+                          </span>
+                        )}
+                        {tokLine && (
+                          <span
+                            className="w-fit font-hud-mono text-[9.5px] text-hud-fg-2/85 tabular-nums leading-[1.35] break-words cursor-help"
+                            data-tip={tokTip}
+                          >
+                            {tokLine}
                           </span>
                         )}
                       </div>

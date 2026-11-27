@@ -163,6 +163,11 @@ export const zh: Translations = {
   kindSub: '子会话',
   backParent: (lbl) => `返回父会话 · ${lbl}`,
   linkedCount: (n) => `${n} 个关联会话`,
+  linkedRunningCount: (active, total) => `${active}/${total} 运行中`,
+  childRunningBadge: (kind) =>
+    kind === 'gen' ? '生成中' : kind === 'tool' ? '工具中' : kind === 'compact' ? '压缩中' : '进行中',
+  childFinishedBadge: '已结束',
+  childHeaderRunning: (n) => `${n} 进行中`,
   linkedTitle: '挂载子会话 / Side Q',
   linkedHint: '点击跳转查看',
   jumpAction: '进入',
@@ -197,6 +202,32 @@ export const zh: Translations = {
   winBudgetEst: (spent, full, lowSample, remote, effSpent) =>
     `满额 ~${full}${lowSample ? ' (初估)' : ''} · 本机 ${spent}${effSpent ? ` (折算 ${effSpent})` : ''}${remote ? ` + 约${remote} 他端` : ''}`,
   winSpentOnly: (spent, minPct = '0.5%') => `窗内已用 ${spent} (<${minPct} 样本)`,
+  winTokCapLine: (remTok, fullTok, cachePct, isProv) =>
+    `约余 ${remTok} / 满 ${fullTok} tok（按 ${cachePct} 缓存${isProv ? ' · 初估' : ''}）`,
+  winTokCapCompact: (remTok, fullTok, cachePct) =>
+    `约余 ${remTok} / ${fullTok} tok · ${cachePct} 缓存`,
+  winTokCapTip: ({
+    spanLabel,
+    remTok,
+    fullTok,
+    remCacheTok,
+    remNewTok,
+    remOutTok,
+    fullCacheTok,
+    fullNewTok,
+    fullOutTok,
+    cachePct,
+    outSharePct,
+    calls,
+    basisWindow,
+    isProv,
+  }) =>
+    `按现有缓存比例推算的 ${spanLabel} 额度 Token 量${isProv ? '（初估）' : ''}：\n` +
+    `• 当前剩余可用：约 ${remTok} tok（缓存 ${remCacheTok} · 新入 ${remNewTok} · 输出 ${remOutTok}）\n` +
+    `• 满池总容量：约 ${fullTok} tok（缓存 ${fullCacheTok} · 新入 ${fullNewTok} · 输出 ${fullOutTok}）\n` +
+    `• 推算依据：该池近 ${basisWindow === '7d' ? '7天' : '30天'} ${calls.toLocaleString()} 次本地调用均值（缓存命中 ${cachePct} · 输出占比 ${outSharePct}）\n` +
+    `注：实际可用 Token 量会随所选模型倍率与缓存命中率动态变化。`,
+  rulesTankTokSub: (remTok, fullTok, cachePct) => `余 ~${remTok} / ${fullTok} tok（${cachePct}缓存）`,
   winRunwayWarn: (dur, clock) => `照此速度约 ${dur} 后触顶 (${clock})`,
   winRunwaySafe: (remAtReset) => `重置前预计余 ~${remAtReset}`,
   winRunwayExhausted: '额度已耗尽 · 等待窗口重置',

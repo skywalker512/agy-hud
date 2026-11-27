@@ -54,6 +54,22 @@ export interface ActivePoolWindowBounds {
   start7dMs: number | null;
 }
 
+export interface QuotaWindowTokenCapacity {
+  remainingTotalTokens: number;
+  fullTotalTokens: number;
+  remainingNewInputTokens: number;
+  fullNewInputTokens: number;
+  remainingCachedTokens: number;
+  fullCachedTokens: number;
+  remainingOutputTokens: number;
+  fullOutputTokens: number;
+  cacheHitPct: number;
+  outSharePct: number;
+  sampleCalls: number;
+  basisWindow: '7d' | '30d';
+  isProvisional: boolean;
+}
+
 const QUOTA_CAL_VERSION = 2;
 const PRIOR_U0 = 0.02;
 const REMOTE_GAP_RATIO_THRESHOLD = 0.72;
@@ -831,6 +847,138 @@ function computeWindowRunway({
   };
 }
 
+const TOKEN_CAP_7D_MIN_CALLS = 5;
+const TOKEN_CAP_7D_MIN_TOKENS = 50_000;
+
+function computeWindowTokenCapacity({
+  w,
+  poolHistCalls,
+  ps,
+  fitStore,
+  tierKey,
+  nowMs,
+}: {
+  w: any;
+  poolHistCalls: any[];
+  ps: QuotaPoolState | undefined;
+  fitStore: QuotaFitStore | null | undefined;
+  tierKey: string;
+  nowMs: number;
+}): QuotaWindowTokenCapacity | null {
+  if (!Array.isArray(poolHistCalls) || !poolHistCalls.length) return null;
+
+  const cutoff7d = nowMs - 7 * 86_400_000;
+  const calls7d: any[] = [];
+  let tok7d = 0;
+  const calls30d: any[] = [];
+  for (const c of poolHistCalls) {
+    const tot = Math.max(0, c?.newInput || 0) + Math.max(0, c?.cachedInput || 0) + Math.max(0, c?.outputTokens || 0);
+    if (!(tot > 0)) continue;
+    calls30d.push(c);
+    if ((c.ts || 0) >= cutoff7d) {
+      calls7d.push(c);
+      tok7d += tot;
+    }
+  }
+  if (!calls30d.length) return null;
+
+  const use7d = calls7d.length >= TOKEN_CAP_7D_MIN_CALLS && tok7d >= TOKEN_CAP_7D_MIN_TOKENS;
+  const basisCalls = use7d ? calls7d : calls30d;
+  const basisWindow: '7d' | '30d' = use7d ? '7d' : '30d';
+
+  const fit = ps?.fit;
+  const gamma = fit?.gamma || ps?.gamma || null;
+  const fitFullForSpan = w.spanKey === '7d' ? (fit?.full7dUSD || 0) : (fit?.full5hUSD || 0);
+  const winFullUSD = typeof w.estFullUSD === 'number' && w.estFullUSD > 0 ? w.estFullUSD : 0;
+  const canUseFitterPred = Boolean(
+    fit
+    && fitFullForSpan > 0
+    && (hasTrustedPoolFit(fit, 2) || !(winFullUSD > 0) || Math.abs(winFullUSD - fitFullForSpan) / fitFullForSpan <= 0.05),
+  );
+  const tierPrefix = `${tierKey}|`;
+
+  let sumPct = 0;
+  let sumNewIn = 0;
+  let sumCachedIn = 0;
+  let sumOut = 0;
+  let sampleCalls = 0;
+
+  for (const c of basisCalls) {
+    const newIn = Math.max(0, c.newInput || 0);
+    const cachedIn = Math.max(0, c.cachedInput || 0);
+    const outTok = Math.max(0, c.outputTokens || 0);
+    const totTok = newIn + cachedIn + outTok;
+    if (!(totTok > 0)) continue;
+
+    let pct = 0;
+    if (canUseFitterPred) {
+      const baseUSD = typeof c.baseUSD === 'number' ? c.baseUSD : 0;
+      if (baseUSD > 0) {
+        const pred = predictFamilyAggregateQuota(
+          {
+            poolKey: c.poolKey,
+            family: c.family || '',
+            baseUSD,
+            inM: newIn / 1e6,
+            caM: cachedIn / 1e6,
+            outM: outTok / 1e6,
+          },
+          fitStore ?? null,
+          tierPrefix,
+        );
+        if (pred && pred.quotaPct5h > 0) {
+          pct = w.spanKey === '7d'
+            ? (pred.quotaPct7d && pred.quotaPct7d > 0
+                ? pred.quotaPct7d
+                : (gamma && gamma > 0 ? pred.quotaPct5h / gamma : 0))
+            : pred.quotaPct5h;
+        }
+      }
+    }
+    if (!(pct > 0) && c.priced && (c.costUSD || 0) > 0 && winFullUSD > 0) {
+      pct = (c.costUSD / winFullUSD) * 100;
+    }
+    if (!(pct > 0)) continue;
+
+    sumPct += pct;
+    sumNewIn += newIn;
+    sumCachedIn += cachedIn;
+    sumOut += outTok;
+    sampleCalls += 1;
+  }
+
+  const sumTotal = sumNewIn + sumCachedIn + sumOut;
+  if (sampleCalls === 0 || !(sumPct > 0) || !(sumTotal > 0)) return null;
+
+  const sumPrompt = sumNewIn + sumCachedIn;
+  const cacheHitPct = sumPrompt > 0 ? (sumCachedIn / sumPrompt) * 100 : 0;
+  const outSharePct = (sumOut / sumTotal) * 100;
+  const scaleFull = 100 / sumPct;
+  const remFrac = Math.max(0, Math.min(100, w.remainingPct ?? 0)) / 100;
+
+  const fullTotalTokens = Math.round(sumTotal * scaleFull);
+  const fullNewInputTokens = Math.round(sumNewIn * scaleFull);
+  const fullCachedTokens = Math.round(sumCachedIn * scaleFull);
+  const fullOutputTokens = Math.round(sumOut * scaleFull);
+  const isProvisional = !(w.estConfidence === 'high' || (hasTrustedPoolFit(fit, 2) && fit?.quality === 'high'));
+
+  return {
+    remainingTotalTokens: Math.round(fullTotalTokens * remFrac),
+    fullTotalTokens,
+    remainingNewInputTokens: Math.round(fullNewInputTokens * remFrac),
+    fullNewInputTokens,
+    remainingCachedTokens: Math.round(fullCachedTokens * remFrac),
+    fullCachedTokens,
+    remainingOutputTokens: Math.round(fullOutputTokens * remFrac),
+    fullOutputTokens,
+    cacheHitPct: Number(cacheHitPct.toFixed(1)),
+    outSharePct: Number(outSharePct.toFixed(2)),
+    sampleCalls,
+    basisWindow,
+    isProvisional,
+  };
+}
+
 /**
  * Reconcile a window's cap & remote-burn estimate with the statistical fitter output.
  * Prevents cold-start (shortCleanCount === 0) external-burn deflation and single-sample
@@ -1096,6 +1244,16 @@ export function attachQuotaBudgetEstimates(accountQuota: any, graph: any, opts: 
         });
         if (rw) w.runway = rw;
       }
+
+      const tokCap = computeWindowTokenCapacity({
+        w,
+        poolHistCalls,
+        ps,
+        fitStore,
+        tierKey,
+        nowMs,
+      });
+      if (tokCap) w.estTokenCapacity = tokCap;
 
       w.estRemoteUSD = rem;
       w.estRemoteUSDPlusMinus = rem > 0 ? remErr : 0;

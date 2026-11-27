@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { collectAndStore } from '../src/index.ts';
+import worker, { classifyInstallerRoute, collectAndStore } from '../src/index.ts';
 
 test('Worker collectAndStore skips KV put on empty OpenRouter responses and reuses 7d series on subsequent ticks', async () => {
   const kvStore = new Map<string, string>();
@@ -80,4 +80,104 @@ test('Worker collectAndStore skips KV put on empty OpenRouter responses and reus
   const snap3 = await collectAndStore(fakeEnv, { fetchImpl: blockedFetch, nowMs: t1 + 10 * 60_000 });
   assert.equal(putCount, 2);
   assert.equal(snap3.fetchedAtMs, t1 + 5 * 60_000);
+});
+
+test('h.512.pub short-link serves install.sh to curl, install.ps1 to PowerShell, and redirects browsers to agy-hud.512.pub', async () => {
+  assert.deepEqual(
+    classifyInstallerRoute(new URL('https://h.512.pub/'), 'curl/8.7.1'),
+    { kind: 'script', script: 'sh', uaDependent: true },
+  );
+  assert.deepEqual(
+    classifyInstallerRoute(
+      new URL('https://h.512.pub/'),
+      'Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.22621.2506',
+    ),
+    { kind: 'script', script: 'ps1', uaDependent: true },
+  );
+  assert.deepEqual(
+    classifyInstallerRoute(
+      new URL('https://h.512.pub/'),
+      'Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.22631; en-US) PowerShell/7.4.6',
+    ),
+    { kind: 'script', script: 'ps1', uaDependent: true },
+  );
+  assert.deepEqual(
+    classifyInstallerRoute(
+      new URL('https://h.512.pub/'),
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36',
+    ),
+    { kind: 'redirect', location: 'https://agy-hud.512.pub/', uaDependent: true },
+  );
+  assert.deepEqual(
+    classifyInstallerRoute(new URL('https://h.512.pub/pulse/'), 'Mozilla/5.0 Chrome/131.0'),
+    { kind: 'redirect', location: 'https://agy-hud.512.pub/pulse/', uaDependent: false },
+  );
+  assert.deepEqual(
+    classifyInstallerRoute(new URL('https://agy-hud.512.pub/install.sh'), 'Mozilla/5.0 Chrome/131.0'),
+    { kind: 'script', script: 'sh', uaDependent: false },
+  );
+  assert.deepEqual(
+    classifyInstallerRoute(new URL('https://agy-hud.512.pub/'), 'curl/8.7.1'),
+    { kind: 'passthrough' },
+  );
+
+  const fakeEnv = {
+    GEMINI_PULSE_KV: {} as any,
+    ASSETS: {
+      fetch: async (req: Request) => {
+        const p = new URL(req.url).pathname;
+        if (p === '/install.sh') return new Response('#!/bin/sh\necho ok\n', { status: 200 });
+        if (p === '/install.ps1') return new Response('Write-Host "ok"\n', { status: 200 });
+        return new Response('<html>site</html>', { status: 200 });
+      },
+    } as any,
+  };
+  const fakeCtx = { waitUntil: () => {} } as any;
+
+  // curl -> 200 install.sh with Vary: User-Agent & no-store
+  const curlRes = await worker.fetch(
+    new Request('https://h.512.pub/', { headers: { 'User-Agent': 'curl/8.7.1' } }),
+    fakeEnv,
+    fakeCtx,
+  );
+  assert.equal(curlRes.status, 200);
+  assert.equal(curlRes.headers.get('Vary'), 'User-Agent');
+  assert.equal(curlRes.headers.get('Cache-Control'), 'no-store');
+  assert.match(await curlRes.text(), /^#!\/bin\/sh/);
+
+  // PowerShell -> 200 install.ps1
+  const psRes = await worker.fetch(
+    new Request('https://h.512.pub/', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT; Windows NT 10.0) WindowsPowerShell/5.1.22621' },
+    }),
+    fakeEnv,
+    fakeCtx,
+  );
+  assert.equal(psRes.status, 200);
+  assert.equal(psRes.headers.get('Vary'), 'User-Agent');
+  assert.match(await psRes.text(), /Write-Host/);
+
+  // Browser -> 302 redirect to https://agy-hud.512.pub/
+  const browserRes = await worker.fetch(
+    new Request('https://h.512.pub/', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X) Safari/605.1.15' },
+    }),
+    fakeEnv,
+    fakeCtx,
+  );
+  assert.equal(browserRes.status, 302);
+  assert.equal(browserRes.headers.get('Location'), 'https://agy-hud.512.pub/');
+  assert.equal(browserRes.headers.get('Vary'), 'User-Agent');
+
+  // Explicit /sh on browser still returns install.sh (inspectable in browser)
+  const inspectRes = await worker.fetch(
+    new Request('https://h.512.pub/sh', {
+      headers: { 'User-Agent': 'Mozilla/5.0 Safari/605.1.15' },
+    }),
+    fakeEnv,
+    fakeCtx,
+  );
+  assert.equal(inspectRes.status, 200);
+  assert.equal(inspectRes.headers.get('Cache-Control'), 'public, max-age=300');
+  assert.match(await inspectRes.text(), /^#!\/bin\/sh/);
 });

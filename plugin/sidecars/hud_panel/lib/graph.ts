@@ -98,6 +98,9 @@ export function summarizeConversationDb(conv) {
   let latestTsMs = 0;
   let hasActiveGenStep = false;
   let activeGenStepStartMs = 0;
+  let hasActiveStep = false;
+  let activeStepStartMs = 0;
+  let activeStepKind: '' | 'gen' | 'compact' | 'tool' = '';
   let resolvedSource = (conv.source && conv.source !== 'app') ? conv.source : 'app';
   const dayBuckets: Record<string, any> = Object.create(null);
   const familyUsage: Record<string, any> = Object.create(null);
@@ -189,10 +192,15 @@ export function summarizeConversationDb(conv) {
         const rawPrompt = prompt?.full || prompt?.preview || '';
         if (rawPrompt) fallbackTitle = cleanFallbackPromptTitle(rawPrompt) || prompt.preview;
       }
-      const stRows: any[] = db.prepare('SELECT idx, step_type, status, metadata FROM steps WHERE step_type IN (14, 15, 23, 132) AND metadata IS NOT NULL ORDER BY idx ASC').all();
+      const stRows: any[] = db.prepare('SELECT idx, step_type, status, metadata FROM steps WHERE step_type IN (14, 15, 17, 23, 132) AND metadata IS NOT NULL ORDER BY idx ASC').all();
       let lastPlannerGmIdx: number | null = null;
       for (const s of stRows) {
         const meta = parseStepMetadata(s.metadata);
+        if (s.step_type === 17) {
+          const finTs = meta.completedAtMs || meta.endAtMs || meta.createdAtMs || 0;
+          if (finTs > stepLatestTsMs) stepLatestTsMs = finTs;
+          continue;
+        }
         if (s.step_type === 132) {
           const gm = meta.gmIdx !== null ? meta.gmIdx : lastPlannerGmIdx;
           if (gm !== null && meta.createdAtMs > 0) {
@@ -225,17 +233,34 @@ export function summarizeConversationDb(conv) {
           }
         }
       }
-      // Inspect tail steps to see if an LLM generation / compaction step is currently in-flight.
+      // Inspect tail steps to see if an LLM generation / compaction / tool step is currently in-flight.
       for (let i = stRows.length - 1; i >= 0; i--) {
         const s = stRows[i];
-        if (s.step_type !== 15 && s.step_type !== 23) continue;
+        if (s.step_type === 17) break;
         const meta = parseStepMetadata(s.metadata);
-        const isDone = TERMINAL_STEP_STATUSES.has(s.status) || meta.endAtMs > 0 || meta.completedAtMs > 0;
+        const isDone = s.step_type === 132
+          ? (TERMINAL_STEP_STATUSES.has(s.status) || meta.endAtMs > 0)
+          : (TERMINAL_STEP_STATUSES.has(s.status) || meta.endAtMs > 0 || meta.completedAtMs > 0);
         if (!isDone && (ACTIVE_STEP_STATUSES.has(s.status) || s.status > 0)) {
-          hasActiveGenStep = true;
-          activeGenStepStartMs = meta.startedAtMs || meta.createdAtMs || conv.updatedMs || 0;
+          const startMs = meta.startedAtMs || meta.createdAtMs || conv.updatedMs || 0;
+          hasActiveStep = true;
+          activeStepStartMs = startMs;
+          if (s.step_type === 23) {
+            activeStepKind = 'compact';
+            hasActiveGenStep = true;
+            activeGenStepStartMs = startMs;
+          } else if (s.step_type === 15) {
+            activeStepKind = 'gen';
+            hasActiveGenStep = true;
+            activeGenStepStartMs = startMs;
+          } else if (s.step_type === 132) {
+            activeStepKind = 'tool';
+          }
+          break;
         }
-        break;
+        if (s.step_type === 14 || s.step_type === 15 || s.step_type === 23) {
+          break;
+        }
       }
     } catch { /* table missing */ }
 
@@ -480,6 +505,9 @@ export function summarizeConversationDb(conv) {
     latestTsMs: latestTsMs || conv.updatedMs,
     hasActiveGenStep,
     activeGenStepStartMs,
+    hasActiveStep,
+    activeStepStartMs,
+    activeStepKind,
     title: anno.title || fallbackTitle || '',
     annoTitle: anno.title || '',
     sideQuestionIds: anno.sideQuestionIds,
@@ -956,7 +984,66 @@ function computeSessionTreeMetrics(rootId: string, graph: any) {
   };
 }
 
-export function buildSessionInfo(targetId, graph) {
+const CHILD_SQLITE_ACTIVE_MAX_AGE_MS = 300_000;
+
+function resolveChildActiveState(
+  child: any,
+  sum: any,
+  lsSummaries: Record<string, any> | null | undefined,
+  nowMs: number,
+): { isActive: boolean; activeKind: '' | 'gen' | 'compact' | 'tool' | 'running' } {
+  const hasLsMap = Boolean(lsSummaries && typeof lsSummaries === 'object' && Object.keys(lsSummaries).length > 0);
+  const lsSum = hasLsMap && child?.id && UUID_RE.test(child.id) ? lsSummaries![child.id] : null;
+
+  if (child?.swarm) {
+    const st = child.swarm.swarmState;
+    if (st === 'killed' || st === 'stopped') {
+      return { isActive: false, activeKind: '' };
+    }
+    if (lsSum) {
+      const lsActive = isCascadeStatusActive(lsSum.status);
+      if (lsActive) {
+        return { isActive: true, activeKind: sum?.activeStepKind || 'running' };
+      }
+      if (st === 'working') {
+        return { isActive: false, activeKind: '' };
+      }
+    }
+    return st === 'working'
+      ? { isActive: true, activeKind: sum?.activeStepKind || 'running' }
+      : { isActive: false, activeKind: '' };
+  }
+
+  if (hasLsMap) {
+    if (lsSum) {
+      if (isCascadeStatusActive(lsSum.status)) {
+        return { isActive: true, activeKind: sum?.activeStepKind || 'running' };
+      }
+      return { isActive: false, activeKind: '' };
+    }
+    // Desktop LS does not track separate CLI cascades; allow SQLite fallback only for CLI children.
+    if (sum?.source !== 'cli') {
+      return { isActive: false, activeKind: '' };
+    }
+  }
+
+  const sqliteActive = Boolean(
+    sum?.hasActiveStep
+    && sum.activeStepStartMs > 0
+    && nowMs - sum.activeStepStartMs < CHILD_SQLITE_ACTIVE_MAX_AGE_MS,
+  );
+  if (sqliteActive) {
+    return { isActive: true, activeKind: sum.activeStepKind || 'running' };
+  }
+  return { isActive: false, activeKind: '' };
+}
+
+export function buildSessionInfo(
+  targetId,
+  graph,
+  lsSummaries: Record<string, any> | null | undefined = null,
+  nowMs = Date.now(),
+) {
   const s = graph.byId.get(targetId);
   const link = graph.parentLinks.get(targetId);
   const swarmIndex = graph.swarmIndex;
@@ -972,7 +1059,17 @@ export function buildSessionInfo(targetId, graph) {
     || s?.title
     || (coordSwarm?.swarmTitle || workerLookup?.member.meta.taskTitle || '');
   const rawChildren = graph.childrenByParent.get(targetId) || [];
-  const childSessions = rawChildren.map(({ key: _key, ...rest }) => rest);
+  let activeChildCount = 0;
+  const childSessions = rawChildren.map(({ key: _key, ...rest }) => {
+    const childSum = graph.byId.get(rest.id);
+    const activeState = resolveChildActiveState(rest, childSum, lsSummaries, nowMs);
+    if (activeState.isActive) activeChildCount += 1;
+    return {
+      ...rest,
+      isActive: activeState.isActive,
+      ...(activeState.activeKind ? { activeKind: activeState.activeKind } : {}),
+    };
+  });
 
   // Recursive rollup across ALL Swarm workers + subagents + workflow children + Side-Q descendants (cycle-safe)
   const { descendants, totals: treeTotals } = computeSessionTreeMetrics(targetId, graph);
@@ -1029,7 +1126,8 @@ export function buildSessionInfo(targetId, graph) {
           }
         : null);
 
-  const descendantKeys = descendants.map((c) => `${c.id}:${c.key}`).join(',');
+  const activeSigById = new Map(childSessions.map((c) => [c.id, `${c.isActive ? '1' : '0'}:${c.activeKind || ''}`]));
+  const descendantKeys = descendants.map((c) => `${c.id}:${c.key}:${activeSigById.get(c.id) || ''}`).join(',');
   return {
     id: targetId,
     title,
@@ -1037,6 +1135,7 @@ export function buildSessionInfo(targetId, graph) {
     subagentType: s?.subagentType || (workerLookup ? 'worker' : ''),
     parentSession,
     childSessions,
+    activeChildCount,
     treeTotals,
     ...(rootTreeTotals ? { rootTreeTotals } : {}),
     ...(swarmOverview ? { swarm: swarmOverview } : {}),

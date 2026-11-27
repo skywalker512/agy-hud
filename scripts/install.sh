@@ -2,6 +2,8 @@
 # AGY-HUD one-line installer for macOS and Linux (POSIX sh compatible).
 #
 # Usage:
+#   curl -fsSL https://h.512.pub | sh
+#   # or direct GitHub raw:
 #   curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | sh
 #
 # Optional environment variables:

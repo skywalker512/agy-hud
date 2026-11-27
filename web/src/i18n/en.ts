@@ -163,6 +163,11 @@ export const en: Translations = {
   kindSub: 'SUBAGENT',
   backParent: (lbl) => `Parent · ${lbl}`,
   linkedCount: (n) => `${n} Linked`,
+  linkedRunningCount: (active, total) => `${active}/${total} running`,
+  childRunningBadge: (kind) =>
+    kind === 'gen' ? 'Generating' : kind === 'tool' ? 'Tool' : kind === 'compact' ? 'Compacting' : 'Running',
+  childFinishedBadge: 'Ended',
+  childHeaderRunning: (n) => `${n} running`,
   linkedTitle: 'SUBAGENTS / SIDE Q',
   linkedHint: 'Click to inspect',
   jumpAction: 'Open',
@@ -197,6 +202,32 @@ export const en: Translations = {
   winBudgetEst: (spent, full, lowSample, remote, effSpent) =>
     `Pool ~${full}${lowSample ? ' (prov.)' : ''} · local ${spent}${effSpent ? ` (eq ${effSpent})` : ''}${remote ? ` + ~${remote} other` : ''}`,
   winSpentOnly: (spent, minPct = '0.5%') => `Win spent ${spent} (<${minPct} sample)`,
+  winTokCapLine: (remTok, fullTok, cachePct, isProv) =>
+    `~${remTok} / ${fullTok} tok (@ ${cachePct} cache${isProv ? ' · est.' : ''})`,
+  winTokCapCompact: (remTok, fullTok, cachePct) =>
+    `~${remTok} / ${fullTok} tok · ${cachePct} cache`,
+  winTokCapTip: ({
+    spanLabel,
+    remTok,
+    fullTok,
+    remCacheTok,
+    remNewTok,
+    remOutTok,
+    fullCacheTok,
+    fullNewTok,
+    fullOutTok,
+    cachePct,
+    outSharePct,
+    calls,
+    basisWindow,
+    isProv,
+  }) =>
+    `Projected ${spanLabel} token capacity at your current cache hit rate${isProv ? ' (est.)' : ''}:\n` +
+    `• Remaining: ~${remTok} tok (cached ${remCacheTok} · new in ${remNewTok} · out ${remOutTok})\n` +
+    `• Full window: ~${fullTok} tok (cached ${fullCacheTok} · new in ${fullNewTok} · out ${fullOutTok})\n` +
+    `• Basis: last ${basisWindow} (${calls.toLocaleString()} local calls · ${cachePct} cache hit · ${outSharePct} output)\n` +
+    `Note: actual token throughput varies with model multiplier & cache hit rate.`,
+  rulesTankTokSub: (remTok, fullTok, cachePct) => `~${remTok} / ${fullTok} tok (${cachePct} cache)`,
   winRunwayWarn: (dur, clock) => `Est. cap in ~${dur} (${clock})`,
   winRunwaySafe: (remAtReset) => `~${remAtReset} left at reset`,
   winRunwayExhausted: 'Cap reached · waiting for reset',

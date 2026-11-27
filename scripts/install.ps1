@@ -1,6 +1,8 @@
 # AGY-HUD one-line installer for Windows (PowerShell 5.1+ and PowerShell 7+).
 #
 # Usage:
+#   irm https://h.512.pub | iex
+#   # or direct GitHub raw:
 #   irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex
 #
 # Optional environment variables:

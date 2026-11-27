@@ -177,6 +177,10 @@ export interface Translations {
   kindSub: string;
   backParent: (lbl: string) => string;
   linkedCount: (n: number) => string;
+  linkedRunningCount: (active: number, total: number) => string;
+  childRunningBadge: (kind?: string) => string;
+  childFinishedBadge: string;
+  childHeaderRunning: (n: number) => string;
   linkedTitle: string;
   linkedHint: string;
   jumpAction: string;
@@ -205,6 +209,25 @@ export interface Translations {
   winMeta: (pct: number, resetStr: string) => string;
   winBudgetEst: (spent: string, full: string, lowSample?: boolean, remote?: string, effSpent?: string) => string;
   winSpentOnly: (spent: string, minPct?: string) => string;
+  winTokCapLine: (remTok: string, fullTok: string, cachePct: string, isProv?: boolean) => string;
+  winTokCapCompact: (remTok: string, fullTok: string, cachePct: string) => string;
+  winTokCapTip: (args: {
+    spanLabel: string;
+    remTok: string;
+    fullTok: string;
+    remCacheTok: string;
+    remNewTok: string;
+    remOutTok: string;
+    fullCacheTok: string;
+    fullNewTok: string;
+    fullOutTok: string;
+    cachePct: string;
+    outSharePct: string;
+    calls: number;
+    basisWindow: '7d' | '30d';
+    isProv: boolean;
+  }) => string;
+  rulesTankTokSub: (remTok: string, fullTok: string, cachePct: string) => string;
   winRunwayWarn: (dur: string, clock: string) => string;
   winRunwaySafe: (remAtReset: string) => string;
   winRunwayExhausted: string;

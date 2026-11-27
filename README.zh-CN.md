@@ -71,14 +71,16 @@
 ### macOS / Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.sh | sh
+curl -fsSL https://h.512.pub | sh
 ```
 
 ### Windows（PowerShell 5.1+ / 7+）
 
 ```powershell
-irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.ps1 | iex
+irm https://h.512.pub | iex
 ```
+
+<sub><code>h.512.pub</code> 会按客户端自动分发：<code>curl</code>/<code>wget</code> 返回 <a href="scripts/install.sh"><code>install.sh</code></a>，PowerShell 返回 <a href="scripts/install.ps1"><code>install.ps1</code></a>，浏览器访问自动跳转官网 <a href="https://agy-hud.512.pub/">agy-hud.512.pub</a>（也可在浏览器访问 <code>https://h.512.pub/sh</code> 或 <code>/ps1</code> 直接查看源码）。</sub>
 
 ### 一句话让 AI Agent 自动安装
 
@@ -87,14 +89,19 @@ irm https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts/install.
 > `请按照 https://github.com/skywalker512/agy-hud 仓库中的 AGENTS.md 安装 agy-hud 并验证安装结果。`
 
 <details>
-<summary><strong>源码安装、开发热重载（<code>--link</code>）、健康诊断（<code>--doctor</code>）与卸载</strong></summary>
+<summary><strong>官方 <code>agy plugin install</code>、CLI <code>/statusline</code>、开发热重载（<code>--link</code>）、健康诊断（<code>--doctor</code>）与卸载</strong></summary>
 
 ```bash
 git clone https://github.com/skywalker512/agy-hud.git && cd agy-hud
-node plugin/install.mjs          # 原子复制安装至 ~/.gemini/config/plugins/agy-hud
-node plugin/install.mjs --link   # 开发链接模式（macOS/Linux 软链接，Windows 目录联接）
-node plugin/install.mjs --doctor # 运行 6 项环境与插件健康检查
-node plugin/install.mjs --update # 命令行安全升级（失败自动回滚）
+agy plugin validate --strict ./plugin  # 按官方加载器严格校验 manifest、/agy-hud 技能与 sidecar
+agy plugin install ./plugin            # 通过官方 Antigravity CLI 插件命令安装
+# 或使用内置零依赖安装器：
+node plugin/install.mjs                # 原子复制安装至 ~/.gemini/config/plugins/agy-hud
+node plugin/install.mjs --statusline   # 一键配置 Antigravity CLI 终端 /statusline 状态栏
+node plugin/install.mjs --link         # 开发链接模式（macOS/Linux 软链接，Windows 目录联接）
+node plugin/install.mjs --doctor       # 运行 6 项环境与插件健康检查
+node plugin/install.mjs --update       # 命令行安全升级（失败自动回滚）
+node plugin/install.mjs --uninstall-statusline
 node plugin/install.mjs --uninstall
 ```
 
@@ -134,6 +141,7 @@ node plugin/install.mjs --uninstall
 - **高保真本地只读遥测** —— 使用 Node.js 内置 `node:sqlite`（`?mode=ro`）直接解码本地 SQLite + WAL 中的 Protobuf `gen_metadata.f1.f19` 还原真实后端路由模型与真实上下文上限（`f9.f10.f4`），隔离单包 `BUF` 突刺使 `AVG GEN` 绝不虚高，拆分 `思考` 与 `TC-WAIT` 工具生成卡顿，并自动合并 App + CLI（`agy`）+ ACP + IDE 多端数据。
 - **原生 AGY Swarm 蜂群驾驶舱** —— 只读解析 Antigravity 磁盘原生蜂群文件（`swarm.json`、`members.json`、`plan.json` 及有界读取的 `board.jsonl`）并做联合 `mtime` 缓存，提供实时脉冲状态、任务摘要、`平铺 | 按线程` 切换、`share`/`branch` 工作树徽章、公告板 `#seq`、全群费用与配额汇总，以及工作节点反向面包屑导航。
 - **账户洞察、智能语言识别与安全自升级** —— 16w/52w 活跃热力图与单色 Token 冰山图清晰呈现缓存复用效率；首次启动多信号启发式识别中文环境（对 macOS 预装 `PingFang.ttc` 显式零权重，避免英文环境误判）；内置一键自升级严格执行 GitHub HTTPS 白名单、zip-slip 校验、SHA-256 后端变更检测与原子替换回滚。
+- **Antigravity CLI `/statusline` 与内置 `/agy-hud` 只读技能** —— 内置零依赖终端状态栏适配器（[`statusline.ts`](plugin/sidecars/hud_panel/statusline.ts)），对接 Antigravity CLI 官方 `/statusline` JSON 协议并叠加实时 `GEN TPS`、`TTFT`、上下文余量与缓存 TTL 存活率（支持 `--two-line` 与 `--stack`）；同时打包只读 [`/agy-hud`](plugin/skills/agy-hud/SKILL.md) 技能，让插件推荐提示词与对话内遥测诊断完整闭环。
 
 ---
 

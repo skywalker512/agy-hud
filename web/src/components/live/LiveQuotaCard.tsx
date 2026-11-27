@@ -1,7 +1,7 @@
 import { useNowMs } from '../../hooks/useNow';
 import type { Translations } from '../../i18n';
 import type { AccountQuota, QuotaPool, QuotaWindow, SessionInfo, TelemetrySummary } from '../../types/telemetry';
-import { fmtClockHm, fmtDurationShort, fmtQuotaPct } from '../../utils/format';
+import { fmtClockHm, fmtDurationShort, fmtNum, fmtQuotaPct } from '../../utils/format';
 import { IconArrowRight } from '../common/Icons';
 
 interface LiveQuotaCardProps {
@@ -123,13 +123,41 @@ export function LiveQuotaCard({ quota, summary, sessionInfo, t, onOpenAccount }:
                     ? 'runway-hatch-warn'
                     : 'runway-hatch-safe';
 
-                let tip: string | undefined;
+                const tc = w.estTokenCapacity || null;
+                const spanLbl = w.spanKey || w.label || '5h';
+                const tokLine = tc
+                  ? t.winTokCapCompact(
+                      fmtNum(tc.remainingTotalTokens),
+                      fmtNum(tc.fullTotalTokens),
+                      `${tc.cacheHitPct.toFixed(0)}%`,
+                    )
+                  : '';
+                const tokTip = tc
+                  ? t.winTokCapTip({
+                      spanLabel: spanLbl,
+                      remTok: fmtNum(tc.remainingTotalTokens),
+                      fullTok: fmtNum(tc.fullTotalTokens),
+                      remCacheTok: fmtNum(tc.remainingCachedTokens),
+                      remNewTok: fmtNum(tc.remainingNewInputTokens),
+                      remOutTok: fmtNum(tc.remainingOutputTokens),
+                      fullCacheTok: fmtNum(tc.fullCachedTokens),
+                      fullNewTok: fmtNum(tc.fullNewInputTokens),
+                      fullOutTok: fmtNum(tc.fullOutputTokens),
+                      cachePct: `${tc.cacheHitPct.toFixed(1)}%`,
+                      outSharePct: `${tc.outSharePct.toFixed(1)}%`,
+                      calls: tc.sampleCalls,
+                      basisWindow: tc.basisWindow,
+                      isProv: tc.isProvisional,
+                    })
+                  : '';
+
+                let rwTip = '';
                 if (rw && remSec > 0 && !isExhausted) {
                   const durStr = fmtDurationShort(liveSec);
                   const clockStr = fmtClockHm(rw.exhaustAtMs, nowMs);
                   const remAtResetStr = `${Math.round(rw.projectedRemAtResetPct)}%`;
                   const burnStr = fmtQuotaPct(rw.burnPctPerHour) || `${rw.burnPctPerHour.toFixed(2)}%`;
-                  tip = t.winRunwayTip(
+                  rwTip = t.winRunwayTip(
                     burnStr,
                     durStr,
                     clockStr,
@@ -140,15 +168,16 @@ export function LiveQuotaCard({ quota, summary, sessionInfo, t, onOpenAccount }:
                     rw.activeHoursPerDay,
                   );
                 }
+                const tip = [rwTip, tokTip].filter(Boolean).join('\n\n') || undefined;
 
                 return (
                   <div
                     key={`${w.spanKey || w.label || wIdx}`}
-                    className={`grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-x-2 min-w-0${tip ? ' cursor-help' : ''}`}
+                    className={`grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-[2px] min-w-0${tip ? ' cursor-help' : ''}`}
                     data-tip={tip}
                   >
                     <span className="font-hud-mono text-[10px] font-semibold text-hud-muted">
-                      {w.spanKey || w.label || '5h'}
+                      {spanLbl}
                     </span>
                     <div className="h-[7px] rounded-full bg-hud-fill overflow-hidden flex">
                       {solidPct > 0 && (
@@ -175,6 +204,11 @@ export function LiveQuotaCard({ quota, summary, sessionInfo, t, onOpenAccount }:
                     >
                       {metaStr}
                     </span>
+                    {tokLine && (
+                      <span className="col-span-full pl-[30px] font-hud-mono text-[9.5px] text-hud-muted/85 tabular-nums truncate leading-tight">
+                        {tokLine}
+                      </span>
+                    )}
                   </div>
                 );
               })}
