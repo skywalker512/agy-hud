@@ -10,6 +10,8 @@ import {
   attachTelemetryQuotaPredictions,
   buildAccountHistory,
 } from '../server.ts';
+import { normalizeUserStatus } from '../lib/ls-client.ts';
+import { resolveAccountTierMeta } from '../lib/quota-budget.ts';
 
 test('attachQuotaBudgetEstimates supports low-sample cold start, Bayesian prior smoothing across resets, and unpriced pollution guard', () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-hud-quota-cal-'));
@@ -1135,4 +1137,117 @@ test('attachQuotaBudgetEstimates computes cache-ratio-projected token capacity f
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('normalizeUserStatus preserves tierId and resolveAccountTierMeta classifies Ultra 5x/20x with empirical cross-check', () => {
+  const norm5x = normalizeUserStatus({
+    userStatus: {
+      name: 'User',
+      email: 'u5x@example.com',
+      planStatus: { planInfo: { planName: 'Pro', teamsTier: 'TEAMS_TIER_PRO' } },
+      userTier: { id: 'g1-ultra-lite-tier', name: 'Google AI Ultra' },
+      cascadeModelConfigData: { clientModelConfigs: [] },
+    },
+  });
+  assert.equal(norm5x.available, true);
+  assert.equal(norm5x.tierId, 'g1-ultra-lite-tier');
+  assert.equal(norm5x.tierName, 'Google AI Ultra');
+
+  const priorOnlyGeminiPool = {
+    label: 'Gemini',
+    fitSummary: {
+      quality: 'provisional',
+      driftWarning: false,
+      full5hUSD: 150,
+      inlierCount: 0,
+      shortCleanCount: 0,
+      models: [{ family: 'gemini-4-neon', source: 'prior' }],
+    },
+  };
+  const emp5xPool = {
+    label: 'Gemini',
+    fitSummary: {
+      quality: 'provisional',
+      driftWarning: false,
+      full5hUSD: 149.92,
+      inlierCount: 5,
+      shortCleanCount: 0,
+      models: [{ family: 'gemini-4-neon', source: 'provisional' }],
+    },
+  };
+  const emp20xPool = {
+    label: 'Gemini',
+    fitSummary: {
+      quality: 'high',
+      driftWarning: false,
+      full5hUSD: 600.02,
+      inlierCount: 117,
+      shortCleanCount: 80,
+      models: [{ family: 'gemini-4-neon', source: 'fitted' }],
+    },
+  };
+
+  // 1. Cold-start 5x via tierId
+  const cold5 = resolveAccountTierMeta({ tierName: 'Google AI Ultra', tierId: 'g1-ultra-lite-tier' }, [priorOnlyGeminiPool]);
+  assert.equal(cold5.multiplier, '5x');
+  assert.equal(cold5.multiplierSource, 'tier_id');
+  assert.equal(cold5.displayLabel, 'Google AI Ultra · 5x');
+  assert.equal(cold5.fittedGemini5hUSD, null);
+
+  // 2. Cold-start 20x via tierId must NOT be misled by default $150 prior
+  const cold20 = resolveAccountTierMeta({ tierName: 'Google AI Ultra', tierId: 'g1-ultra-tier' }, [priorOnlyGeminiPool]);
+  assert.equal(cold20.multiplier, '20x');
+  assert.equal(cold20.multiplierSource, 'tier_id');
+  assert.equal(cold20.displayLabel, 'Google AI Ultra · 20x');
+
+  // 3. Cold-start Ultra without tierId must NOT falsely label 5x from default $150 prior
+  const coldUnknown = resolveAccountTierMeta({ tierName: 'Google AI Ultra' }, [priorOnlyGeminiPool]);
+  assert.equal(coldUnknown.multiplier, null);
+  assert.equal(coldUnknown.multiplierSource, 'none');
+  assert.equal(coldUnknown.displayLabel, 'Google AI Ultra');
+
+  // 4. Verified 5x (tierId + empirical agree)
+  const ver5 = resolveAccountTierMeta({ tierName: 'Google AI Ultra', tierId: 'g1-ultra-lite-tier' }, [emp5xPool]);
+  assert.equal(ver5.multiplier, '5x');
+  assert.equal(ver5.multiplierSource, 'verified');
+  assert.equal(ver5.displayLabel, 'Google AI Ultra · 5x');
+  assert.equal(ver5.fittedGemini5hUSD, 149.92);
+
+  // 5. Verified 20x (tierId + empirical agree)
+  const ver20 = resolveAccountTierMeta({ tierName: 'Google AI Ultra', tierId: 'g1-ultra-tier' }, [emp20xPool]);
+  assert.equal(ver20.multiplier, '20x');
+  assert.equal(ver20.multiplierSource, 'verified');
+  assert.equal(ver20.displayLabel, 'Google AI Ultra · 20x');
+
+  // 6. Empirical fallback without tierId uses ~ prefix
+  const fit20 = resolveAccountTierMeta({ tierName: 'Google AI Ultra' }, [emp20xPool]);
+  assert.equal(fit20.multiplier, '20x');
+  assert.equal(fit20.multiplierSource, 'fitted');
+  assert.equal(fit20.displayLabel, 'Google AI Ultra · ~20x');
+
+  // 7. Empirical override when tierId disagrees with observed cap
+  const override5 = resolveAccountTierMeta({ tierName: 'Google AI Ultra', tierId: 'g1-ultra-tier' }, [emp5xPool]);
+  assert.equal(override5.multiplier, '5x');
+  assert.equal(override5.multiplierSource, 'fitted');
+  assert.equal(override5.displayLabel, 'Google AI Ultra · ~5x');
+
+  // 8. High-confidence empirical fit outside known caps suppresses stale tierId
+  const resized = resolveAccountTierMeta({ tierName: 'Google AI Ultra', tierId: 'g1-ultra-tier' }, [{
+    label: 'Gemini',
+    fitSummary: {
+      quality: 'high',
+      driftWarning: false,
+      full5hUSD: 300,
+      inlierCount: 25,
+      shortCleanCount: 20,
+      models: [{ family: 'gemini-4-neon', source: 'fitted' }],
+    },
+  }]);
+  assert.equal(resized.multiplier, null);
+  assert.equal(resized.displayLabel, 'Google AI Ultra');
+
+  // 9. Non-Ultra tier stays untouched
+  const pro = resolveAccountTierMeta({ tierName: 'Google AI Pro', tierId: 'g1-pro-tier' }, [emp5xPool]);
+  assert.equal(pro.multiplier, null);
+  assert.equal(pro.displayLabel, 'Google AI Pro');
 });

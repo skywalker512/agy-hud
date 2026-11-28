@@ -537,13 +537,24 @@ export interface AccountQuotaLedger {
   recentResets: AccountResetEventItem[];
 }
 
+export interface AccountTierMeta {
+  baseLabel: string;
+  displayLabel: string;
+  tierId: string;
+  multiplier: '5x' | '20x' | null;
+  multiplierSource: 'verified' | 'tier_id' | 'fitted' | 'none';
+  fittedGemini5hUSD: number | null;
+}
+
 export interface AccountQuota {
   available: boolean;
   deferred?: boolean;
   stale?: boolean;
   reason?: string;
   name?: string;
+  tierId?: string;
   tierName?: string;
+  tierMeta?: AccountTierMeta;
   planName?: string;
   teamsTier?: string;
   availableCredits?: number | null;

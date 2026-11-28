@@ -200,6 +200,12 @@ export interface Translations {
   ) => string;
   sessionQuotaTip: (lines: string) => string;
   accountTitle: string;
+  tierBadgeTip: (args: {
+    tierId: string;
+    multiplier: '5x' | '20x' | null;
+    source: 'verified' | 'tier_id' | 'fitted' | 'none';
+    fitted5hStr: string;
+  }) => string;
   creditsRealMini: (c: string) => string;
   creditsRealTip: (c: string) => string;
   quotaRefreshTip: (tm: string) => string;

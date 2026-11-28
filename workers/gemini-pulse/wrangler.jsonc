@@ -22,6 +22,11 @@
       "/win",
       "/install.sh",
       "/install.ps1",
+      "/agent",
+      "/agents",
+      "/agents.md",
+      "/AGENTS.md",
+      "/llms.txt",
       "/pulse",
       "/pulse/",
       "/v1/*"

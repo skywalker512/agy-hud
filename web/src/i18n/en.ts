@@ -192,6 +192,21 @@ export const en: Translations = {
   },
   sessionQuotaTip: (lines) => `Current quota occupied by this conversation:\n${lines}`,
   accountTitle: 'QUOTA & SPEND',
+  tierBadgeTip: ({ tierId, multiplier, source, fitted5hStr }) => {
+    const lines: string[] = [];
+    if (multiplier) {
+      if (source === 'verified') {
+        lines.push(`Verified ${multiplier} tier (backend Tier ID matches empirical 5h cap)`);
+      } else if (source === 'tier_id') {
+        lines.push(`${multiplier} tier from backend Tier ID (awaiting empirical samples)`);
+      } else if (source === 'fitted') {
+        lines.push(`Inferred ~${multiplier} tier from empirical 5h capacity`);
+      }
+    }
+    if (tierId) lines.push(`Tier ID: ${tierId}`);
+    if (fitted5hStr) lines.push(`Empirical Gemini 5h cap: ~${fitted5hStr}`);
+    return lines.join('\n');
+  },
   creditsRealMini: (c) => `Credits: ${c}`,
   creditsRealTip: (c) => `Available extra credits: ${c}`,
   quotaRefreshTip: (tm) => `Force refresh quota now (auto-cached 5m; only fetched when viewing Account)${tm ? `\nLast synced: ${tm}` : ''}`,

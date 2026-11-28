@@ -10,6 +10,7 @@ Zero-cost (**$0/month, no credit card required**) 5-minute telemetry collector &
   - `GET agy-hud.512.pub/v1/pulse.json` → Full CORS-enabled, edge-cached (`max-age=90`, ETag/304) Gemini telemetry feed
   - `GET agy-hud.512.pub/v1/health` → Edge-cached (`max-age=30`) collector health & 5m ring-buffer point count
   - `GET h.512.pub/` → Smart short-link installer: returns `install.sh` for `curl`/`wget`, `install.ps1` for PowerShell (`irm h.512.pub | iex`), and `302` redirects browsers to `https://agy-hud.512.pub/` (explicit `/sh`, `/ps1`, `/install.sh`, `/install.ps1` also supported)
+  - `GET h.512.pub/agent` (aliases: `/agents`, `/AGENTS.md`, `/llms.txt`) → Serves `AGENTS.md` directly as `text/markdown; charset=utf-8` for one-sentence AI agent installation
 
 ## Deploy in 3 Minutes ($0 Free Tier)
 

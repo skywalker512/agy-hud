@@ -21,8 +21,8 @@ function getCommand(method: InstallMethod, locale: Locale): { prompt: string; cm
         prompt: '>',
         cmd:
           locale === 'zh'
-            ? '帮我安装 https://github.com/skywalker512/agy-hud（按仓库 AGENTS.md 执行）并运行 --doctor 验收。'
-            : 'Install agy-hud from https://github.com/skywalker512/agy-hud following AGENTS.md and verify with --doctor.',
+            ? '帮我按 https://h.512.pub/agent 安装 AGY-HUD 并验收。'
+            : 'Install AGY-HUD following https://h.512.pub/agent and verify.',
         isPromptText: true,
       };
     case 'manual':

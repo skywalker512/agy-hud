@@ -46,9 +46,9 @@ irm https://h.512.pub | iex
 
 ### AI Agent Install (1 Sentence)
 
-You can also let Antigravity, Claude Code, Codex, or any coding agent run and verify the installation for you using [`AGENTS.md`](../AGENTS.md):
+You can also let Antigravity, Claude Code, Codex, or any coding agent run and verify the installation for you (`https://h.512.pub/agent` serves [`AGENTS.md`](../AGENTS.md) directly):
 
-> `Install agy-hud from https://github.com/skywalker512/agy-hud following AGENTS.md and verify the installation.`
+> `Install AGY-HUD following https://h.512.pub/agent and verify.`
 
 ### Environment Variables (Optional)
 

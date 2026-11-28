@@ -120,6 +120,18 @@ test('h.512.pub short-link serves install.sh to curl, install.ps1 to PowerShell,
     classifyInstallerRoute(new URL('https://agy-hud.512.pub/'), 'curl/8.7.1'),
     { kind: 'passthrough' },
   );
+  assert.deepEqual(
+    classifyInstallerRoute(new URL('https://h.512.pub/agent'), 'Mozilla/5.0 Chrome/131.0'),
+    { kind: 'doc', doc: 'agents' },
+  );
+  assert.deepEqual(
+    classifyInstallerRoute(new URL('https://h.512.pub/AGENTS.md'), 'curl/8.7.1'),
+    { kind: 'doc', doc: 'agents' },
+  );
+  assert.deepEqual(
+    classifyInstallerRoute(new URL('https://agy-hud.512.pub/llms.txt'), 'Claude-User'),
+    { kind: 'doc', doc: 'agents' },
+  );
 
   const fakeEnv = {
     GEMINI_PULSE_KV: {} as any,
@@ -128,6 +140,7 @@ test('h.512.pub short-link serves install.sh to curl, install.ps1 to PowerShell,
         const p = new URL(req.url).pathname;
         if (p === '/install.sh') return new Response('#!/bin/sh\necho ok\n', { status: 200 });
         if (p === '/install.ps1') return new Response('Write-Host "ok"\n', { status: 200 });
+        if (p === '/AGENTS.md') return new Response('# AGY-HUD — AI Agent Guide\n', { status: 200 });
         return new Response('<html>site</html>', { status: 200 });
       },
     } as any,
@@ -180,4 +193,16 @@ test('h.512.pub short-link serves install.sh to curl, install.ps1 to PowerShell,
   assert.equal(inspectRes.status, 200);
   assert.equal(inspectRes.headers.get('Cache-Control'), 'public, max-age=300');
   assert.match(await inspectRes.text(), /^#!\/bin\/sh/);
+
+  // /agent serves AGENTS.md directly as text/markdown regardless of UA
+  const agentRes = await worker.fetch(
+    new Request('https://h.512.pub/agent', {
+      headers: { 'User-Agent': 'Mozilla/5.0 Chrome/131.0' },
+    }),
+    fakeEnv,
+    fakeCtx,
+  );
+  assert.equal(agentRes.status, 200);
+  assert.equal(agentRes.headers.get('Content-Type'), 'text/markdown; charset=utf-8');
+  assert.match(await agentRes.text(), /^# AGY-HUD — AI Agent Guide/);
 });

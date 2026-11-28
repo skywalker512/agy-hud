@@ -84,9 +84,9 @@ irm https://h.512.pub | iex
 
 ### AI Agent Install (1 Sentence)
 
-Paste this into Antigravity, Claude Code, Codex, or any coding agent (instructions live in [`AGENTS.md`](AGENTS.md)):
+Paste this into Antigravity, Claude Code, Codex, or any coding agent (`https://h.512.pub/agent` serves [`AGENTS.md`](AGENTS.md) directly):
 
-> `Install agy-hud from https://github.com/skywalker512/agy-hud following AGENTS.md and verify the installation.`
+> `Install AGY-HUD following https://h.512.pub/agent and verify.`
 
 <details>
 <summary><strong>Official <code>agy plugin install</code>, CLI <code>/statusline</code>, dev hot-reload (<code>--link</code>), <code>--doctor</code>, and uninstall</strong></summary>

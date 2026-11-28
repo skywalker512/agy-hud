@@ -84,9 +84,9 @@ irm https://h.512.pub | iex
 
 ### 一句话让 AI Agent 自动安装
 
-直接把下面这句话发给 Antigravity、Claude Code、Codex 或任意编程助手（完整 Agent 指令见 [`AGENTS.md`](AGENTS.md)）：
+直接把下面这句话发给 Antigravity、Claude Code、Codex 或任意编程助手（`https://h.512.pub/agent` 直接返回 [`AGENTS.md`](AGENTS.md)）：
 
-> `请按照 https://github.com/skywalker512/agy-hud 仓库中的 AGENTS.md 安装 agy-hud 并验证安装结果。`
+> `帮我按 https://h.512.pub/agent 安装 AGY-HUD 并验收。`
 
 <details>
 <summary><strong>官方 <code>agy plugin install</code>、CLI <code>/statusline</code>、开发热重载（<code>--link</code>）、健康诊断（<code>--doctor</code>）与卸载</strong></summary>

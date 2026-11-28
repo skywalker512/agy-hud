@@ -340,8 +340,9 @@ test('buildInspectReport extracts live quota windows, per-call quota5hPct, and S
     const rawQuotaOverride = {
       available: true,
       planName: 'Pro',
-      tierName: 'Pro',
-      teamsTier: 'PRO',
+      tierId: 'g1-ultra-lite-tier',
+      tierName: 'Google AI Ultra',
+      teamsTier: 'TEAMS_TIER_PRO',
       fetchedAtMs: nowMs,
       pools: [
         {
@@ -366,6 +367,9 @@ test('buildInspectReport extracts live quota windows, per-call quota5hPct, and S
 
     assert.equal(report.found, true);
     assert.equal(report.account.quotaAvailable, true);
+    assert.equal(report.account.tier, 'Google AI Ultra · 5x');
+    assert.equal(report.account.tierId, 'g1-ultra-lite-tier');
+    assert.equal(report.account.tierMultiplier, '5x');
     assert.equal(report.account.pools.length, 1);
     assert.equal(report.account.pools[0].label, 'Gemini');
     assert.equal(report.account.pools[0].remainingPct5h, 12);

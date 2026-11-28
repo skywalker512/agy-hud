@@ -192,6 +192,21 @@ export const zh: Translations = {
   },
   sessionQuotaTip: (lines) => `本对话当前实际占用的额度比例:\n${lines}`,
   accountTitle: '配额与消耗',
+  tierBadgeTip: ({ tierId, multiplier, source, fitted5hStr }) => {
+    const lines: string[] = [];
+    if (multiplier) {
+      if (source === 'verified') {
+        lines.push(`已核验 ${multiplier} 档位（官方 Tier ID 与实测 5h 容量一致）`);
+      } else if (source === 'tier_id') {
+        lines.push(`来自官方 Tier ID 的 ${multiplier} 档位（待实测样本交叉核验）`);
+      } else if (source === 'fitted') {
+        lines.push(`基于实测 5h 容量推算的 ~${multiplier} 档位`);
+      }
+    }
+    if (tierId) lines.push(`Tier ID: ${tierId}`);
+    if (fitted5hStr) lines.push(`Gemini 实测 5h 容量: ~${fitted5hStr}`);
+    return lines.join('\n');
+  },
   creditsRealMini: (c) => `额外积分: ${c}`,
   creditsRealTip: (c) => `当前可用额外积分 (Credits): ${c}`,
   quotaRefreshTip: (tm) => `强制刷新配额（默认 5 分钟缓存，且仅在打开账户页时请求）${tm ? `\n上次同步: ${tm}` : ''}`,

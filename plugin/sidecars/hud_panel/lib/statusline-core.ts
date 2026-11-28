@@ -29,6 +29,8 @@ import {
   inferAppDataSource,
   resolveAllAppDataDirs,
   resolveAppDataDir,
+  resolveQuotaCalibrationPath,
+  resolveQuotaFitPath,
   statSafe,
   UUID_RE,
 } from './constants.ts';
@@ -258,6 +260,8 @@ export interface InspectTelemetryReport {
   };
   account: {
     tier: string;
+    tierId: string;
+    tierMultiplier: '5x' | '20x' | null;
     todayCostUSD: number;
     monthCostUSD: number;
     totalCostUSD: number;
@@ -936,6 +940,8 @@ export async function buildInspectReport(
     session: { calls: 0, totalCostUSD: 0, totalSavedUSD: 0, totalOutputTokens: 0, treeTotals: null, swarm: null },
     account: {
       tier: '',
+      tierId: '',
+      tierMultiplier: null,
       todayCostUSD: 0,
       monthCostUSD: 0,
       totalCostUSD: 0,
@@ -983,8 +989,17 @@ export async function buildInspectReport(
     return emptyReport;
   }
 
-  const fittedQuota = attachQuotaBudgetEstimates(rawQuota, graph, { nowMs });
-  const decoratedTelemetry = attachTelemetryQuotaPredictions(rawTelemetry, fittedQuota);
+  const quotaCalPath = resolveQuotaCalibrationPath(baseAppDataDir);
+  const quotaFitPath = resolveQuotaFitPath(baseAppDataDir);
+  const fittedQuota = attachQuotaBudgetEstimates(rawQuota, graph, {
+    nowMs,
+    calibrationPath: quotaCalPath,
+    fitPath: quotaFitPath,
+  });
+  const decoratedTelemetry = attachTelemetryQuotaPredictions(rawTelemetry, fittedQuota, {
+    fitPath: quotaFitPath,
+    nowMs,
+  });
   const cacheTtl = buildCacheTtlOverview(graph.summaries, decoratedTelemetry, fittedQuota);
   const sessionInfoFull = buildSessionInfo(target.id, graph);
   const enrichedGraph = attachGraphQuotaSummaries({
@@ -992,6 +1007,7 @@ export async function buildInspectReport(
     sessionInfo: sessionInfoFull,
     graph,
     accountQuota: fittedQuota,
+    opts: { fitPath: quotaFitPath, nowMs },
   });
   const accountHistory = buildAccountHistory(graph, nowMs);
 
@@ -1208,7 +1224,11 @@ export async function buildInspectReport(
       swarm: swarmSummary,
     },
     account: {
-      tier: fittedQuota?.available ? fittedQuota.tierName || fittedQuota.planName || '' : '',
+      tier: fittedQuota?.available
+        ? fittedQuota.tierMeta?.displayLabel || fittedQuota.tierName || fittedQuota.planName || ''
+        : '',
+      tierId: fittedQuota?.available ? fittedQuota.tierMeta?.tierId || fittedQuota.tierId || '' : '',
+      tierMultiplier: fittedQuota?.available ? fittedQuota.tierMeta?.multiplier ?? null : null,
       todayCostUSD: accountHistory.todayCostUSD || 0,
       monthCostUSD: accountHistory.monthCostUSD || 0,
       totalCostUSD: accountHistory.totalCostUSD || 0,

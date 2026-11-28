@@ -7,6 +7,7 @@ import { defineConfig, transformWithEsbuild, type Plugin } from 'vite';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REAL_HUD_UI_DIR = path.resolve(__dirname, '../plugin/sidecars/hud_panel/ui');
 const SCRIPTS_DIR = path.resolve(__dirname, '../scripts');
+const AGENTS_MD_PATH = path.resolve(__dirname, '../AGENTS.md');
 const DEMO_HUD_DIR = path.resolve(__dirname, 'public/hud-demo');
 const DIST_DIR = path.resolve(__dirname, 'dist');
 const DIST_DEMO_HUD_DIR = path.resolve(__dirname, 'dist/hud-demo');
@@ -33,13 +34,16 @@ function syncRealHudPlugin(): Plugin {
       syncRealHudBundle();
     },
     async closeBundle() {
-      // Copy canonical installer scripts into dist/ so Workers Static Assets can serve h.512.pub at edge
+      // Copy canonical installer scripts & AGENTS.md into dist/ so Workers Static Assets can serve h.512.pub at edge
       for (const scriptFile of ['install.sh', 'install.ps1']) {
         const src = path.join(SCRIPTS_DIR, scriptFile);
         const dst = path.join(DIST_DIR, scriptFile);
         if (fs.existsSync(src)) {
           fs.copyFileSync(src, dst);
         }
+      }
+      if (fs.existsSync(AGENTS_MD_PATH)) {
+        fs.copyFileSync(AGENTS_MD_PATH, path.join(DIST_DIR, 'AGENTS.md'));
       }
       // Minify demo-fixture.js & demo-bridge.js in dist/ while keeping public/ sources readable
       for (const file of ['demo-fixture.js', 'demo-bridge.js']) {

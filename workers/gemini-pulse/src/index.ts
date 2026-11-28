@@ -32,13 +32,15 @@ const KV_KEY_SEED_LOCK = 'gemini:pulse:seed-lock';
 const SERIES_7D_TTL_MS = 30 * 60_000;
 const SHORT_INSTALL_HOSTS = new Set(['h.512.pub']);
 const CANONICAL_SITE_ORIGIN = 'https://agy-hud.512.pub';
-const GITHUB_RAW_SCRIPT_BASE = 'https://raw.githubusercontent.com/skywalker512/agy-hud/main/scripts';
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/skywalker512/agy-hud/main';
+const GITHUB_RAW_SCRIPT_BASE = `${GITHUB_RAW_BASE}/scripts`;
 
 const POWERSHELL_UA_RE = /\b(?:WindowsPowerShell|PowerShell)\//i;
 const UNIX_CLI_UA_RE = /^(?:curl|wget|fetch|libfetch|httpie|xh|aria2|python-urllib|python-requests|go-http-client)\b/i;
 
 export type ShortLinkAction =
   | { kind: 'script'; script: 'sh' | 'ps1'; uaDependent: boolean }
+  | { kind: 'doc'; doc: 'agents' }
   | { kind: 'redirect'; location: string; uaDependent: boolean }
   | { kind: 'passthrough' };
 
@@ -51,6 +53,9 @@ export function classifyInstallerRoute(url: URL, userAgent: string): ShortLinkAc
   }
   if (path === '/install.ps1' || path === '/ps1' || path === '/win') {
     return { kind: 'script', script: 'ps1', uaDependent: false };
+  }
+  if (path === '/agent' || path === '/agents' || path === '/agents.md' || path === '/llms.txt') {
+    return { kind: 'doc', doc: 'agents' };
   }
 
   if (!isShortHost) {
@@ -143,6 +148,61 @@ async function serveInstallerScript(
     headers.Vary = 'User-Agent';
   }
   return new Response(method === 'HEAD' ? null : bodyText, { status: 200, headers });
+}
+
+async function serveAgentGuide(
+  method: string,
+  env: Env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Response> {
+  let bodyText: string | null = null;
+
+  if (env.ASSETS) {
+    try {
+      const assetRes = await env.ASSETS.fetch(new Request(`${CANONICAL_SITE_ORIGIN}/AGENTS.md`, { method: 'GET' }));
+      if (assetRes.ok) {
+        bodyText = await assetRes.text();
+      }
+    } catch {
+      /* fall back to GitHub raw */
+    }
+  }
+
+  if (bodyText === null) {
+    try {
+      const upstream = await fetchImpl(`${GITHUB_RAW_BASE}/AGENTS.md`, {
+        headers: { 'User-Agent': 'agy-hud-worker/1.0' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (upstream.ok) {
+        bodyText = await upstream.text();
+      }
+    } catch {
+      /* handled below */
+    }
+  }
+
+  if (bodyText === null) {
+    return new Response('AGENTS.md temporarily unavailable.\n', {
+      status: 502,
+      headers: {
+        ...CORS_HEADERS,
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
+    });
+  }
+
+  return new Response(method === 'HEAD' ? null : bodyText, {
+    status: 200,
+    headers: {
+      ...CORS_HEADERS,
+      'Content-Type': 'text/markdown; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Disposition': 'inline; filename="AGENTS.md"',
+      'Cache-Control': 'public, max-age=300',
+    },
+  });
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -468,11 +528,14 @@ export default {
 
     const url = new URL(request.url);
 
-    // Short-link smart installer (`h.512.pub`) & explicit `/install.sh`, `/install.ps1`, `/sh`, `/ps1`
+    // Short-link smart installer (`h.512.pub`), `/agent` (`AGENTS.md`), & explicit `/install.sh`, `/install.ps1`
     if (request.method === 'GET' || request.method === 'HEAD') {
       const route = classifyInstallerRoute(url, request.headers.get('User-Agent') || '');
       if (route.kind === 'script') {
         return serveInstallerScript(route.script, request.method, route.uaDependent, env);
+      }
+      if (route.kind === 'doc') {
+        return serveAgentGuide(request.method, env);
       }
       if (route.kind === 'redirect') {
         const headers: Record<string, string> = {

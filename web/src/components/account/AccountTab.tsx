@@ -6,7 +6,7 @@ import type {
   UpdateStatusResponse,
 } from '../../types/telemetry';
 import { copyText } from '../../utils/clipboard';
-import { fmtClock, fmtNum, fmtUsdWithBand } from '../../utils/format';
+import { fmtClock, fmtNum, fmtUsd, fmtUsdWithBand } from '../../utils/format';
 import { IconArrowRight, IconCheck, IconCopy, IconExternalLink, IconRefresh } from '../common/Icons';
 import { ActivityHeatmapCard } from './ActivityHeatmapCard';
 import { CacheTtlCard } from './CacheTtlCard';
@@ -71,7 +71,17 @@ export function AccountTab({
   const s = snap?.summary;
   const h = snap?.accountHistory;
 
-  const tierLabel = q?.available ? q.tierName || q.planName || '' : '';
+  const tierMeta = q?.available ? q.tierMeta : undefined;
+  const tierLabel = q?.available ? tierMeta?.displayLabel || q.tierName || q.planName || '' : '';
+  const tierTip =
+    q?.available && tierMeta && (tierMeta.tierId || tierMeta.multiplier || tierMeta.fittedGemini5hUSD)
+      ? t.tierBadgeTip({
+          tierId: tierMeta.tierId || q.tierId || '',
+          multiplier: tierMeta.multiplier,
+          source: tierMeta.multiplierSource,
+          fitted5hStr: tierMeta.fittedGemini5hUSD ? fmtUsd(tierMeta.fittedGemini5hUSD) : '',
+        })
+      : '';
 
   const creditsStr =
     q?.available && typeof q.availableCredits === 'number' && q.availableCredits > 0
@@ -120,7 +130,10 @@ export function AccountTab({
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">
             <span className="card-k">{t.accountTitle}</span>
             {tierLabel && (
-              <span className="inline-flex items-center px-1.5 py-[1px] rounded-full font-hud text-[10px] font-medium text-hud-muted bg-hud-fill whitespace-nowrap max-w-full truncate">
+              <span
+                className={`inline-flex items-center px-1.5 py-[1px] rounded-full font-hud text-[10px] font-medium text-hud-muted bg-hud-fill whitespace-nowrap max-w-full truncate${tierTip ? ' cursor-help' : ''}`}
+                {...(tierTip ? { 'data-tip': tierTip } : {})}
+              >
                 {tierLabel}
               </span>
             )}
