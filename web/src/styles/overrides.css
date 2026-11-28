@@ -1,0 +1,165 @@
+/* Dark theme layered card elevation & specular top highlight */
+:root[data-theme="dark"] .hud-card,
+:root[data-theme="dark"] .kpi-strip {
+  border-color: color-mix(in srgb, var(--hud-fg) 8%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055), 0 2px 8px rgba(0, 0, 0, 0.22);
+}
+
+:root[data-theme="dark"] .hud-sticky-dock.is-stuck {
+  box-shadow: 0 6px 18px color-mix(in srgb, #000000 32%, transparent);
+}
+
+:root[data-theme="dark"] .more-popover {
+  border-color: color-mix(in srgb, var(--hud-fg) 13%, transparent);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme="dark"] .hud-tab-btn.is-active {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+:lang(zh) .card-k {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+/* High-contrast host accessibility parity */
+:root[data-contrast="strong"] .hud-card,
+:root[data-contrast="strong"] .kpi-strip,
+:root[data-contrast="strong"] .l2-well,
+:root[data-contrast="strong"] .hud-tabs,
+:root[data-contrast="strong"] .metric-tabs,
+:root[data-contrast="strong"] .hud-select-trigger,
+:root[data-contrast="strong"] .hud-btn,
+:root[data-contrast="strong"] .more-popover,
+:root[data-contrast="strong"] .spend-cell,
+:root[data-contrast="strong"] .insp-cell,
+:root[data-contrast="strong"] .call-search-input,
+:root[data-contrast="strong"] .pulse-bar,
+:root[data-contrast="strong"] .model-pill {
+  border-color: color-mix(in srgb, var(--hud-border) 72%, var(--hud-fg) 28%);
+}
+:root[data-contrast="strong"] .history-row {
+  border-color: color-mix(in srgb, var(--hud-border) 82%, transparent);
+}
+:root[data-contrast="strong"] .status-badge.idle,
+:root[data-contrast="strong"] .pulse-chip {
+  color: color-mix(in srgb, var(--hud-muted) 45%, var(--hud-fg));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-card.is-streaming::before,
+  .hud-card.is-waiting-calm::before,
+  .hud-card.is-waiting-ttft::before,
+  .hud-card.is-waiting-stalled::before,
+  .history-row.is-waiting-calm::before,
+  .history-row.is-waiting-ttft::before,
+  .history-row.is-waiting-stalled::before,
+  .hud-card.is-ttft-locked,
+  .ttft-bars-svg rect,
+  .ttft-avg-line,
+  .ttft-bar-live,
+  .ttft-wait-track,
+  .ttft-wait-fill,
+  .hud-expand-anim,
+  .more-popover,
+  .pulse-bar-wrap {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (max-width: 460px) {
+  .spend-grid,
+  .insp-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .model-id-tag {
+    display: none !important;
+  }
+  .hero-v {
+    font-size: calc(22px * var(--hud-font-scale, 1)) !important;
+  }
+}
+
+@media (max-width: 310px) {
+  .kpi-strip {
+    grid-template-columns: 1fr !important;
+  }
+  .kpi-strip-cell + .kpi-strip-cell {
+    border-left: 0;
+    border-top: 1px solid var(--hud-hairline);
+  }
+  .ctx-micro-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .ctx-micro-strip > :nth-child(3) {
+    grid-column: 1 / -1;
+  }
+  .narrow-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 340px) {
+  .hud-shell {
+    --hud-shell-px: 8px;
+    padding: 8px var(--hud-shell-px) 16px;
+  }
+  .hud-card {
+    padding: 9px 10px;
+  }
+  .hero-v {
+    font-size: calc(20px * var(--hud-font-scale, 1)) !important;
+  }
+  .card-sub {
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+  .history-e2e {
+    display: none !important;
+  }
+  .model-mix-grid {
+    grid-template-columns: minmax(68px, 1.4fr) auto auto auto !important;
+  }
+  .model-mix-hide-xs {
+    display: none !important;
+  }
+}
+
+/* Stack 2 hero speed cards cleanly below 268px to guarantee zero collision */
+@media (max-width: 268px) {
+  .hero-speed-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .ctx-breakdown-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ── Ultra-Compact Narrow Sidebar Mode (<= 250px) ── */
+@media (max-width: 250px) {
+  .hud-shell {
+    --hud-shell-px: 6px;
+    padding: 6px var(--hud-shell-px) 14px;
+    gap: 7px;
+  }
+  .hud-card {
+    padding: 8px 9px;
+    border-radius: 9px;
+  }
+  .hero-v {
+    font-size: calc(20px * var(--hud-font-scale, 1)) !important;
+  }
+  .hud-tab-btn {
+    padding: 4px 3px;
+    gap: 3px;
+    font-size: calc(10.5px * var(--hud-font-scale, 1));
+  }
+  .hud-tab-icon {
+    display: none !important;
+  }
+  .pulse-bar {
+    padding: 4px 7px;
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+}

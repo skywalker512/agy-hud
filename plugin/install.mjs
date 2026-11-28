@@ -15,63 +15,63 @@ import { execFileSync } from 'node:child_process';
 import {
   accessSync,
   constants as fsConstants,
-  cpSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
-  readFileSync,
   realpathSync,
-  renameSync,
-  rmSync,
   statSync,
   symlinkSync,
-  writeFileSync,
 } from 'node:fs';
 import { arch, homedir, platform, release } from 'node:os';
-import { basename, delimiter, dirname, join, resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gunzipSync, inflateRawSync } from 'node:zlib';
 
-export const PLUGIN_NAME = 'agy-hud';
-export const GITHUB_OWNER = 'skywalker512';
-export const GITHUB_REPO = 'agy-hud';
+import {
+  assertSafeArchiveEntryPath,
+  compareSemver,
+  downloadVerifiedArchive,
+  extractArchiveSafely,
+  extractTarGzSafely,
+  extractZipSafely,
+  FETCH_TIMEOUT_MS,
+  fetchWithTimeout,
+  GITHUB_OWNER,
+  GITHUB_REPO,
+  isAllowedDownloadUrl,
+  isSymlinkPath,
+  locatePluginPayloadDir,
+  parseSemver,
+  pathExists,
+  PLUGIN_NAME,
+  readPluginManifest,
+  removeWithRetry,
+  renameWithRetry,
+  REQUIRED_UI_FILES,
+  SKIP_INSTALL_NAMES,
+  swapDirectoryAtomically,
+  validatePluginPayload,
+} from './sidecars/hud_panel/lib/release-core.ts';
+
+export {
+  assertSafeArchiveEntryPath,
+  compareSemver,
+  extractTarGzSafely,
+  extractZipSafely,
+  GITHUB_OWNER,
+  GITHUB_REPO,
+  isAllowedDownloadUrl,
+  isSymlinkPath,
+  parseSemver,
+  pathExists,
+  PLUGIN_NAME,
+  readPluginManifest,
+  removeWithRetry,
+  renameWithRetry,
+  validatePluginPayload,
+};
+
 export const MIN_NODE = [22, 18];
-export const SKIP_NAMES = new Set([
-  'install.mjs',
-  'test',
-  'node_modules',
-  '.DS_Store',
-  'Thumbs.db',
-  'tsconfig.json',
-]);
-
-const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
-const MAX_EXTRACTED_BYTES = 64 * 1024 * 1024;
-const MAX_EXTRACTED_FILES = 2_000;
-const MAX_REDIRECT_HOPS = 5;
-const FETCH_TIMEOUT_MS = 10_000;
-const DOWNLOAD_TIMEOUT_MS = 45_000;
-const RETRYABLE_FS_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
-const REDIRECT_CDN_HOSTS = new Set([
-  'objects.githubusercontent.com',
-  'release-assets.githubusercontent.com',
-  'github-releases.githubusercontent.com',
-]);
-
-const REQUIRED_UI_FILES = [
-  join('sidecars', 'hud_panel', 'ui', 'index.html'),
-  join('sidecars', 'hud_panel', 'ui', 'app.js'),
-  join('sidecars', 'hud_panel', 'ui', 'styles.css'),
-];
-
-const REQUIRED_PLUGIN_FILES = [
-  'plugin.json',
-  join('sidecars', 'hud_panel', 'sidecar.json'),
-  join('sidecars', 'hud_panel', 'server.ts'),
-  ...REQUIRED_UI_FILES,
-];
+export const SKIP_NAMES = SKIP_INSTALL_NAMES;
 
 const __filename = fileURLToPath(import.meta.url);
 const defaultSourceDir = dirname(realpathSync(__filename));
@@ -80,570 +80,22 @@ export function getDefaultTargetDir(home = homedir()) {
   return join(home, '.gemini', 'config', 'plugins', PLUGIN_NAME);
 }
 
-// ---------------------------------------------------------------------------
-// SemVer 2.0.0 parsing & comparison
-// ---------------------------------------------------------------------------
-
-const SEMVER_RE = /^[vV]?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$/;
-const NUMERIC_ID_RE = /^(?:0|[1-9]\d*)$/;
-
-export function parseSemver(raw) {
-  if (typeof raw !== 'string') return null;
-  const trimmed = raw.trim();
-  const match = SEMVER_RE.exec(trimmed);
-  if (!match) return null;
-  const [, majStr, minStr, patStr, preStr, buildStr] = match;
-  if (
-    (majStr.length > 1 && majStr.startsWith('0')) ||
-    (minStr.length > 1 && minStr.startsWith('0')) ||
-    (patStr.length > 1 && patStr.startsWith('0'))
-  ) {
-    return null;
-  }
-  const major = Number(majStr);
-  const minor = Number(minStr);
-  const patch = Number(patStr);
-  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) {
-    return null;
-  }
-  const prerelease = [];
-  if (preStr !== undefined) {
-    for (const part of preStr.split('.')) {
-      if (!part) return null;
-      if (/^\d+$/.test(part)) {
-        if (!NUMERIC_ID_RE.test(part)) return null;
-        prerelease.push(Number(part));
-      } else {
-        prerelease.push(part);
-      }
-    }
-  }
-  const build = buildStr !== undefined ? buildStr.split('.').filter(Boolean) : [];
-  return { major, minor, patch, prerelease, build, raw: trimmed };
-}
-
-export function compareSemver(a, b) {
-  const pa = parseSemver(a);
-  const pb = parseSemver(b);
-  if (!pa && !pb) return 0;
-  if (!pa) return -1;
-  if (!pb) return 1;
-  if (pa.major !== pb.major) return pa.major < pb.major ? -1 : 1;
-  if (pa.minor !== pb.minor) return pa.minor < pb.minor ? -1 : 1;
-  if (pa.patch !== pb.patch) return pa.patch < pb.patch ? -1 : 1;
-  const aPre = pa.prerelease.length > 0;
-  const bPre = pb.prerelease.length > 0;
-  if (!aPre && !bPre) return 0;
-  if (!aPre && bPre) return 1;
-  if (aPre && !bPre) return -1;
-  const len = Math.max(pa.prerelease.length, pb.prerelease.length);
-  for (let i = 0; i < len; i++) {
-    const ai = pa.prerelease[i];
-    const bi = pb.prerelease[i];
-    if (ai === undefined) return -1;
-    if (bi === undefined) return 1;
-    if (ai === bi) continue;
-    const aNum = typeof ai === 'number';
-    const bNum = typeof bi === 'number';
-    if (aNum && bNum) return ai < bi ? -1 : 1;
-    if (aNum && !bNum) return -1;
-    if (!aNum && bNum) return 1;
-    return String(ai) < String(bi) ? -1 : 1;
-  }
-  return 0;
-}
-
 export function isNodeVersionSupported(nodeVersion = process.versions.node) {
   const [major, minor] = String(nodeVersion).split('.').map(Number);
   if (!Number.isFinite(major) || !Number.isFinite(minor)) return false;
   return major > MIN_NODE[0] || (major === MIN_NODE[0] && minor >= MIN_NODE[1]);
 }
 
-// ---------------------------------------------------------------------------
-// Cross-platform filesystem helpers (atomic replace + Windows EPERM retry)
-// ---------------------------------------------------------------------------
-
-function sleepSync(ms) {
-  const sab = new SharedArrayBuffer(4);
-  const view = new Int32Array(sab);
-  Atomics.wait(view, 0, 0, ms);
-}
-
-export function pathExists(p) {
-  try {
-    lstatSync(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function isSymlinkPath(p) {
-  try {
-    return lstatSync(p).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-
-export function removeWithRetry(p, maxAttempts = 5) {
-  if (!pathExists(p)) return;
-  let lastErr;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      rmSync(p, { recursive: true, force: true });
-      return;
-    } catch (err) {
-      lastErr = err;
-      if (!RETRYABLE_FS_CODES.has(err?.code) || attempt === maxAttempts) {
-        throw err;
-      }
-      sleepSync(attempt * 60);
-    }
-  }
-  throw lastErr;
-}
-
-export function renameWithRetry(src, dst, maxAttempts = 5) {
-  let lastErr;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      renameSync(src, dst);
-      return;
-    } catch (err) {
-      lastErr = err;
-      if (err?.code === 'EXDEV') {
-        cpSync(src, dst, { recursive: true });
-        removeWithRetry(src);
-        return;
-      }
-      if (!RETRYABLE_FS_CODES.has(err?.code) || attempt === maxAttempts) {
-        throw err;
-      }
-      sleepSync(attempt * 60);
-    }
-  }
-  throw lastErr;
-}
-
-export function readPluginManifest(dir) {
-  try {
-    const raw = readFileSync(join(dir, 'plugin.json'), 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
-    if (typeof parsed.version !== 'string' || !parsed.version.trim()) return null;
-    return {
-      name: typeof parsed.name === 'string' ? parsed.name : '',
-      version: parsed.version.trim(),
-      displayName: typeof parsed.displayName === 'string' ? parsed.displayName : 'AGY-HUD',
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function validatePluginPayload(dir) {
-  const missing = [];
-  const errors = [];
-
-  for (const rel of REQUIRED_PLUGIN_FILES) {
-    const full = join(dir, rel);
-    if (!existsSync(full)) {
-      missing.push(rel);
-      continue;
-    }
-    try {
-      const st = lstatSync(full);
-      if (!st.isFile() || st.size === 0) {
-        errors.push(`Empty or non-file asset: ${rel}`);
-      }
-    } catch {
-      missing.push(rel);
-    }
-  }
-
-  let version = null;
-  if (!missing.includes('plugin.json')) {
-    const manifest = readPluginManifest(dir);
-    if (!manifest) {
-      errors.push('plugin.json is invalid JSON or missing version');
-    } else {
-      if (manifest.name && manifest.name !== PLUGIN_NAME) {
-        errors.push(`Unexpected plugin name: ${manifest.name}`);
-      }
-      if (!parseSemver(manifest.version)) {
-        errors.push(`Invalid SemVer version in plugin.json: ${manifest.version}`);
-      } else {
-        version = manifest.version;
-      }
-    }
-  }
-
-  if (!missing.includes(join('sidecars', 'hud_panel', 'sidecar.json'))) {
-    try {
-      const sidecar = JSON.parse(readFileSync(join(dir, 'sidecars', 'hud_panel', 'sidecar.json'), 'utf8'));
-      if (!sidecar || typeof sidecar.command !== 'string') {
-        errors.push('sidecar.json is missing required command field');
-      }
-    } catch {
-      errors.push('sidecar.json is invalid JSON');
-    }
-  }
-
-  return {
-    valid: missing.length === 0 && errors.length === 0 && version !== null,
-    version,
-    missing,
-    errors,
-  };
-}
-
 export function swapPluginAtomically({ sourcePayloadDir, targetDir, beforeSwapHook }) {
-  const parent = dirname(targetDir);
-  mkdirSync(parent, { recursive: true });
-  const workRoot = mkdtempSync(join(parent, `.${PLUGIN_NAME}-stage-`));
-  const stagedDir = join(workRoot, 'staged');
-  const backupDir = join(workRoot, 'backup');
-
-  const existed = pathExists(targetDir);
-  const wasSymlink = isSymlinkPath(targetDir);
-  let backedUp = false;
-
-  try {
-    cpSync(sourcePayloadDir, stagedDir, {
-      recursive: true,
-      filter: (src) => !SKIP_NAMES.has(basename(src)),
-    });
-
-    if (existed) {
-      if (wasSymlink) {
-        removeWithRetry(targetDir);
-      } else {
-        renameWithRetry(targetDir, backupDir);
-        backedUp = true;
-      }
-    }
-
-    if (typeof beforeSwapHook === 'function') {
-      beforeSwapHook({ targetDir, stagedDir, backupDir });
-    }
-
-    renameWithRetry(stagedDir, targetDir);
-    return { ok: true, rolledBack: false };
-  } catch (err) {
-    let rolledBack = false;
-    if (backedUp && pathExists(backupDir)) {
-      try {
-        removeWithRetry(targetDir);
-        renameWithRetry(backupDir, targetDir);
-        rolledBack = true;
-      } catch {
-        rolledBack = false;
-      }
-    }
-    return { ok: false, rolledBack, error: err?.message || String(err) };
-  } finally {
-    try {
-      removeWithRetry(workRoot);
-    } catch {
-      /* ignore cleanup errors */
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Strict GitHub URL allowlist & archive download/extraction
-// ---------------------------------------------------------------------------
-
-function hasPathTraversal(pathname) {
-  let decoded = pathname;
-  try {
-    decoded = decodeURIComponent(pathname);
-  } catch {
-    return true;
-  }
-  if (decoded.includes('\0') || decoded.includes('\\')) return true;
-  return decoded.split('/').some((seg) => seg === '..');
-}
-
-export function isAllowedDownloadUrl(rawUrl, options = {}) {
-  if (typeof rawUrl !== 'string' || !rawUrl.trim()) return false;
-  let parsed;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:') return false;
-  if (parsed.username || parsed.password) return false;
-  if (parsed.port && parsed.port !== '443') return false;
-  if (hasPathTraversal(parsed.pathname)) return false;
-
-  const owner = (options.owner || GITHUB_OWNER).toLowerCase();
-  const repo = (options.repo || GITHUB_REPO).toLowerCase();
-  const host = parsed.hostname.toLowerCase();
-  const pathLower = parsed.pathname.toLowerCase();
-
-  if (host === 'github.com' || host === 'codeload.github.com') {
-    return pathLower.startsWith(`/${owner}/${repo}/`);
-  }
-  if (host === 'api.github.com') {
-    return pathLower.startsWith(`/repos/${owner}/${repo}/`);
-  }
-  if (options.isRedirectHop && REDIRECT_CDN_HOSTS.has(host)) {
-    return parsed.pathname.length > 1;
-  }
-  return false;
-}
-
-export function assertSafeArchiveEntryPath(rawEntryPath, destRoot) {
-  if (typeof rawEntryPath !== 'string' || !rawEntryPath) {
-    throw new Error('Archive entry has an empty path');
-  }
-  if (rawEntryPath.includes('\0')) {
-    throw new Error(`Archive entry contains null byte: ${JSON.stringify(rawEntryPath)}`);
-  }
-  const normalized = rawEntryPath.replace(/\\/g, '/');
-  if (normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) {
-    throw new Error(`Archive entry uses absolute path: ${rawEntryPath}`);
-  }
-  const segments = normalized.split('/').filter((s) => s.length > 0 && s !== '.');
-  if (segments.some((s) => s === '..')) {
-    throw new Error(`Archive entry attempts path traversal: ${rawEntryPath}`);
-  }
-  const resolvedRoot = resolve(destRoot);
-  if (segments.length === 0) return resolvedRoot;
-  const fullPath = resolve(resolvedRoot, ...segments);
-  if (fullPath !== resolvedRoot && !fullPath.startsWith(resolvedRoot + sep)) {
-    throw new Error(`Archive entry escapes destination directory: ${rawEntryPath}`);
-  }
-  return fullPath;
-}
-
-function readTarString(buf, offset, length) {
-  let end = offset;
-  const max = Math.min(buf.length, offset + length);
-  while (end < max && buf[end] !== 0) end++;
-  return buf.subarray(offset, end).toString('utf8');
-}
-
-function readTarOctal(buf, offset, length) {
-  const raw = readTarString(buf, offset, length).trim();
-  if (!raw) return 0;
-  if ((buf[offset] & 0x80) !== 0) {
-    let val = 0;
-    for (let i = 1; i < length; i++) val = val * 256 + buf[offset + i];
-    return val;
-  }
-  const parsed = parseInt(raw, 8);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-}
-
-function parsePaxRecords(data) {
-  const out = {};
-  const text = data.toString('utf8');
-  let pos = 0;
-  while (pos < text.length) {
-    const spaceIdx = text.indexOf(' ', pos);
-    if (spaceIdx === -1) break;
-    const len = parseInt(text.slice(pos, spaceIdx), 10);
-    if (!Number.isFinite(len) || len <= 0) break;
-    const record = text.slice(spaceIdx + 1, pos + len);
-    const eqIdx = record.indexOf('=');
-    if (eqIdx !== -1) {
-      out[record.slice(0, eqIdx)] = record.slice(eqIdx + 1).replace(/\n$/, '');
-    }
-    pos += len;
-  }
-  return out;
-}
-
-export function extractTarGzSafely(gzBuffer, destDir) {
-  const tarBuf = gunzipSync(gzBuffer, { maxOutputLength: MAX_EXTRACTED_BYTES });
-  const resolvedDest = resolve(destDir);
-  mkdirSync(resolvedDest, { recursive: true });
-
-  let offset = 0;
-  let fileCount = 0;
-  let totalBytes = 0;
-  let nextPaxPath = null;
-  let nextGnuLongName = null;
-
-  while (offset + 512 <= tarBuf.length) {
-    const header = tarBuf.subarray(offset, offset + 512);
-    let allZero = true;
-    for (let i = 0; i < 512; i++) {
-      if (header[i] !== 0) {
-        allZero = false;
-        break;
-      }
-    }
-    if (allZero) break;
-
-    const rawName = readTarString(header, 0, 100);
-    const size = readTarOctal(header, 124, 12);
-    const typeFlag = String.fromCharCode(header[156]);
-    const prefix = readTarString(header, 345, 155);
-
-    const dataStart = offset + 512;
-    const dataEnd = dataStart + size;
-    if (dataEnd > tarBuf.length) throw new Error('Truncated tar archive entry');
-    const dataSlice = tarBuf.subarray(dataStart, dataEnd);
-    offset = dataStart + Math.ceil(size / 512) * 512;
-
-    if (typeFlag === 'g') continue;
-    if (typeFlag === 'x') {
-      const pax = parsePaxRecords(dataSlice);
-      if (pax.path) nextPaxPath = pax.path;
-      continue;
-    }
-    if (typeFlag === 'L') {
-      nextGnuLongName = dataSlice.toString('utf8').replace(/\0+$/, '');
-      continue;
-    }
-
-    const entryPath = nextPaxPath ?? nextGnuLongName ?? (prefix ? `${prefix}/${rawName}` : rawName);
-    nextPaxPath = null;
-    nextGnuLongName = null;
-
-    if (typeFlag === '1' || typeFlag === '2' || typeFlag === '3' || typeFlag === '4' || typeFlag === '6') {
-      throw new Error(`Archive contains disallowed link or special file (${typeFlag}): ${entryPath}`);
-    }
-
-    const fullPath = assertSafeArchiveEntryPath(entryPath, resolvedDest);
-    if (typeFlag === '5' || entryPath.endsWith('/')) {
-      mkdirSync(fullPath, { recursive: true });
-      continue;
-    }
-
-    if (typeFlag === '0' || typeFlag === '\0') {
-      fileCount += 1;
-      totalBytes += size;
-      if (fileCount > MAX_EXTRACTED_FILES) throw new Error(`Archive exceeds max file count (${MAX_EXTRACTED_FILES})`);
-      if (totalBytes > MAX_EXTRACTED_BYTES) throw new Error(`Archive exceeds max size (${MAX_EXTRACTED_BYTES} bytes)`);
-      mkdirSync(dirname(fullPath), { recursive: true });
-      writeFileSync(fullPath, dataSlice);
-    }
-  }
-  return { fileCount, totalBytes };
-}
-
-export function extractZipSafely(zipBuffer, destDir) {
-  const resolvedDest = resolve(destDir);
-  mkdirSync(resolvedDest, { recursive: true });
-
-  const minEocdOffset = Math.max(0, zipBuffer.length - 65557);
-  let eocdOffset = -1;
-  for (let i = zipBuffer.length - 22; i >= minEocdOffset; i--) {
-    if (zipBuffer.readUInt32LE(i) === 0x06054b50) {
-      eocdOffset = i;
-      break;
-    }
-  }
-  if (eocdOffset === -1) throw new Error('Invalid ZIP archive: missing EOCD record');
-
-  const totalEntries = zipBuffer.readUInt16LE(eocdOffset + 10);
-  const cdSize = zipBuffer.readUInt32LE(eocdOffset + 12);
-  const cdOffset = zipBuffer.readUInt32LE(eocdOffset + 16);
-  if (cdOffset + cdSize > zipBuffer.length) throw new Error('Invalid ZIP archive: central directory out of bounds');
-
-  let pos = cdOffset;
-  let fileCount = 0;
-  let totalBytes = 0;
-
-  for (let idx = 0; idx < totalEntries; idx++) {
-    if (pos + 46 > zipBuffer.length || zipBuffer.readUInt32LE(pos) !== 0x02014b50) {
-      throw new Error('Invalid ZIP archive: corrupt central directory entry');
-    }
-    const compression = zipBuffer.readUInt16LE(pos + 10);
-    const compressedSize = zipBuffer.readUInt32LE(pos + 20);
-    const uncompressedSize = zipBuffer.readUInt32LE(pos + 24);
-    const nameLen = zipBuffer.readUInt16LE(pos + 28);
-    const extraLen = zipBuffer.readUInt16LE(pos + 30);
-    const commentLen = zipBuffer.readUInt16LE(pos + 32);
-    const extAttr = zipBuffer.readUInt32LE(pos + 38);
-    const localHeaderOffset = zipBuffer.readUInt32LE(pos + 42);
-    const entryName = zipBuffer.subarray(pos + 46, pos + 46 + nameLen).toString('utf8');
-    pos += 46 + nameLen + extraLen + commentLen;
-
-    const unixMode = (extAttr >>> 16) & 0o170000;
-    if (unixMode === 0o120000) {
-      throw new Error(`ZIP archive contains disallowed symlink entry: ${entryName}`);
-    }
-
-    const fullPath = assertSafeArchiveEntryPath(entryName, resolvedDest);
-    if (entryName.endsWith('/')) {
-      mkdirSync(fullPath, { recursive: true });
-      continue;
-    }
-
-    fileCount += 1;
-    if (fileCount > MAX_EXTRACTED_FILES) throw new Error(`Archive exceeds max file count (${MAX_EXTRACTED_FILES})`);
-    if (totalBytes + uncompressedSize > MAX_EXTRACTED_BYTES) {
-      throw new Error(`Archive exceeds max size (${MAX_EXTRACTED_BYTES} bytes)`);
-    }
-
-    if (localHeaderOffset + 30 > zipBuffer.length || zipBuffer.readUInt32LE(localHeaderOffset) !== 0x04034b50) {
-      throw new Error(`Invalid ZIP local header for entry: ${entryName}`);
-    }
-    const localNameLen = zipBuffer.readUInt16LE(localHeaderOffset + 26);
-    const localExtraLen = zipBuffer.readUInt16LE(localHeaderOffset + 28);
-    const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
-    const dataEnd = dataStart + compressedSize;
-    if (dataEnd > zipBuffer.length) throw new Error(`Truncated ZIP entry payload: ${entryName}`);
-
-    const compressedData = zipBuffer.subarray(dataStart, dataEnd);
-    let content;
-    if (compression === 0) content = compressedData;
-    else if (compression === 8) content = inflateRawSync(compressedData, { maxOutputLength: MAX_EXTRACTED_BYTES - totalBytes });
-    else throw new Error(`Unsupported ZIP compression method (${compression}) for ${entryName}`);
-
-    totalBytes += content.length;
-    if (totalBytes > MAX_EXTRACTED_BYTES) throw new Error(`Archive exceeds max size (${MAX_EXTRACTED_BYTES} bytes)`);
-
-    mkdirSync(dirname(fullPath), { recursive: true });
-    writeFileSync(fullPath, content);
-  }
-  return { fileCount, totalBytes };
-}
-
-function extractArchiveSafely(buffer, destDir, hint = null) {
-  const isGzip = buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
-  const isZip = buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b;
-  if (hint === 'zip' || (!isGzip && isZip)) return extractZipSafely(buffer, destDir);
-  if (hint === 'tar.gz' || isGzip) return extractTarGzSafely(buffer, destDir);
-  throw new Error('Unrecognized archive format (expected .tar.gz or .zip)');
-}
-
-function locatePluginPayloadDir(extractedDir) {
-  const candidates = [extractedDir, join(extractedDir, 'plugin')];
-  try {
-    const dirs = readdirSync(extractedDir, { withFileTypes: true }).filter(
-      (e) => e.isDirectory() && !e.name.startsWith('.'),
-    );
-    if (dirs.length === 1) {
-      const top = join(extractedDir, dirs[0].name);
-      candidates.push(top, join(top, 'plugin'));
-    }
-  } catch {
-    /* ignore */
-  }
-  for (const dir of candidates) {
-    if (existsSync(join(dir, 'plugin.json')) && existsSync(join(dir, 'sidecars', 'hud_panel'))) {
-      return dir;
-    }
-  }
-  return null;
-}
-
-async function fetchWithTimeout(fetchImpl, url, init, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetchImpl(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+  const res = swapDirectoryAtomically({
+    sourcePayloadDir,
+    targetDir,
+    tempPrefix: `.${PLUGIN_NAME}-stage-`,
+    beforeSwapHook,
+  });
+  return res.ok
+    ? { ok: true, rolledBack: false }
+    : { ok: false, rolledBack: res.rolledBack, error: res.error };
 }
 
 async function fetchLatestReleaseInfo({
@@ -781,51 +233,6 @@ async function fetchLatestReleaseInfo({
   throw new Error(`GitHub release check failed (HTTP ${res.status})`);
 }
 
-async function downloadVerifiedArchive(initialUrl, { owner = GITHUB_OWNER, repo = GITHUB_REPO, fetchImpl = globalThis.fetch } = {}) {
-  if (!isAllowedDownloadUrl(initialUrl, { isRedirectHop: false, owner, repo })) {
-    throw new Error(`Refused to download from disallowed URL: ${initialUrl}`);
-  }
-  let currentUrl = initialUrl;
-  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
-    const res = await fetchWithTimeout(
-      fetchImpl,
-      currentUrl,
-      {
-        method: 'GET',
-        redirect: 'manual',
-        headers: {
-          'User-Agent': `${PLUGIN_NAME}-installer`,
-          Accept: 'application/octet-stream, application/gzip, application/zip, */*',
-        },
-      },
-      DOWNLOAD_TIMEOUT_MS,
-    );
-
-    if (res.status >= 300 && res.status < 400) {
-      const location = res.headers?.get?.('location');
-      if (!location) throw new Error(`Redirect (${res.status}) missing Location header`);
-      const nextUrl = new URL(location, currentUrl).toString();
-      if (!isAllowedDownloadUrl(nextUrl, { isRedirectHop: true, owner, repo })) {
-        throw new Error(`Refused redirect to disallowed URL: ${nextUrl}`);
-      }
-      currentUrl = nextUrl;
-      continue;
-    }
-
-    if (!res.ok) throw new Error(`Download failed with HTTP ${res.status}`);
-    const contentLen = Number(res.headers?.get?.('content-length') || 0);
-    if (Number.isFinite(contentLen) && contentLen > MAX_ARCHIVE_BYTES) {
-      throw new Error(`Archive exceeds maximum size (${contentLen} bytes)`);
-    }
-
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length === 0) throw new Error('Downloaded archive is empty');
-    if (buf.length > MAX_ARCHIVE_BYTES) throw new Error(`Archive exceeds maximum size (${buf.length} bytes)`);
-    return buf;
-  }
-  throw new Error(`Exceeded maximum redirects (${MAX_REDIRECT_HOPS})`);
-}
-
 // ---------------------------------------------------------------------------
 // Core operations: install, link, uninstall, check-update, update, doctor
 // ---------------------------------------------------------------------------
@@ -852,15 +259,15 @@ function tryBuildUiIfInSourceRepo(sourceDir, { allowBuild = true, logger = conso
     return {
       ok: false,
       built: false,
-      error: `Pre-built UI bundle missing (${missingUi.join(', ')}). Run "npm --prefix web run build" first.`,
+      error: `Pre-built UI bundle missing (${missingUi.join(', ')}). Run "npm run build:ui" first.`,
     };
   }
 
   logger.warn?.(`Pre-built UI bundle missing (${missingUi.join(', ')}). Attempting to build from ${webDir}...`);
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   try {
-    if (!existsSync(join(webDir, 'node_modules'))) {
-      execFileSync(npmCmd, ['--prefix', webDir, 'install'], { stdio: 'inherit', timeout: 180_000 });
+    if (!existsSync(join(repoRoot, 'node_modules')) && !existsSync(join(webDir, 'node_modules'))) {
+      execFileSync(npmCmd, ['--prefix', repoRoot, 'install'], { stdio: 'inherit', timeout: 180_000 });
     }
     execFileSync(npmCmd, ['--prefix', webDir, 'run', 'build'], { stdio: 'inherit', timeout: 120_000 });
   } catch (err) {
@@ -1161,7 +568,13 @@ export async function runUpdate({
   try {
     let archiveBuf;
     try {
-      archiveBuf = await downloadVerifiedArchive(downloadUrl, { owner, repo, fetchImpl });
+      const downloaded = await downloadVerifiedArchive(downloadUrl, {
+        owner,
+        repo,
+        userAgent: `${PLUGIN_NAME}-installer`,
+        fetchImpl,
+      });
+      archiveBuf = downloaded.buffer;
     } catch (err) {
       return {
         ok: false,

@@ -8,6 +8,7 @@
     "dev": "vite build --watch",
     "serve": "vite",
     "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types test/*.test.ts",
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {

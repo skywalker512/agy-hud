@@ -7,10 +7,7 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "typecheck": "node ../../../web/node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
-    "test": "node --test test/*.test.ts",
-    "test:all": "node --test test/*.test.ts ../../../tools/test/*.test.mjs",
-    "build:ui": "npm --prefix ../../../web run build",
-    "check": "npm run typecheck && npm run build:ui && npm run test:all"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --experimental-strip-types test/*.test.ts"
   }
 }

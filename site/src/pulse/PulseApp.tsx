@@ -23,24 +23,9 @@ import {
   type PulseModelData,
 } from './pulseApi';
 import { PulseChart, type PulseChartMetric } from './PulseChart';
-
-function fmtClock(ms: number): string {
-  if (!ms) return '--';
-  const d = new Date(ms);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
-}
-
-function fmtPrice(v: number | null): string {
-  if (v === null) return '--';
-  return `$${v >= 1 ? v.toFixed(2) : v.toFixed(3)}`;
-}
-
-function fmtTokens(n: number | null): string {
-  if (!n) return '--';
-  if (n >= 1_000_000) return `${(n / 1_048_576).toFixed(n % 1_048_576 === 0 ? 0 : 1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1000)}K`;
-  return String(n);
-}
+import { computePulseInsights, fmtClock } from './pulseInsights';
+import { PulseInsightsStrip, PulseScorecards } from './PulseScorecards';
+import { PulseRoutesTable, PulseTelemetryMatrix } from './PulseTables';
 
 export function PulseApp() {
   const [themeId, setThemeId] = useState<string>(() => getInitialThemeId());
@@ -111,7 +96,6 @@ export function PulseApp() {
     [models],
   );
 
-  // Default to 5m high-res ring buffer; auto-fallback to 7d only if no 5m data is available yet
   useEffect(() => {
     if (userPickedGranularity || loading || !models.length) return;
     if (maxIntradayPts >= 2 && granularity !== '5m') {
@@ -121,82 +105,7 @@ export function PulseApp() {
     }
   }, [maxIntradayPts, loading, models.length, userPickedGranularity, granularity]);
 
-  // Synthesize live global insights directly from Worker / OpenRouter telemetry
-  const insights = useMemo(() => {
-    if (!models.length) return null;
-    const withTtft = models.filter((m) => m.p50TtftSec !== null);
-    const fastestTtft = [...withTtft].sort((a, b) => (a.p50TtftSec ?? 999) - (b.p50TtftSec ?? 999))[0] || null;
-
-    const withTps = models.filter((m) => m.p50Tps !== null);
-    const fastestTps = [...withTps].sort((a, b) => (b.p50Tps ?? 0) - (a.p50Tps ?? 0))[0] || null;
-
-    // 5m trend delta for the primary flagship (Neon) or fastest model vs earlier 5m window
-    const trendTarget = models.find((m) => m.family === 'gemini-4-neon' && m.series.intraday30m.length >= 4)
-      || models.find((m) => m.series.intraday30m.length >= 4)
-      || null;
-    let ttftTrendPct: number | null = null;
-    if (trendTarget) {
-      const pts = trendTarget.series.intraday30m.filter((p) => p.p50TtftSec !== null);
-      if (pts.length >= 4) {
-        const latestV = pts[pts.length - 1].p50TtftSec!;
-        const earlier = pts.slice(Math.max(0, pts.length - 25), pts.length - 1).map((p) => p.p50TtftSec!);
-        const avgEarlier = earlier.reduce((s, v) => s + v, 0) / earlier.length;
-        if (avgEarlier > 0) ttftTrendPct = ((latestV - avgEarlier) / avgEarlier) * 100;
-      }
-    }
-
-    // Best real-world cache discount (list promptPerM vs effectiveInputPrice)
-    let bestDiscount: { model: PulseModelData; listIn: number; effIn: number; savePct: number } | null = null;
-    for (const m of models) {
-      const stdRoute = m.routes.find((r) => r.promptPerM !== null && r.promptPerM > 0);
-      const listIn = stdRoute?.promptPerM ?? null;
-      if (listIn && m.effectiveInputPrice !== null && m.effectiveInputPrice > 0 && m.effectiveInputPrice < listIn) {
-        const savePct = ((listIn - m.effectiveInputPrice) / listIn) * 100;
-        if (!bestDiscount || savePct > bestDiscount.savePct) {
-          bestDiscount = { model: m, listIn, effIn: m.effectiveInputPrice, savePct };
-        }
-      }
-    }
-
-    // Reliability & tail risk signals
-    const lowestUp1d = [...models]
-      .filter((m) => m.uptime1dPct !== null)
-      .sort((a, b) => (a.uptime1dPct ?? 100) - (b.uptime1dPct ?? 100))[0] || null;
-    const highestToolErr = [...models]
-      .filter((m) => m.toolCallErrorPct !== null)
-      .sort((a, b) => (b.toolCallErrorPct ?? 0) - (a.toolCallErrorPct ?? 0))[0] || null;
-    const worstTail = [...models]
-      .filter((m) => m.p50TtftSec && m.p99TtftSec)
-      .map((m) => ({ model: m, ratio: m.p99TtftSec! / m.p50TtftSec! }))
-      .sort((a, b) => b.ratio - a.ratio)[0] || null;
-
-    // Global 30m traffic volume + top reasoning/context model
-    const totalReq30m = models.reduce((s, m) => s + (m.requestCount30m || 0), 0);
-    const totalToolCalls24h = models.reduce((s, m) => s + (m.toolCalls24h || 0), 0);
-    const topTraffic = [...models].sort((a, b) => (b.requestCount30m || 0) - (a.requestCount30m || 0))[0] || null;
-    const topReasoning = [...models]
-      .filter((m) => m.reasoningSharePct !== null)
-      .sort((a, b) => (b.reasoningSharePct ?? 0) - (a.reasoningSharePct ?? 0))[0] || null;
-    const topContext = [...models]
-      .filter((m) => m.avgPromptTokens !== null)
-      .sort((a, b) => (b.avgPromptTokens ?? 0) - (a.avgPromptTokens ?? 0))[0] || null;
-
-    return {
-      fastestTtft,
-      fastestTps,
-      trendTarget,
-      ttftTrendPct,
-      bestDiscount,
-      lowestUp1d,
-      highestToolErr,
-      worstTail,
-      totalReq30m,
-      totalToolCalls24h,
-      topTraffic,
-      topReasoning,
-      topContext,
-    };
-  }, [models]);
+  const insights = useMemo(() => computePulseInsights(models), [models]);
 
   const singleModel: PulseModelData | null =
     selectedFamilies.length === 1 ? models.find((m) => m.family === selectedFamilies[0]) || null : null;
@@ -467,7 +376,7 @@ export function PulseApp() {
           </div>
         </section>
 
-        {/* Active GCP Incidents Alert List (only shown when incidents exist) */}
+        {/* Active GCP Incidents Alert List */}
         {incidents.length > 0 && (
           <section class="mb-6 flex flex-col gap-2">
             {incidents.map((inc) => (
@@ -493,281 +402,21 @@ export function PulseApp() {
           </section>
         )}
 
-        {/* 5 Gemini Models Live Scorecards */}
-        <section class="mb-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {(models.length ? models : GEMINI_SPECS.map((s) => ({
-            ...s,
-            status: 'ok' as const,
-            p50TtftSec: null,
-            p75TtftSec: null,
-            p90TtftSec: null,
-            p95TtftSec: null,
-            p99TtftSec: null,
-            meanTtftSec: null,
-            p50Tps: null,
-            p90Tps: null,
-            e2eLatestSec: null,
-            cacheHitPct: null,
-            uptime5mPct: null,
-            uptime30mPct: null,
-            uptime1dPct: null,
-            toolCallErrorPct: null,
-            toolCalls24h: 0,
-            reasoningSharePct: null,
-            avgPromptTokens: null,
-            avgOutputTokens: null,
-            effectiveInputPrice: null,
-            effectiveOutputPrice: null,
-            requestCount30m: 0,
-            degradedProviders: [],
-            routes: [],
-            series: { ttft7d: [], e2e7d: [], tps7d: [], cache7d: [], uptime7d: [], intraday30m: [] },
-          }))).map((m) => {
-            const isSel = selectedFamilies.includes(m.family);
-            return (
-              <button
-                key={m.family}
-                type="button"
-                onClick={() => {
-                  toggleFamily(m.family);
-                  setRouteModelFamily(m.family);
-                }}
-                class={`flex cursor-pointer flex-col justify-between rounded-2xl border p-3.5 text-left transition-all ${
-                  isSel
-                    ? 'bg-[var(--surface)] shadow-sm'
-                    : 'border-[var(--border)] bg-[var(--surface)]/55 opacity-70 hover:opacity-100'
-                }`}
-                style={isSel ? { borderColor: `${m.color}88` } : undefined}
-              >
-                <div>
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="flex items-center gap-2 text-[13px] font-semibold text-[var(--fg)]">
-                      <span class="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: m.color }} />
-                      <span class="truncate">{m.shortLabel}</span>
-                    </span>
-                    <span
-                      class={`rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold ${
-                        m.status === 'outage'
-                          ? 'bg-red-500/15 text-red-400'
-                          : m.status === 'degraded'
-                            ? 'bg-amber-500/15 text-amber-400'
-                            : 'bg-emerald-500/15 text-emerald-400'
-                      }`}
-                    >
-                      {m.uptime30mPct !== null ? `${m.uptime30mPct.toFixed(1)}%` : m.status.toUpperCase()}
-                    </span>
-                  </div>
+        <PulseScorecards
+          models={models}
+          selectedFamilies={selectedFamilies}
+          isZh={isZh}
+          onSelectModel={(fam) => {
+            toggleFamily(fam);
+            setRouteModelFamily(fam);
+          }}
+        />
 
-                  <div class="mt-3 grid grid-cols-2 gap-x-2 gap-y-2 tabular-nums">
-                    <div>
-                      <div class="text-[10px] text-[var(--faint)]">TTFT P50</div>
-                      <div class="font-mono text-[14px] font-bold text-[var(--fg)]">
-                        {m.p50TtftSec !== null ? `${m.p50TtftSec.toFixed(m.p50TtftSec >= 10 ? 1 : 2)}s` : '--'}
-                      </div>
-                    </div>
-                    <div>
-                      <div class="text-[10px] text-[var(--faint)]">{isZh ? '生成速度' : 'Speed'}</div>
-                      <div class="font-mono text-[14px] font-bold text-[var(--fg)]">
-                        {m.p50Tps !== null ? `${Math.round(m.p50Tps)} t/s` : '--'}
-                      </div>
-                    </div>
-                    <div>
-                      <div class="text-[10px] text-[var(--faint)]">{isZh ? 'E2E 总耗' : 'E2E Lat'}</div>
-                      <div class="font-mono text-[12px] font-semibold text-[var(--fg-2)]">
-                        {m.e2eLatestSec !== null ? `${m.e2eLatestSec.toFixed(1)}s` : '--'}
-                      </div>
-                    </div>
-                    <div>
-                      <div class="text-[10px] text-[var(--faint)]">{isZh ? '缓存命中' : 'Cache Hit'}</div>
-                      <div class="font-mono text-[12px] font-semibold text-[var(--seg-cache)]">
-                        {m.cacheHitPct !== null ? `${Math.round(m.cacheHitPct)}%` : '--'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Extra Worker-mode badges (P99 + avgCtx + Tool Call Error %) or 5m/1d Uptime */}
-                <div class="mt-3 flex flex-wrap items-center justify-between gap-1 border-t border-[var(--border)] pt-2 font-mono text-[10px] text-[var(--muted)]">
-                  {m.p99TtftSec !== null ? (
-                    <span>P99 {m.p99TtftSec.toFixed(1)}s</span>
-                  ) : (
-                    <span>5m {m.uptime5mPct !== null ? `${m.uptime5mPct.toFixed(0)}%` : '--'}</span>
-                  )}
-                  {m.avgPromptTokens !== null ? (
-                    <span title={isZh ? 'OpenRouter 全球日均输入上下文大小' : 'OpenRouter global average prompt context size'}>
-                      {isZh ? '均' : 'ctx'} {Math.round(m.avgPromptTokens / 1000)}k
-                    </span>
-                  ) : null}
-                  {m.toolCallErrorPct !== null ? (
-                    <span class={m.toolCallErrorPct >= 3 ? 'text-amber-400' : ''}>
-                      Err {m.toolCallErrorPct}%
-                    </span>
-                  ) : (
-                    <span>1d {m.uptime1dPct !== null ? `${m.uptime1dPct.toFixed(1)}%` : '--'}</span>
-                  )}
-                </div>
-              </button>
-            );
-          })}
-        </section>
-
-        {/* Live Global Insights Strip (auto-computed from 5m Worker + OpenRouter data) */}
-        {insights && (
-          <section class="mb-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {/* Insight 1: Fastest Speed & 5m Trend */}
-            <div class="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-              <div class="font-mono text-[10.5px] font-semibold uppercase tracking-wide text-[var(--seg-cache)]">
-                {isZh ? '⚡ 当前速度标杆' : '⚡ SPEED LEADERS NOW'}
-              </div>
-              <div class="mt-2 flex flex-col gap-1.5 text-[12.5px]">
-                <div class="flex items-baseline justify-between gap-2">
-                  <span class="text-[var(--muted)]">{isZh ? '首字最快' : 'Fastest TTFT'}</span>
-                  <span class="font-mono font-bold text-[var(--fg)] tabular-nums">
-                    {insights.fastestTtft
-                      ? `${insights.fastestTtft.shortLabel} · ${insights.fastestTtft.p50TtftSec?.toFixed(2)}s`
-                      : '--'}
-                  </span>
-                </div>
-                <div class="flex items-baseline justify-between gap-2">
-                  <span class="text-[var(--muted)]">{isZh ? '吐字最快' : 'Highest TPS'}</span>
-                  <span class="font-mono font-bold text-[var(--fg)] tabular-nums">
-                    {insights.fastestTps
-                      ? `${insights.fastestTps.shortLabel} · ${Math.round(insights.fastestTps.p50Tps || 0)} t/s`
-                      : '--'}
-                  </span>
-                </div>
-              </div>
-              {insights.trendTarget && insights.ttftTrendPct !== null && (
-                <div class="mt-2.5 border-t border-[var(--border)] pt-2 font-mono text-[10.5px] text-[var(--muted)] tabular-nums">
-                  {insights.trendTarget.shortLabel} 5m TTFT{' '}
-                  <span
-                    class={
-                      insights.ttftTrendPct > 12
-                        ? 'font-semibold text-amber-400'
-                        : insights.ttftTrendPct < -10
-                          ? 'font-semibold text-emerald-400'
-                          : 'text-[var(--fg-2)]'
-                    }
-                  >
-                    {insights.ttftTrendPct >= 0 ? '+' : ''}
-                    {insights.ttftTrendPct.toFixed(0)}%
-                  </span>{' '}
-                  {isZh ? '对比近 2h 均值' : 'vs 2h avg'}
-                </div>
-              )}
-            </div>
-
-            {/* Insight 2: Real-World Prompt Cache Discount */}
-            <div class="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-              <div class="font-mono text-[10.5px] font-semibold uppercase tracking-wide text-[var(--accent-ink)]">
-                {isZh ? '💰 全网缓存真实省钱' : '💰 REAL CACHE SAVINGS'}
-              </div>
-              {insights.bestDiscount ? (
-                <>
-                  <div class="mt-2 flex items-baseline justify-between gap-2">
-                    <span class="text-[13px] font-semibold text-[var(--fg)]">
-                      {insights.bestDiscount.model.shortLabel}
-                    </span>
-                    <span class="rounded-full bg-emerald-500/15 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-400 tabular-nums">
-                      -{Math.round(insights.bestDiscount.savePct)}%
-                    </span>
-                  </div>
-                  <div class="mt-1 font-mono text-[12px] text-[var(--fg-2)] tabular-nums">
-                    {fmtPrice(insights.bestDiscount.listIn)} →{' '}
-                    <span class="font-bold text-[var(--seg-cache)]">{fmtPrice(insights.bestDiscount.effIn)}</span> / 1M in
-                  </div>
-                  <div class="mt-2.5 border-t border-[var(--border)] pt-2 font-mono text-[10.5px] text-[var(--muted)] tabular-nums">
-                    {isZh
-                      ? `全网缓存命中 ${Math.round(insights.bestDiscount.model.cacheHitPct || 0)}% 折后实付价`
-                      : `Effective input price at ${Math.round(insights.bestDiscount.model.cacheHitPct || 0)}% cache hit`}
-                  </div>
-                </>
-              ) : (
-                <p class="mt-2 text-[12px] text-[var(--muted)]">
-                  {isZh ? '接入 Worker 采集源后展示缓存折后实付价' : 'Available with Worker feed'}
-                </p>
-              )}
-            </div>
-
-            {/* Insight 3: Reliability, Tool Error & P99 Tail Risk */}
-            <div class="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-              <div class="font-mono text-[10.5px] font-semibold uppercase tracking-wide text-amber-400">
-                {isZh ? '⚠️ 稳定性 & Agent 风险' : '⚠️ TAIL & AGENT RISKS'}
-              </div>
-              <div class="mt-2 flex flex-col gap-1.5 text-[12px] tabular-nums">
-                {insights.lowestUp1d && (
-                  <div class="flex items-baseline justify-between gap-2">
-                    <span class="text-[var(--muted)]">{isZh ? '24h 最低可用率' : 'Lowest 1d Up'}</span>
-                    <span
-                      class={`font-mono font-semibold ${
-                        (insights.lowestUp1d.uptime1dPct ?? 100) < 97 ? 'text-amber-400' : 'text-[var(--fg)]'
-                      }`}
-                    >
-                      {insights.lowestUp1d.shortLabel} · {insights.lowestUp1d.uptime1dPct?.toFixed(1)}%
-                    </span>
-                  </div>
-                )}
-                {insights.highestToolErr && (
-                  <div class="flex items-baseline justify-between gap-2">
-                    <span class="text-[var(--muted)]">{isZh ? 'Tool 最高报错' : 'Peak Tool Err'}</span>
-                    <span
-                      class={`font-mono font-semibold ${
-                        (insights.highestToolErr.toolCallErrorPct ?? 0) >= 3 ? 'text-amber-400' : 'text-[var(--fg)]'
-                      }`}
-                    >
-                      {insights.highestToolErr.shortLabel} · {insights.highestToolErr.toolCallErrorPct}%
-                    </span>
-                  </div>
-                )}
-              </div>
-              {insights.worstTail && (
-                <div class="mt-2.5 border-t border-[var(--border)] pt-2 font-mono text-[10.5px] text-[var(--muted)] tabular-nums">
-                  {isZh ? '最陡长尾：' : 'Steepest tail: '}
-                  <span class="font-semibold text-[var(--fg-2)]">
-                    {insights.worstTail.model.shortLabel} P99 {insights.worstTail.model.p99TtftSec?.toFixed(0)}s (
-                    {insights.worstTail.ratio.toFixed(0)}×)
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Insight 4: Global Traffic & Workload Profile */}
-            <div class="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-              <div class="font-mono text-[10.5px] font-semibold uppercase tracking-wide text-[var(--seg-think)]">
-                {isZh ? '🧠 全网流量 & 思考画像' : '🧠 TRAFFIC & WORKLOAD'}
-              </div>
-              <div class="mt-2 flex items-baseline justify-between gap-2 tabular-nums">
-                <span class="font-mono text-[18px] font-bold text-[var(--fg)]">
-                  {insights.totalReq30m > 0 ? `${Math.round(insights.totalReq30m / 1000)}K` : '--'}
-                </span>
-                <span class="font-mono text-[11px] text-[var(--muted)]">
-                  {insights.totalReq30m > 0
-                    ? `${(insights.totalReq30m / 30_000).toFixed(1)}K req/min`
-                    : isZh ? '近 30 分钟请求' : '30m requests'}
-                </span>
-              </div>
-              <div class="mt-1 font-mono text-[11px] text-[var(--fg-2)] tabular-nums">
-                {insights.topReasoning
-                  ? isZh
-                    ? `思考最重：${insights.topReasoning.shortLabel} (${Math.round(insights.topReasoning.reasoningSharePct || 0)}%)`
-                    : `Top thinking: ${insights.topReasoning.shortLabel} (${Math.round(insights.topReasoning.reasoningSharePct || 0)}%)`
-                  : '--'}
-              </div>
-              <div class="mt-2.5 border-t border-[var(--border)] pt-2 font-mono text-[10.5px] text-[var(--muted)] tabular-nums">
-                {insights.topContext
-                  ? isZh
-                    ? `最大平均上下文：${insights.topContext.shortLabel} · ${Math.round((insights.topContext.avgPromptTokens || 0) / 1000)}K`
-                    : `Largest avg ctx: ${insights.topContext.shortLabel} · ${Math.round((insights.topContext.avgPromptTokens || 0) / 1000)}K`
-                  : '--'}
-              </div>
-            </div>
-          </section>
-        )}
+        {insights && <PulseInsightsStrip insights={insights} isZh={isZh} />}
 
         {/* Main Interactive Multi-Model Curve Panel */}
         <section class="mb-7 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6">
           <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-            {/* Metric Tabs */}
             <div class="inline-flex flex-wrap items-center gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-1">
               {(
                 [
@@ -793,7 +442,6 @@ export function PulseApp() {
               ))}
             </div>
 
-            {/* Granularity + Window + Provider Split Controls */}
             <div class="flex flex-wrap items-center gap-2">
               {metric !== 'e2e' && (
                 <div class="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5 font-mono text-[11px]">
@@ -857,7 +505,6 @@ export function PulseApp() {
             </div>
           </div>
 
-          {/* Model Filter Pills (Permanent Stable Colors) */}
           <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div class="flex flex-wrap items-center gap-1.5">
               {GEMINI_SPECS.map((spec) => {
@@ -910,243 +557,21 @@ export function PulseApp() {
           />
         </section>
 
-        {/* Full-Model Deep Telemetry & Economics Matrix */}
-        {models.length > 0 && (
-          <section class="mb-7 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6">
-            <div class="mb-4 flex flex-wrap items-end justify-between gap-2">
-              <div>
-                <h2 class="text-[15px] font-semibold text-[var(--fg)]">
-                  {isZh ? '全模型深度指标与 Agent 负载矩阵' : 'Full-Model Deep Telemetry & Agent Workload Matrix'}
-                </h2>
-                <p class="mt-0.5 text-[12px] text-[var(--muted)]">
-                  {isZh
-                    ? '完整展开 P50–P99 长尾延迟阶梯、平均上下文、思考占比、24h Tool Call 报错率、缓存折后实付输入价与 30m 流量占比。'
-                    : 'Full P50–P99 latency ladder, average prompt/output context, reasoning share, 24h Tool Call error rate, effective post-cache input cost, and 30m traffic share.'}
-                </p>
-              </div>
-              {insights && insights.totalToolCalls24h > 0 && (
-                <span class="font-mono text-[11px] text-[var(--muted)] tabular-nums">
-                  {isZh
-                    ? `24h 合计 ${(insights.totalToolCalls24h / 1_000_000).toFixed(2)}M 次 Tool Call`
-                    : `${(insights.totalToolCalls24h / 1_000_000).toFixed(2)}M Tool Calls / 24h`}
-                </span>
-              )}
-            </div>
+        <PulseTelemetryMatrix
+          models={models}
+          insights={insights}
+          routeModelFamily={routeModelFamily}
+          isZh={isZh}
+          onSelectRouteModel={setRouteModelFamily}
+        />
 
-            <div class="overflow-x-auto">
-              <table class="w-full border-collapse text-left text-[12px] tabular-nums">
-                <thead>
-                  <tr class="border-b border-[var(--border)] text-[10.5px] font-semibold uppercase tracking-wide text-[var(--faint)]">
-                    <th class="py-2 pr-3">{isZh ? '模型' : 'Model'}</th>
-                    <th class="py-2 pr-3">TTFT P50 / P75 / P90 / P95 / P99</th>
-                    <th class="py-2 pr-3">{isZh ? '吞吐 P50/P90' : 'TPS P50/P90'}</th>
-                    <th class="py-2 pr-3">{isZh ? '均上下文 (In/Out)' : 'Avg Ctx (In/Out)'}</th>
-                    <th class="py-2 pr-3">{isZh ? '思考占比' : 'Reasoning'}</th>
-                    <th class="py-2 pr-3">{isZh ? 'Tool 报错 (24h)' : 'Tool Err (24h)'}</th>
-                    <th class="py-2 pr-3">{isZh ? '折后输入价' : 'Eff. In /1M'}</th>
-                    <th class="py-2 pr-2">{isZh ? '30m 流量' : '30m Traffic'}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {models.map((m) => {
-                    const totalReq = insights?.totalReq30m || 0;
-                    const reqShare = totalReq > 0 && m.requestCount30m > 0 ? (m.requestCount30m / totalReq) * 100 : 0;
-                    const tailMult = m.p50TtftSec && m.p99TtftSec ? m.p99TtftSec / m.p50TtftSec : null;
-                    const isRouteSel = routeModelFamily === m.family;
-                    return (
-                      <tr
-                        key={m.family}
-                        onClick={() => setRouteModelFamily(m.family)}
-                        class={`cursor-pointer border-b border-[var(--border)]/60 transition-colors last:border-b-0 hover:bg-[var(--surface-2)]/60 ${
-                          isRouteSel ? 'bg-[var(--surface-2)]/40' : ''
-                        }`}
-                      >
-                        <td class="py-2.5 pr-3 font-semibold text-[var(--fg)] whitespace-nowrap">
-                          <span class="inline-flex items-center gap-2">
-                            <span class="h-2 w-2 rounded-full shrink-0" style={{ background: m.color }} />
-                            <span>{m.shortLabel}</span>
-                          </span>
-                        </td>
-                        <td class="py-2.5 pr-3 font-mono whitespace-nowrap">
-                          <span class="font-semibold text-[var(--fg)]">
-                            {m.p50TtftSec !== null ? `${m.p50TtftSec.toFixed(1)}s` : '--'}
-                          </span>
-                          <span class="text-[var(--faint)]"> / </span>
-                          <span class="text-[var(--fg-2)]">
-                            {m.p75TtftSec !== null ? `${m.p75TtftSec.toFixed(1)}s` : '--'}
-                          </span>
-                          <span class="text-[var(--faint)]"> / </span>
-                          <span class="text-[var(--fg-2)]">
-                            {m.p90TtftSec !== null ? `${m.p90TtftSec.toFixed(1)}s` : '--'}
-                          </span>
-                          <span class="text-[var(--faint)]"> / </span>
-                          <span class="text-[var(--muted)]">
-                            {m.p95TtftSec !== null ? `${m.p95TtftSec.toFixed(1)}s` : '--'}
-                          </span>
-                          <span class="text-[var(--faint)]"> / </span>
-                          <span class={tailMult && tailMult >= 12 ? 'font-semibold text-amber-400' : 'text-[var(--muted)]'}>
-                            {m.p99TtftSec !== null ? `${m.p99TtftSec.toFixed(0)}s` : '--'}
-                          </span>
-                        </td>
-                        <td class="py-2.5 pr-3 font-mono whitespace-nowrap">
-                          <span class="font-semibold text-[var(--fg)]">
-                            {m.p50Tps !== null ? Math.round(m.p50Tps) : '--'}
-                          </span>
-                          <span class="text-[var(--faint)]"> / </span>
-                          <span class="text-[var(--muted)]">
-                            {m.p90Tps !== null ? `${Math.round(m.p90Tps)} t/s` : '--'}
-                          </span>
-                        </td>
-                        <td class="py-2.5 pr-3 font-mono whitespace-nowrap text-[var(--fg-2)]">
-                          {m.avgPromptTokens !== null ? `${Math.round(m.avgPromptTokens / 1000)}K` : '--'}
-                          <span class="text-[var(--faint)]"> / </span>
-                          <span class="text-[var(--muted)]">
-                            {m.avgOutputTokens !== null ? `${(m.avgOutputTokens / 1000).toFixed(1)}K` : '--'}
-                          </span>
-                        </td>
-                        <td class="py-2.5 pr-3 font-mono whitespace-nowrap">
-                          {m.reasoningSharePct !== null ? (
-                            <div class="flex items-center gap-1.5">
-                              <div class="h-1.5 w-12 overflow-hidden rounded-full bg-[var(--surface-3)]">
-                                <div
-                                  class="h-full rounded-full bg-[var(--seg-think)]"
-                                  style={{ width: `${Math.min(100, m.reasoningSharePct)}%` }}
-                                />
-                              </div>
-                              <span class="text-[var(--fg-2)]">{Math.round(m.reasoningSharePct)}%</span>
-                            </div>
-                          ) : (
-                            <span class="text-[var(--muted)]">--</span>
-                          )}
-                        </td>
-                        <td class="py-2.5 pr-3 font-mono whitespace-nowrap">
-                          {m.toolCallErrorPct !== null ? (
-                            <span class={m.toolCallErrorPct >= 3 ? 'font-semibold text-amber-400' : 'text-[var(--fg-2)]'}>
-                              {m.toolCallErrorPct}%
-                              {m.toolCalls24h > 0 && (
-                                <span class="ml-1 text-[10.5px] font-normal text-[var(--faint)]">
-                                  ({m.toolCalls24h >= 1_000_000
-                                    ? `${(m.toolCalls24h / 1_000_000).toFixed(1)}M`
-                                    : `${Math.round(m.toolCalls24h / 1000)}K`})
-                                </span>
-                              )}
-                            </span>
-                          ) : (
-                            <span class="text-[var(--muted)]">--</span>
-                          )}
-                        </td>
-                        <td class="py-2.5 pr-3 font-mono whitespace-nowrap">
-                          <span class="font-semibold text-[var(--seg-cache)]">{fmtPrice(m.effectiveInputPrice)}</span>
-                          {m.cacheHitPct !== null && (
-                            <span class="ml-1 text-[10.5px] text-[var(--faint)]">({Math.round(m.cacheHitPct)}%)</span>
-                          )}
-                        </td>
-                        <td class="py-2.5 pr-2 font-mono whitespace-nowrap">
-                          {m.requestCount30m > 0 ? (
-                            <div class="flex items-center gap-1.5">
-                              <div class="h-1.5 w-12 overflow-hidden rounded-full bg-[var(--surface-3)]">
-                                <div
-                                  class="h-full rounded-full"
-                                  style={{ width: `${Math.max(4, reqShare)}%`, background: m.color }}
-                                />
-                              </div>
-                              <span class="text-[var(--fg-2)]">{Math.round(m.requestCount30m / 1000)}K</span>
-                            </div>
-                          ) : (
-                            <span class="text-[var(--muted)]">--</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-
-        {/* Provider Routes & Live Pricing Table (Vertex vs AI Studio) */}
-        <section class="mb-8 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6">
-          <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 class="text-[15px] font-semibold text-[var(--fg)]">
-                {isZh ? 'Google Vertex vs AI Studio 实时线路与定价' : 'Google Vertex vs AI Studio Live Routes & Pricing'}
-              </h2>
-              <p class="mt-0.5 text-[12px] text-[var(--muted)]">
-                {isZh
-                  ? '直接读取 OpenRouter `/endpoints` 公开接口，覆盖 Standard / Flex / Priority 线路的 5m / 30m / 1d 可用率与每百万 Token 标价。'
-                  : 'Direct from OpenRouter `/endpoints` API — live 5m / 30m / 1d uptime and per-1M-token pricing across Standard, Flex & Priority tiers.'}
-              </p>
-            </div>
-            <div class="flex flex-wrap items-center gap-1">
-              {GEMINI_SPECS.map((s) => (
-                <button
-                  key={s.family}
-                  type="button"
-                  onClick={() => setRouteModelFamily(s.family)}
-                  class={`cursor-pointer rounded-lg border px-2.5 py-1 text-[11.5px] font-medium transition-colors ${
-                    routeModelFamily === s.family
-                      ? 'border-[var(--border-strong)] bg-[var(--surface-2)] text-[var(--fg)]'
-                      : 'border-transparent text-[var(--muted)] hover:text-[var(--fg)]'
-                  }`}
-                >
-                  {s.shortLabel}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div class="overflow-x-auto">
-            <table class="w-full border-collapse text-left text-[12.5px] tabular-nums">
-              <thead>
-                <tr class="border-b border-[var(--border)] text-[11px] font-semibold uppercase tracking-wide text-[var(--faint)]">
-                  <th class="py-2 pr-4">{isZh ? '上游渠道' : 'Provider'}</th>
-                  <th class="py-2 pr-4">{isZh ? '线路分级' : 'Tier'}</th>
-                  <th class="py-2 pr-4">5m</th>
-                  <th class="py-2 pr-4">30m</th>
-                  <th class="py-2 pr-4">1d</th>
-                  <th class="py-2 pr-4">{isZh ? '上下文' : 'Context'}</th>
-                  <th class="py-2 pr-4">{isZh ? '输入 / 缓存 / 输出 (1M)' : 'In / Cache / Out (1M)'}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(activeRouteModel?.routes || []).length === 0 ? (
-                  <tr>
-                    <td colSpan={7} class="py-6 text-center text-[var(--muted)]">
-                      {loading ? (isZh ? '正在拉取线路详情…' : 'Loading route matrix…') : isZh ? '暂无线路数据' : 'No route data'}
-                    </td>
-                  </tr>
-                ) : (
-                  (activeRouteModel?.routes || []).map((r, i) => (
-                    <tr key={`${r.tag}-${i}`} class="border-b border-[var(--border)]/60 last:border-b-0">
-                      <td class="py-2.5 pr-4 font-medium text-[var(--fg)]">
-                        <div class="flex items-center gap-2">
-                          <span
-                            class="h-2 w-2 rounded-full"
-                            style={{ background: r.status < 0 || (r.uptime30m !== null && r.uptime30m < 95) ? '#f59e0b' : '#34d399' }}
-                          />
-                          <span>{r.providerName}</span>
-                        </div>
-                      </td>
-                      <td class="py-2.5 pr-4 font-mono text-[11.5px] text-[var(--muted)]">{r.serviceTier}</td>
-                      <td class="py-2.5 pr-4 font-mono">{r.uptime5m !== null ? `${r.uptime5m.toFixed(1)}%` : '--'}</td>
-                      <td class="py-2.5 pr-4 font-mono font-semibold text-[var(--fg)]">
-                        {r.uptime30m !== null ? `${r.uptime30m.toFixed(1)}%` : '--'}
-                      </td>
-                      <td class="py-2.5 pr-4 font-mono text-[var(--muted)]">
-                        {r.uptime1d !== null ? `${r.uptime1d.toFixed(1)}%` : '--'}
-                      </td>
-                      <td class="py-2.5 pr-4 font-mono text-[var(--muted)]">{fmtTokens(r.contextLength)}</td>
-                      <td class="py-2.5 pr-4 font-mono text-[var(--fg-2)]">
-                        {fmtPrice(r.promptPerM)} / <span class="text-[var(--seg-cache)]">{fmtPrice(r.cachedPerM)}</span> / {fmtPrice(r.completionPerM)}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <PulseRoutesTable
+          activeRouteModel={activeRouteModel}
+          routeModelFamily={routeModelFamily}
+          loading={loading}
+          isZh={isZh}
+          onSelectRouteModel={setRouteModelFamily}
+        />
 
         {/* Bottom CTA back to AGY-HUD Plugin */}
         <section class="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-5 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-6">

@@ -11,7 +11,7 @@
     "noImplicitAny": false,
     "skipLibCheck": true,
     "types": ["node"],
-    "typeRoots": ["../../../web/node_modules/@types"]
+    "typeRoots": ["../../../node_modules/@types", "../../../web/node_modules/@types"]
   },
   "include": ["server.ts", "statusline.ts", "lib/**/*.ts", "test/**/*.ts"]
 }

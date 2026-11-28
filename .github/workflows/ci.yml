@@ -24,21 +24,14 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: |
-            web/package-lock.json
-            site/package-lock.json
-            workers/gemini-pulse/package-lock.json
 
       - name: Install workspace dependencies
-        run: |
-          npm --prefix web ci
-          npm --prefix site ci
-          npm --prefix workers/gemini-pulse ci
+        run: npm ci
 
       - name: Typecheck web, site, worker, and sidecar
         run: npm run typecheck
 
-      - name: Run sidecar and tools unit tests
+      - name: Run sidecar, web, worker, and tools unit tests
         run: npm test
 
       - name: Build UI bundle and verify committed bundle is up to date

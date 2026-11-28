@@ -4,33 +4,30 @@ import { useElementWidth } from '../../hooks/useElementWidth';
 import type { Translations } from '../../i18n';
 import { getTrendTranslations, resolveTrendLang } from '../../i18n/trend';
 import type { ChartMetric, Compaction, GeminiPulseSnapshot, Invocation, Lang } from '../../types/telemetry';
+import { GlobalTrendView, type GlobalTrendMetric } from './GlobalTrendView';
 import {
-  cacheTier,
-  fmtCachePct,
-  fmtNum,
-  fmtQuotaPct,
-  fmtSec,
-  fmtTps,
-  fmtUsd,
-  ttftTier,
-} from '../../utils/format';
-import { IconClock, IconFastForward, IconMinus, IconPlus } from '../common/Icons';
-import { GlobalTrendView, stableGeminiModelColor, type GlobalTrendMetric } from './GlobalTrendView';
-import {
-  estimateSvgLabelWidth,
-  fmtSignedPct,
-  fmtSignedPp,
-  formatModelMetricAvg,
   formatPrimaryMetricValue,
   getModelKey,
-  preferredModelColor,
   readSavedPreset,
-  shortArenaModelName,
   shortModelName,
   writeSavedPreset,
 } from './trend/modelLabels';
+import {
+  buildGlobalRefs,
+  buildPopoverDelta,
+  buildPopoverGrid,
+  buildSessionModels,
+  buildStatCells,
+  getPulseMetricVal,
+  type DragZoomVisual,
+  type Pt,
+  type TrendSeries,
+  type XTickItem,
+} from './trend/trendBuilders';
 import { TrendMinimap } from './trend/TrendMinimap';
 import { TrendPopover } from './trend/TrendPopover';
+import { TrendSvgPlot } from './trend/TrendSvgPlot';
+import { TrendHeader, TrendSessionStrips } from './trend/TrendToolbar';
 import {
   advanceRangeOnDataUpdate,
   buildMonotonePath,
@@ -70,40 +67,7 @@ export interface TrendChartCardProps {
   geminiPulse?: GeminiPulseSnapshot;
 }
 
-interface Pt {
-  x: number;
-  y: number;
-  val: number;
-  inv: Invocation;
-  slotIdx: number;
-}
-
-interface ModelMeta {
-  key: string;
-  label: string;
-  color: string;
-  count: number;
-  avgBadge: string;
-}
-
-interface StatCellModel {
-  label: string;
-  value: string;
-  tone?: 'ok' | 'warn' | 'bad';
-  deltaText?: string;
-  deltaTone?: 'good' | 'bad' | 'neutral';
-  badge?: string;
-}
-
-interface DragZoomVisual {
-  x1: number;
-  x2: number;
-  count: number;
-}
-
-const METRICS: ChartMetric[] = ['ttft', 'tps', 'out', 'cache', 'ctx', 'quota'];
 const RANGE_PRESETS: Array<Exclude<RangePreset, 'custom'>> = ['20', '50', '100', 'all'];
-const MODEL_PALETTE = ['var(--seg-think)', 'var(--seg-cache)', 'var(--seg-input)', 'var(--seg-out)'];
 
 function TrendChartCardImpl({
   invocations,
@@ -137,8 +101,6 @@ function TrendChartCardImpl({
   const [dragZoom, setDragZoom] = useState<DragZoomVisual | null>(null);
   const [chartSource, setChartSource] = useState<'session' | 'global'>('session');
   const [globalMetric, setGlobalMetric] = useState<GlobalTrendMetric>('ttft');
-  // User-pinned OpenRouter Gemini model families for multi-model "Cyber Cricket" overlay comparison.
-  // `null` means auto-follow the currently active Gemini model; an explicit array means user customized it.
   const [pinnedArenaFamilies, setPinnedArenaFamilies] = useState<string[] | null>(null);
 
   const handleSwitchChartSource = (next: 'session' | 'global') => {
@@ -156,75 +118,31 @@ function TrendChartCardImpl({
   const activeModel = isModelControlled ? selectedModelProp : internalModel;
 
   const setActiveModel = (next: string) => {
-    if (isModelControlled) {
-      onSelectModel(next);
-    } else {
-      setInternalModel(next);
-    }
+    if (isModelControlled) onSelectModel(next);
+    else setInternalModel(next);
   };
 
-  // Reset uncontrolled model filter on conversation switch
   useEffect(() => {
-    if (!isModelControlled) {
-      setInternalModel('all');
-    }
+    if (!isModelControlled) setInternalModel('all');
   }, [convId, isModelControlled]);
 
+  const { sessionModels, modelColorMap } = useMemo(
+    () => buildSessionModels(invocations, metric),
+    [invocations, metric],
+  );
 
-  // Build model roster & color map across FULL session history
-  const { sessionModels, modelColorMap } = useMemo(() => {
-    const grouped = new Map<string, { items: Invocation[]; label: string }>();
-    for (const r of invocations) {
-      const key = getModelKey(r);
-      const entry = grouped.get(key);
-      if (entry) {
-        entry.items.push(r);
-      } else {
-        grouped.set(key, { items: [r], label: shortModelName(r) });
-      }
-    }
-
-    const usedColors = new Set<string>();
-    const colorMap = new Map<string, string>();
-    const metas: ModelMeta[] = [];
-    let fallbackIdx = 0;
-
-    for (const [key, { items, label }] of grouped.entries()) {
-      let color = preferredModelColor(items[0]);
-      if (usedColors.has(color)) {
-        const free = MODEL_PALETTE.find((c) => !usedColors.has(c));
-        color = free || MODEL_PALETTE[fallbackIdx % MODEL_PALETTE.length];
-      }
-      usedColors.add(color);
-      colorMap.set(key, color);
-      fallbackIdx += 1;
-      metas.push({
-        key,
-        label,
-        color,
-        count: items.length,
-        avgBadge: formatModelMetricAvg(items, metric),
-      });
-    }
-    return { sessionModels: metas, modelColorMap: colorMap };
-  }, [invocations, metric]);
-
-  // Auto-clear stale model filter if no invocations match
   useEffect(() => {
     if (activeModel !== 'all' && invocations.length > 0 && !invocations.some((r) => getModelKey(r) === activeModel)) {
       setActiveModel('all');
     }
   }, [invocations, activeModel]);
 
-  // Full chronological filtered series (NO slice(-32) truncation!)
-  const filteredInvs = useMemo(() => {
-    if (activeModel === 'all') return invocations;
-    return invocations.filter((r) => getModelKey(r) === activeModel);
-  }, [invocations, activeModel]);
-
+  const filteredInvs = useMemo(
+    () => (activeModel === 'all' ? invocations : invocations.filter((r) => getModelKey(r) === activeModel)),
+    [invocations, activeModel],
+  );
   const totalCount = filteredInvs.length;
 
-  // Viewport state: lazy localStorage init (avoid synchronous storage read on every render)
   const [rangePreset, setRangePreset] = useState<RangePreset>(() => getDefaultPreset(totalCount, readSavedPreset()));
   const [viewRange, setViewRange] = useState<ViewRange>(() =>
     computeRangeForPreset(totalCount, getDefaultPreset(totalCount, readSavedPreset())),
@@ -257,7 +175,6 @@ function TrendChartCardImpl({
     }
   }, [convId, activeModel, totalCount, followLive, rangePreset]);
 
-  // Synchronous clamped view range so renders never use out-of-bounds indices
   const safeRange = useMemo(() => clampViewRange(viewRange, totalCount), [viewRange, totalCount]);
   const visible = useMemo(
     () => (totalCount > 0 ? filteredInvs.slice(safeRange.start, safeRange.end + 1) : []),
@@ -266,16 +183,14 @@ function TrendChartCardImpl({
   const visibleSpan = visible.length;
   const minSpan = getMinSpan(totalCount);
 
-  // Responsive layout breakpoints (<340px, 340-479px, >=480px)
   const isNarrow = svgW < 340;
   const isWide = svgW >= 480;
   const sizeClass = isNarrow ? 'is-narrow' : isWide ? 'is-wide' : 'is-medium';
 
-  const isMultiInView = useMemo(() => {
-    if (visible.length < 2) return false;
-    const keys = new Set(visible.map(getModelKey));
-    return keys.size >= 2;
-  }, [visible]);
+  const isMultiInView = useMemo(
+    () => visible.length >= 2 && new Set(visible.map(getModelKey)).size >= 2,
+    [visible],
+  );
 
   const pulseModels = useMemo(
     () => (geminiPulse?.available ? geminiPulse.models : []),
@@ -305,22 +220,12 @@ function TrendChartCardImpl({
   const toggleArenaFamily = (family: string) => {
     setPinnedArenaFamilies((prev) => {
       const current = prev !== null ? prev : defaultArenaFamily ? [defaultArenaFamily] : [];
-      if (current.includes(family)) {
-        return current.filter((f) => f !== family);
-      }
+      if (current.includes(family)) return current.filter((f) => f !== family);
       const next = [...current, family];
       return next.length > 3 ? next.slice(next.length - 3) : next;
     });
   };
 
-  const getPulseMetricVal = (m: (typeof pulseModels)[number], met: ChartMetric): number | null => {
-    if (met === 'ttft') return m.p50TtftSec !== null && m.p50TtftSec > 0 ? m.p50TtftSec : null;
-    if (met === 'tps') return m.p50Tps !== null && m.p50Tps > 0 ? m.p50Tps : null;
-    if (met === 'cache') return m.cacheHitPct !== null && m.cacheHitPct > 0 ? m.cacheHitPct : null;
-    return null;
-  };
-
-  // Nice Y-axis scale + dynamic gutter width so Y labels NEVER collide with plot curve or ref labels
   const baseYMax = useMemo(() => computeYAxisCeiling(visible, metric), [visible, metric]);
   const yMax = useMemo(() => {
     if (!activeArenaFamilies.length || metric === 'cache') return baseYMax;
@@ -331,12 +236,12 @@ function TrendChartCardImpl({
       if (v !== null && v > maxOverlay) maxOverlay = v;
     }
     if (maxOverlay > baseYMax * 0.94) {
-      // Only expand when user explicitly pinned extra models or overlay is reasonably close (< 3.5x base)
       const cap = pinnedArenaFamilies !== null ? maxOverlay * 1.15 : Math.min(maxOverlay * 1.15, baseYMax * 3.5);
       if (cap > baseYMax) return niceMax(cap);
     }
     return baseYMax;
   }, [baseYMax, activeArenaFamilies, pulseModels, metric, pinnedArenaFamilies]);
+
   const yTickLabels = useMemo(
     () => [formatYTick(yMax, metric), formatYTick(yMax * 0.5, metric), formatYTick(0, metric)],
     [yMax, metric],
@@ -356,39 +261,25 @@ function TrendChartCardImpl({
   const yBase = padTop + chartH;
   const plotW = Math.max(60, svgW - padLeft - padRight);
 
-  // Viewport summary stats & X layout
-  const stats = useMemo(
-    () => computeViewportStats(visible, metric, compactions),
-    [visible, metric, compactions],
-  );
-  const xLayout = useMemo(
-    () => computeXLayout(visible, axisMode, padLeft, plotW),
-    [visible, axisMode, padLeft, plotW],
-  );
-
+  const stats = useMemo(() => computeViewportStats(visible, metric, compactions), [visible, metric, compactions]);
+  const xLayout = useMemo(() => computeXLayout(visible, axisMode, padLeft, plotW), [visible, axisMode, padLeft, plotW]);
   const valY = (val: number) => padTop + chartH - clamp(yMax > 0 ? val / yMax : 0, 0, 1) * chartH;
 
-  // Build per-model series for curve metrics
-  const seriesList = useMemo(() => {
-    const byKey = new Map<string, { key: string; color: string; points: Pt[] }>();
+  const seriesList = useMemo<TrendSeries[]>(() => {
+    const byKey = new Map<string, TrendSeries>();
     visible.forEach((r, i) => {
       const key = getModelKey(r);
       const color = modelColorMap.get(key) || 'var(--hud-accent)';
       const val = getMetricValue(r, metric);
       const pt: Pt = { x: xLayout.xs[i], y: valY(val), val, inv: r, slotIdx: i };
       const existing = byKey.get(key);
-      if (existing) {
-        existing.points.push(pt);
-      } else {
-        byKey.set(key, { key, color, points: [pt] });
-      }
+      if (existing) existing.points.push(pt);
+      else byKey.set(key, { key, color, points: [pt] });
     });
     return [...byKey.values()];
   }, [visible, modelColorMap, metric, xLayout.xs, yMax, padTop, chartH]);
 
   const singleCurveSeries = seriesList.length === 1 ? seriesList[0] : null;
-
-  // Unified point list for crosshair / ctx / EMA
   const allPoints = useMemo<Pt[]>(
     () =>
       visible.map((r, i) => {
@@ -398,233 +289,57 @@ function TrendChartCardImpl({
     [visible, metric, xLayout.xs, yMax, padTop, chartH],
   );
 
-  // 5-call EMA trendline for TPS (single series, n >= 6) and OUT (n >= 6)
   const emaPath = useMemo(() => {
     if (visible.length < 6) return '';
     if (metric === 'tps' && singleCurveSeries) {
-      const emaVals = computeEma(
-        visible.map((r) => getMetricValue(r, 'tps')),
-        5,
-      );
-      const pts = emaVals.map((v, i) => ({ x: xLayout.xs[i], y: valY(v) }));
-      return buildMonotonePath(pts, padTop, yBase);
+      const emaVals = computeEma(visible.map((r) => getMetricValue(r, 'tps')), 5);
+      return buildMonotonePath(emaVals.map((v, i) => ({ x: xLayout.xs[i], y: valY(v) })), padTop, yBase);
     }
     if (metric === 'out') {
-      const emaVals = computeEma(
-        visible.map((r) => Math.max(0, r.outputTokens || 0)),
-        5,
-      );
-      const pts = emaVals.map((v, i) => ({ x: xLayout.xs[i], y: valY(v) }));
-      return buildMonotonePath(pts, padTop, yBase);
+      const emaVals = computeEma(visible.map((r) => Math.max(0, r.outputTokens || 0)), 5);
+      return buildMonotonePath(emaVals.map((v, i) => ({ x: xLayout.xs[i], y: valY(v) })), padTop, yBase);
     }
     return '';
   }, [visible, metric, singleCurveSeries, xLayout.xs, yMax, padTop, chartH, yBase]);
 
   const emaLastY = useMemo(() => {
     if (!emaPath || visible.length < 6) return null;
-    const emaVals = computeEma(
-      visible.map((r) => getMetricValue(r, metric)),
-      5,
-    );
+    const emaVals = computeEma(visible.map((r) => getMetricValue(r, metric)), 5);
     return valY(emaVals[emaVals.length - 1]);
   }, [emaPath, visible, metric, yMax, padTop, chartH]);
 
-  // Cross-metric compaction markers (rendered across ALL 6 metrics!)
   const compactMarkers = useMemo(
     () => locateCompactionMarkers(visible, compactions, xLayout.xs, xLayout.useTimeMode),
     [visible, compactions, xLayout.xs, xLayout.useTimeMode],
   );
-
   const ctxCurvePath = useMemo(
     () => (metric === 'ctx' && allPoints.length >= 2 ? buildMonotonePath(allPoints, padTop, yBase) : ''),
     [metric, allPoints, padTop, yBase],
   );
 
-  // X-axis tick labels (left / mid / right)
-  const xTicks = useMemo(() => {
+  const xTicks = useMemo<XTickItem[]>(() => {
     const n = visible.length;
     if (n === 0) return [];
     const spanMs = Math.max(0, xLayout.maxTsMs - xLayout.minTsMs);
-    const makeLabel = (idx: number): string => {
-      const inv = visible[idx];
-      if (xLayout.useTimeMode) {
-        return formatTimeAxisLabel(inv.timestampMs, spanMs);
-      }
-      return `#${inv.idx + 1}`;
-    };
-    if (n === 1) {
-      return [{ x: xLayout.xs[0], label: makeLabel(0), anchor: 'middle' as const }];
-    }
+    const makeLabel = (idx: number): string =>
+      xLayout.useTimeMode ? formatTimeAxisLabel(visible[idx].timestampMs, spanMs) : `#${visible[idx].idx + 1}`;
+    if (n === 1) return [{ x: xLayout.xs[0], label: makeLabel(0), anchor: 'middle' }];
     if (n === 2) {
       return [
-        { x: xLayout.xs[0], label: makeLabel(0), anchor: 'start' as const },
-        { x: xLayout.xs[1], label: makeLabel(1), anchor: 'end' as const },
+        { x: xLayout.xs[0], label: makeLabel(0), anchor: 'start' },
+        { x: xLayout.xs[1], label: makeLabel(1), anchor: 'end' },
       ];
     }
     const mid = Math.floor((n - 1) / 2);
     return [
-      { x: xLayout.xs[0], label: makeLabel(0), anchor: 'start' as const },
-      { x: xLayout.xs[mid], label: makeLabel(mid), anchor: 'middle' as const },
-      { x: xLayout.xs[n - 1], label: makeLabel(n - 1), anchor: 'end' as const },
+      { x: xLayout.xs[0], label: makeLabel(0), anchor: 'start' },
+      { x: xLayout.xs[mid], label: makeLabel(mid), anchor: 'middle' },
+      { x: xLayout.xs[n - 1], label: makeLabel(n - 1), anchor: 'end' },
     ];
   }, [visible, xLayout]);
 
-  // 4-cell metric-aware viewport stat strip
-  const statCells = useMemo<StatCellModel[]>(() => {
-    if (visible.length === 0) return [];
-    if (metric === 'tps') {
-      const d = stats.deltaVsAvgPct;
-      const deltaTone: StatCellModel['deltaTone'] =
-        d === null ? undefined : d >= 5 ? 'good' : d <= -15 ? 'bad' : 'neutral';
-      return [
-        {
-          label: tt.statLatest,
-          value: stats.latest !== null && stats.latest > 0 ? `${fmtTps(stats.latest)}` : '--',
-          deltaText: d !== null ? fmtSignedPct(d) : undefined,
-          deltaTone,
-          badge: stats.latestIsBuffered ? tt.popBadgeBuf : undefined,
-        },
-        {
-          label: tt.statAvg,
-          value: stats.avg !== null ? `${fmtTps(stats.avg)} t/s` : '--',
-        },
-        {
-          label: tt.statP50,
-          value: stats.p50 !== null ? `${fmtTps(stats.p50)} t/s` : '--',
-        },
-        {
-          label: tt.statPeak,
-          value: stats.max !== null ? `${fmtTps(stats.max)} t/s` : '--',
-        },
-      ];
-    }
-    if (metric === 'ttft') {
-      const d = stats.deltaVsAvgPct;
-      const deltaTone: StatCellModel['deltaTone'] =
-        d === null ? undefined : d <= -10 ? 'good' : d >= 20 ? 'bad' : 'neutral';
-      const latestTier = stats.latest !== null ? ttftTier(stats.latest) : null;
-      return [
-        {
-          label: tt.statLatest,
-          value: fmtSec(stats.latest),
-          tone: latestTier === 'slow' ? 'bad' : latestTier === 'mid' ? 'warn' : undefined,
-          deltaText: d !== null ? fmtSignedPct(d) : undefined,
-          deltaTone,
-        },
-        {
-          label: tt.statAvg,
-          value: fmtSec(stats.avg),
-        },
-        {
-          label: tt.statP95,
-          value: fmtSec(stats.p95),
-          tone: stats.p95 !== null && stats.p95 > 10 ? 'bad' : stats.p95 !== null && stats.p95 > 3 ? 'warn' : undefined,
-        },
-        {
-          label: tt.statMax,
-          value: fmtSec(stats.max),
-        },
-      ];
-    }
-    if (metric === 'out') {
-      return [
-        {
-          label: tt.statLatest,
-          value: fmtNum(stats.latest),
-        },
-        {
-          label: tt.statAvg,
-          value: fmtNum(stats.avg),
-        },
-        {
-          label: tt.statThinkShare,
-          value: stats.thinkSharePct !== null ? `${Math.round(stats.thinkSharePct)}%` : '--',
-        },
-        {
-          label: tt.statSum,
-          value: fmtNum(stats.sum),
-        },
-      ];
-    }
-    if (metric === 'cache') {
-      const d = stats.deltaVsAvgPp;
-      const deltaTone: StatCellModel['deltaTone'] =
-        d === null ? undefined : d >= 2 ? 'good' : d <= -8 ? 'bad' : 'neutral';
-      const tier = cacheTier(stats.latest);
-      return [
-        {
-          label: tt.statLatest,
-          value: fmtCachePct(stats.latest),
-          tone: tier === 'good' ? 'ok' : tier === 'low' ? 'bad' : tier === 'mid' ? 'warn' : undefined,
-          deltaText: d !== null ? fmtSignedPp(d) : undefined,
-          deltaTone,
-        },
-        {
-          label: tt.statAvg,
-          value: fmtCachePct(stats.avg),
-        },
-        {
-          label: tt.statMin,
-          value: fmtCachePct(stats.min),
-          tone: stats.min !== null && stats.min < 40 ? 'bad' : undefined,
-        },
-        {
-          label: tt.statHighCache,
-          value: stats.validCacheCount > 0 ? `${stats.highCacheCount}/${stats.validCacheCount}` : '--',
-        },
-      ];
-    }
-    if (metric === 'ctx') {
-      const latestCtx = stats.latest ?? 0;
-      const ctxTone: StatCellModel['tone'] = latestCtx >= 90 ? 'bad' : latestCtx >= 80 ? 'warn' : undefined;
-      return [
-        {
-          label: tt.statLatest,
-          value: `${latestCtx.toFixed(1)}%`,
-          tone: ctxTone,
-        },
-        {
-          label: tt.statHeadroom,
-          value: stats.headroomTurns !== null ? tt.statTurns(stats.headroomTurns) : '--',
-          tone: stats.headroomTurns !== null && stats.headroomTurns <= 3 ? 'bad' : stats.headroomTurns !== null && stats.headroomTurns <= 8 ? 'warn' : undefined,
-        },
-        {
-          label: tt.statPeak,
-          value: stats.max !== null ? `${stats.max.toFixed(1)}%` : '--',
-        },
-        {
-          label: tt.statCompacts,
-          value: String(stats.compactsInView),
-        },
-      ];
-    }
-    // quota
-    const fmtQ = (v: number | null) => {
-      if (v === null || v <= 0) return '0%';
-      const s = fmtQuotaPct(v);
-      return s ? `-${s}` : '0%';
-    };
-    return [
-      {
-        label: tt.statLatest,
-        value: fmtQ(stats.latest),
-      },
-      {
-        label: tt.statAvg,
-        value: fmtQ(stats.avg),
-      },
-      {
-        label: tt.statPeak,
-        value: fmtQ(stats.max),
-      },
-      {
-        label: tt.statSum,
-        value: fmtQ(stats.sum),
-      },
-    ];
-  }, [visible.length, metric, stats, tt]);
+  const statCells = useMemo(() => buildStatCells(visible.length, metric, stats, tt), [visible.length, metric, stats, tt]);
 
-  // Actions: Range Preset, Zoom In/Out, Follow Live
   const handleSelectPreset = (p: Exclude<RangePreset, 'custom'>) => {
     writeSavedPreset(p);
     setRangePreset(p);
@@ -647,9 +362,7 @@ function TrendChartCardImpl({
 
   const handleZoomButton = (direction: 'in' | 'out') => {
     if (totalCount <= minSpan) return;
-    const factor = direction === 'in' ? 0.5 : 2;
-    const anchor = followLive ? 1 : 0.5;
-    const next = zoomViewRange(safeRange, totalCount, factor, anchor, followLive);
+    const next = zoomViewRange(safeRange, totalCount, direction === 'in' ? 0.5 : 2, followLive ? 1 : 0.5, followLive);
     setViewRange(next.range);
     setFollowLive(next.followLive);
     setRangePreset(next.preset);
@@ -657,26 +370,13 @@ function TrendChartCardImpl({
   };
 
   // Main SVG Pointer State Machine (0ms Hover + Drag-to-Zoom + Click-to-Inspect)
-  const plotDragRef = useRef<{
-    active: boolean;
-    pointerId: number;
-    startX: number;
-    currentX: number;
-    isDragZoom: boolean;
-  }>({
-    active: false,
-    pointerId: -1,
-    startX: 0,
-    currentX: 0,
-    isDragZoom: false,
-  });
+  const plotDragRef = useRef({ active: false, pointerId: -1, startX: 0, currentX: 0, isDragZoom: false });
 
   const getMainSvgX = (clientX: number): number => {
     const svg = mainSvgRef.current;
     if (!svg) return padLeft;
     const rect = svg.getBoundingClientRect();
-    if (rect.width <= 0) return padLeft;
-    return ((clientX - rect.left) / rect.width) * svgW;
+    return rect.width > 0 ? ((clientX - rect.left) / rect.width) * svgW : padLeft;
   };
 
   const handleMainPointerDown = (e: PointerEvent) => {
@@ -684,13 +384,7 @@ function TrendChartCardImpl({
     const svg = mainSvgRef.current;
     if (!svg) return;
     const sx = clamp(getMainSvgX(e.clientX), padLeft, padLeft + plotW);
-    plotDragRef.current = {
-      active: true,
-      pointerId: e.pointerId,
-      startX: sx,
-      currentX: sx,
-      isDragZoom: false,
-    };
+    plotDragRef.current = { active: true, pointerId: e.pointerId, startX: sx, currentX: sx, isDragZoom: false };
     try {
       svg.setPointerCapture(e.pointerId);
     } catch {
@@ -713,15 +407,12 @@ function TrendChartCardImpl({
       if (drag.isDragZoom) {
         const x1 = Math.min(drag.startX, clampedX);
         const x2 = Math.max(drag.startX, clampedX);
-        const i1 = findNearestIndex(xLayout.xs, x1);
-        const i2 = findNearestIndex(xLayout.xs, x2);
-        const count = Math.abs(i2 - i1) + 1;
+        const count = Math.abs(findNearestIndex(xLayout.xs, x2) - findNearestIndex(xLayout.xs, x1)) + 1;
         setDragZoom({ x1, x2, count });
       }
       return;
     }
 
-    // Zero-lag crosshair snap
     if (rawX >= padLeft - 8 && rawX <= padLeft + plotW + 8) {
       const idx = findNearestIndex(xLayout.xs, rawX);
       if (idx >= 0) setHoveredIdx(idx);
@@ -751,18 +442,12 @@ function TrendChartCardImpl({
     if (cancelled || visible.length === 0) return;
 
     if (wasDragZoom) {
-      const x1 = Math.min(startX, endX);
-      const x2 = Math.max(startX, endX);
-      const localA = findNearestIndex(xLayout.xs, x1);
-      const localB = findNearestIndex(xLayout.xs, x2);
+      const localA = findNearestIndex(xLayout.xs, Math.min(startX, endX));
+      const localB = findNearestIndex(xLayout.xs, Math.max(startX, endX));
       if (localA >= 0 && localB >= 0) {
         const lo = Math.min(localA, localB);
         const hi = Math.max(localA, localB);
-        const nextRange = clampViewRange(
-          { start: safeRange.start + lo, end: safeRange.start + hi },
-          totalCount,
-        );
-        setViewRange(nextRange);
+        setViewRange(clampViewRange({ start: safeRange.start + lo, end: safeRange.start + hi }, totalCount));
         setFollowLive(false);
         setRangePreset('custom');
         setHoveredIdx(null);
@@ -770,29 +455,16 @@ function TrendChartCardImpl({
       return;
     }
 
-    // Click-to-inspect (< 6px horizontal movement)
     if (Math.abs(endX - startX) < 6 && onInspectCall) {
       const idx = findNearestIndex(xLayout.xs, endX);
       const target = idx >= 0 ? visible[idx] : null;
-      if (target) {
-        onInspectCall(target.idx);
-      }
+      if (target) onInspectCall(target.idx);
     }
   };
 
-  // Non-passive wheel listener: Modifier+Wheel zoom + horizontal trackpad pan (never hijacks normal vertical scroll!)
-  const wheelStateRef = useRef({
-    safeRange,
-    totalCount,
-    followLive,
-    padLeft,
-    plotW,
-    svgW,
-    minSpan,
-  });
+  const wheelStateRef = useRef({ safeRange, totalCount, followLive, padLeft, plotW, svgW, minSpan });
   wheelStateRef.current = { safeRange, totalCount, followLive, padLeft, plotW, svgW, minSpan };
   const panAccumRef = useRef(0);
-
   const hasVisible = visible.length > 0;
 
   useEffect(() => {
@@ -811,7 +483,6 @@ function TrendChartCardImpl({
       const st = wheelStateRef.current;
       if (st.totalCount <= st.minSpan) return;
 
-      // 1) Ctrl / Meta / Shift + Wheel => cursor-centered smooth zoom
       if (e.ctrlKey || e.metaKey || e.shiftKey) {
         const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
         if (Math.abs(delta) < 0.5) return;
@@ -819,15 +490,13 @@ function TrendChartCardImpl({
         const rect = svg.getBoundingClientRect();
         const svgX = rect.width > 0 ? ((e.clientX - rect.left) / rect.width) * st.svgW : st.padLeft + st.plotW / 2;
         const anchorRatio = clamp((svgX - st.padLeft) / Math.max(1, st.plotW), 0, 1);
-        const factor = delta > 0 ? 1.28 : 0.78;
-        const next = zoomViewRange(st.safeRange, st.totalCount, factor, anchorRatio, st.followLive);
+        const next = zoomViewRange(st.safeRange, st.totalCount, delta > 0 ? 1.28 : 0.78, anchorRatio, st.followLive);
         setViewRange(next.range);
         setFollowLive(next.followLive);
         setRangePreset(next.preset);
         return;
       }
 
-      // 2) Horizontal trackpad swipe => smooth pan ONLY when zoomed in
       const curSpan = st.safeRange.end - st.safeRange.start + 1;
       if (curSpan < st.totalCount && Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 1.5) {
         e.preventDefault();
@@ -854,113 +523,19 @@ function TrendChartCardImpl({
   }, []);
   const handleClearHover = useCallback(() => setHoveredIdx(null), []);
 
-  // Active hovered point & popover details
-  const safeHoveredIdx = hoveredIdx !== null && hoveredIdx >= 0 && hoveredIdx < allPoints.length && !dragZoom ? hoveredIdx : null;
+  const safeHoveredIdx =
+    hoveredIdx !== null && hoveredIdx >= 0 && hoveredIdx < allPoints.length && !dragZoom ? hoveredIdx : null;
   const hoveredPt = safeHoveredIdx !== null ? allPoints[safeHoveredIdx] : null;
   const hoveredInv = hoveredPt ? hoveredPt.inv : null;
 
-  const popoverDelta = useMemo(() => {
-    if (!hoveredInv || stats.avg === null) return null;
-    if (metric === 'cache') {
-      if (hoveredInv.cacheHitPct === null || hoveredInv.cacheHitPct === undefined) return null;
-      const diff = hoveredInv.cacheHitPct - stats.avg;
-      return {
-        text: tt.popVsAvg(fmtSignedPp(diff)),
-        tone: diff >= 2 ? ('good' as const) : diff <= -8 ? ('bad' as const) : ('neutral' as const),
-      };
-    }
-    if (metric === 'ctx') {
-      const diff = (hoveredInv.contextPct || 0) - stats.avg;
-      return {
-        text: tt.popVsAvg(fmtSignedPp(diff)),
-        tone: 'neutral' as const,
-      };
-    }
-    if (stats.avg <= 0) return null;
-    const val = getMetricValue(hoveredInv, metric);
-    const pct = ((val - stats.avg) / stats.avg) * 100;
-    let tone: 'good' | 'bad' | 'neutral' = 'neutral';
-    if (metric === 'tps') {
-      tone = pct >= 5 ? 'good' : pct <= -15 ? 'bad' : 'neutral';
-    } else if (metric === 'ttft') {
-      tone = pct <= -10 ? 'good' : pct >= 20 ? 'bad' : 'neutral';
-    }
-    return { text: tt.popVsAvg(fmtSignedPct(pct)), tone };
-  }, [hoveredInv, stats.avg, metric, tt]);
-
-  const popoverGrid = useMemo(() => {
-    if (!hoveredInv) return [];
-    const r = hoveredInv;
-    const totOut = Math.max(0, r.outputTokens || 0);
-    const thk = Math.max(0, r.thinkingTokens || 0);
-    const vis = Math.max(0, r.candidateTokens || totOut - thk);
-
-    if (metric === 'ttft') {
-      return [
-        { k: tt.popGenTime, v: fmtSec(r.genSec) },
-        { k: tt.popTotalTime, v: fmtSec(r.totalSec) },
-        { k: tt.popCache, v: fmtCachePct(r.cacheHitPct) },
-        { k: tt.popContext, v: `${fmtNum(r.totalContext)} (${(r.contextPct || 0).toFixed(0)}%)` },
-      ];
-    }
-    if (metric === 'out') {
-      return [
-        { k: tt.popThinkVis, v: `${fmtNum(thk)} / ${fmtNum(vis)}` },
-        { k: tt.popGenTime, v: fmtSec(r.genSec) },
-        { k: tt.popGenTps, v: `${fmtTps(r.isBuffered ? r.e2eTps : r.genTps)} t/s` },
-        { k: tt.popCost, v: r.priced ? fmtUsd(r.costUSD) : '--' },
-      ];
-    }
-    if (metric === 'cache') {
-      return [
-        { k: tt.popPrompt, v: `${fmtNum(r.cachedInput)} / ${fmtNum(r.newInput)}` },
-        { k: tt.popTtft, v: fmtSec(r.ttftSec) },
-        { k: tt.popContext, v: `${(r.contextPct || 0).toFixed(1)}%` },
-        { k: tt.popCost, v: r.priced ? fmtUsd(r.costUSD) : '--' },
-      ];
-    }
-    if (metric === 'ctx') {
-      return [
-        { k: tt.popContext, v: `${fmtNum(r.totalContext)} / ${fmtNum(r.contextLimit)}` },
-        { k: tt.popCache, v: fmtCachePct(r.cacheHitPct) },
-        { k: tt.popOutput, v: `${fmtNum(totOut)} tok` },
-        { k: tt.popTtft, v: fmtSec(r.ttftSec) },
-      ];
-    }
-    if (metric === 'quota') {
-      const q7 = r.quotaPct7d ? `-${fmtQuotaPct(r.quotaPct7d)}` : '--';
-      return [
-        { k: tt.popQuota7d, v: q7 },
-        { k: tt.popRateK, v: `${(r.quotaMultiplierK || 1).toFixed(2)}×` },
-        { k: tt.popCost, v: r.priced ? fmtUsd(r.costUSD) : '--' },
-        { k: tt.popOutput, v: `${fmtNum(totOut)} tok` },
-      ];
-    }
-    // tps
-    return [
-      { k: tt.popE2eTps, v: `${fmtTps(r.e2eTps)} t/s` },
-      { k: tt.popTtft, v: fmtSec(r.ttftSec) },
-      { k: tt.popOutput, v: `${fmtNum(totOut)} tok` },
-      { k: tt.popCache, v: fmtCachePct(r.cacheHitPct) },
-    ];
-  }, [hoveredInv, metric, tt]);
-
+  const popoverDelta = useMemo(() => buildPopoverDelta(hoveredInv, stats.avg, metric, tt), [hoveredInv, stats.avg, metric, tt]);
+  const popoverGrid = useMemo(() => buildPopoverGrid(hoveredInv, metric, tt), [hoveredInv, metric, tt]);
   const popoverLeftPx = useMemo(() => {
     if (!hoveredPt) return 8;
     const popW = isNarrow ? 192 : 214;
-    const preferLeft = hoveredPt.x > svgW * 0.54;
-    const raw = preferLeft ? hoveredPt.x - popW - 12 : hoveredPt.x + 12;
+    const raw = hoveredPt.x > svgW * 0.54 ? hoveredPt.x - popW - 12 : hoveredPt.x + 12;
     return clamp(Math.round(raw), 4, Math.max(4, svgW - popW - 4));
   }, [hoveredPt, svgW, isNarrow]);
-
-  const metricLabel = (m: ChartMetric): string => {
-    if (m === 'tps') return t.tabTps;
-    if (m === 'ttft') return t.tabTtft;
-    if (m === 'out') return t.tabOut;
-    if (m === 'cache') return t.tabCache;
-    if (m === 'quota') return t.tabQuota;
-    return t.tabCtx;
-  };
 
   const showModelPills = sessionModels.length >= 2 || activeModel !== 'all';
   const yTicks = [yMax, yMax * 0.5, 0];
@@ -969,7 +544,6 @@ function TrendChartCardImpl({
   const isZoomedOrHistorical = !followLive && visible.length > 0;
   const visiblePresets = totalCount <= 20 ? (['all'] as const) : RANGE_PRESETS;
 
-  // Reference Y positions for metric overlays
   const ttftSla3Y = metric === 'ttft' && 3 < yMax * 0.96 ? valY(3) : null;
   const ttftSla10Y = metric === 'ttft' && 10 < yMax * 0.96 ? valY(10) : null;
   const ttftP95Y =
@@ -977,271 +551,81 @@ function TrendChartCardImpl({
       ? valY(stats.p95)
       : null;
   const cacheTargetY = metric === 'cache' ? valY(80) : null;
-
-  // Global OpenRouter 30m P50 reference lines (single active model or multi-model Cyber Cricket overlay)
-  const globalRefs = useMemo(() => {
-    if (!activeArenaFamilies.length) return [];
-    const multi = activeArenaFamilies.length > 1 || (pinnedArenaFamilies !== null && activeArenaFamilies[0] !== defaultArenaFamily);
-    const items: Array<{ family: string; y: number; pillY: number; label: string; color: string; pillW: number; side: 'left' | 'right' }> = [];
-
-    // Existing right-side label Y coordinates so we never overlap SLA / 80% target / EMA5 labels
-    const rightOccupiedYs: number[] = [];
-    if (ttftSla3Y !== null) rightOccupiedYs.push(ttftSla3Y - 6);
-    if (ttftSla10Y !== null) rightOccupiedYs.push(ttftSla10Y - 6);
-    if (cacheTargetY !== null) rightOccupiedYs.push(cacheTargetY - 6);
-    if (metric === 'tps' && emaLastY !== null) rightOccupiedYs.push(emaLastY - 6);
-
-    const leftOccupiedYs: number[] = [];
-    if (ttftP95Y !== null) leftOccupiedYs.push(ttftP95Y - 6);
-
-    activeArenaFamilies.forEach((fam, idx) => {
-      const mIdx = pulseModels.findIndex((x) => x.family === fam);
-      const m = mIdx >= 0 ? pulseModels[mIdx] : null;
-      if (!m) return;
-      const val = getPulseMetricVal(m, metric);
-      if (val === null || val > yMax) return;
-      const y = valY(val);
-      const valStr = metric === 'ttft' ? fmtSec(val) : metric === 'tps' ? fmtTps(val) : `${Math.round(val)}%`;
-      const label = multi ? `${shortArenaModelName(m.label)} ${valStr}` : t.trendGlobalRef(valStr);
-      const pillW = Math.min(plotW - 8, Math.max(50, estimateSvgLabelWidth(label)));
-      const color = stableGeminiModelColor(m.family, mIdx);
-
-      // Pick side (prefer right, fall back to left if colliding with SLA / 80% / EMA5 / previous pills)
-      let desiredY = clamp(y - 11.5, padTop + 1, yBase - 12);
-      const collides = (ys: number[], candidate: number) => ys.some((oy) => Math.abs(oy - candidate) < 12.5);
-      let side: 'left' | 'right' = 'right';
-      if (collides(rightOccupiedYs, desiredY)) {
-        if (!collides(leftOccupiedYs, desiredY)) {
-          side = 'left';
-        } else {
-          // Try below the line on right, then below on left
-          const belowY = clamp(y + 2, padTop + 1, yBase - 12);
-          if (!collides(rightOccupiedYs, belowY)) {
-            desiredY = belowY;
-            side = 'right';
-          } else if (!collides(leftOccupiedYs, belowY)) {
-            desiredY = belowY;
-            side = 'left';
-          } else {
-            side = idx % 2 === 0 ? 'left' : 'right';
-            desiredY = clamp(desiredY + (idx % 2 === 0 ? -12 : 12), padTop + 1, yBase - 12);
-          }
-        }
-      }
-
-      if (side === 'right') rightOccupiedYs.push(desiredY);
-      else leftOccupiedYs.push(desiredY);
-
-      items.push({ family: fam, y, pillY: desiredY, label, color, pillW, side });
-    });
-
-    return items;
-  }, [
-    activeArenaFamilies,
-    pinnedArenaFamilies,
-    defaultArenaFamily,
-    pulseModels,
-    metric,
-    yMax,
-    padTop,
-    yBase,
-    plotW,
-    ttftSla3Y,
-    ttftSla10Y,
-    cacheTargetY,
-    emaLastY,
-    ttftP95Y,
-    t,
-  ]);
   const ctxDangerY = metric === 'ctx' ? valY(80) : null;
   const quotaAvgY =
     metric === 'quota' && visible.length >= 2 && stats.avg !== null && stats.avg > 0 ? valY(stats.avg) : null;
 
-  const statToneClass = (tone?: 'ok' | 'warn' | 'bad'): string => {
-    if (tone === 'ok') return 'text-hud-ok';
-    if (tone === 'warn') return 'text-hud-warn';
-    if (tone === 'bad') return 'text-hud-bad';
-    return 'text-hud-fg';
-  };
+  const globalRefs = useMemo(
+    () =>
+      buildGlobalRefs({
+        activeArenaFamilies,
+        pinnedArenaFamilies,
+        defaultArenaFamily,
+        pulseModels,
+        metric,
+        yMax,
+        padTop,
+        chartH,
+        yBase,
+        plotW,
+        ttftSla3Y,
+        ttftSla10Y,
+        cacheTargetY,
+        emaLastY,
+        ttftP95Y,
+        t,
+      }),
+    [
+      activeArenaFamilies,
+      pinnedArenaFamilies,
+      defaultArenaFamily,
+      pulseModels,
+      metric,
+      yMax,
+      padTop,
+      chartH,
+      yBase,
+      plotW,
+      ttftSla3Y,
+      ttftSla10Y,
+      cacheTargetY,
+      emaLastY,
+      ttftP95Y,
+      t,
+    ],
+  );
 
   const showGlobalToggle = Boolean(geminiPulse?.enabled && (geminiPulse?.available || geminiPulse?.loading));
   const isGlobalSource = chartSource === 'global' && showGlobalToggle;
 
   return (
     <section className={`hud-card relative flex flex-col gap-2 ${sizeClass}`}>
-      {/* Sleek 2-Row Instrument Header */}
-      <div className="flex flex-col gap-1.5 min-w-0">
-        {/* Row 1: Title + Source Switch (Session vs Global Curves) + Metric Tabs */}
-        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-            <span className="card-k">{t.chartTitle}</span>
-            {showGlobalToggle ? (
-              <div className="metric-tabs" role="tablist" aria-label={tt.sourceAria}>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={!isGlobalSource}
-                  className={`metric-tab${!isGlobalSource ? ' is-active' : ''}`}
-                  onClick={() => handleSwitchChartSource('session')}
-                >
-                  {tt.sourceSession}
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={isGlobalSource}
-                  className={`metric-tab${isGlobalSource ? ' is-active' : ''}`}
-                  onClick={() => handleSwitchChartSource('global')}
-                >
-                  {tt.sourceGlobal}
-                </button>
-              </div>
-            ) : null}
-            {!isGlobalSource && (
-              <span className="trend-count-badge inline-flex items-center px-1.5 py-px rounded-full font-hud-mono tabular-nums font-medium text-hud-muted bg-hud-fill">
-                {t.chartMeta(invocations.length)}
-              </span>
-            )}
-          </div>
-
-          {!isGlobalSource && (
-            <div className="metric-tabs" role="tablist" aria-label={t.chartTitle}>
-              {METRICS.map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  role="tab"
-                  aria-selected={metric === m}
-                  className={`metric-tab${metric === m ? ' is-active' : ''}`}
-                  onClick={() => onSelectMetric(m)}
-                >
-                  {metricLabel(m)}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Row 2: Model Pills + Unified Range / Zoom / Axis Strip (Session mode only) */}
-        {!isGlobalSource && (showModelPills || totalCount > 0) && (
-          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 min-w-0">
-            {showModelPills && (
-              <div className="flex flex-wrap items-center gap-1 min-w-0">
-                <button
-                  type="button"
-                  className={`trend-model-pill${activeModel === 'all' ? ' is-active' : ''}`}
-                  onClick={() => setActiveModel('all')}
-                >
-                  {t.chartAllModels(invocations.length)}
-                </button>
-                {sessionModels.map((m) => {
-                  const active = activeModel === m.key;
-                  return (
-                    <button
-                      key={m.key}
-                      type="button"
-                      className={`trend-model-pill${active ? ' is-active' : ''}`}
-                      data-tip={t.chartModelFilterTip(m.label, m.count, m.avgBadge, active)}
-                      onClick={() => setActiveModel(active ? 'all' : m.key)}
-                    >
-                      <span
-                        className="inline-block w-[6px] h-[6px] rounded-full shrink-0"
-                        style={{ backgroundColor: m.color }}
-                      />
-                      <span>{m.label}</span>
-                      {!isNarrow && m.avgBadge && (
-                        <span className="font-hud-mono text-hud-muted">{m.avgBadge}</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {totalCount > 0 && (
-              <div className="inline-flex flex-wrap items-center gap-1 ml-auto min-w-0">
-                {/* Quick Range Presets */}
-                <div
-                  className="trend-seg-group inline-flex items-center p-[1.5px] gap-px rounded-md bg-hud-tab-track"
-                  role="group"
-                >
-                  {visiblePresets.map((p) => {
-                    const isAll = p === 'all';
-                    const num = isAll ? 0 : Number(p);
-                    const available = isAll || totalCount > num;
-                    const active = followLive && rangePreset === p;
-                    const label = isAll ? tt.rangeAll : p;
-                    return (
-                      <button
-                        key={p}
-                        type="button"
-                        disabled={!available}
-                        className={`trend-seg-btn border-0 bg-transparent text-hud-muted hover:enabled:text-hud-fg font-hud-mono tabular-nums font-semibold leading-tight px-[5px] py-0.5 rounded cursor-pointer whitespace-nowrap transition-colors${active ? ' is-active' : ''}`}
-                        title={isAll ? tt.rangeAll : tt.rangePresetTip(p, available)}
-                        onClick={() => handleSelectPreset(p)}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Micro Zoom [-] / [+] Buttons */}
-                {totalCount > minSpan && (
-                  <div
-                    className="trend-seg-group inline-flex items-center p-[1.5px] gap-px rounded-md bg-hud-tab-track"
-                    role="group"
-                  >
-                    <button
-                      type="button"
-                      className="trend-seg-btn trend-icon-btn w-[20px] h-[18px] inline-flex items-center justify-center border-0 bg-transparent text-hud-muted hover:enabled:text-hud-fg rounded cursor-pointer transition-colors"
-                      disabled={!canZoomOut}
-                      title={tt.zoomOutTip}
-                      aria-label={tt.zoomOutTip}
-                      onClick={() => handleZoomButton('out')}
-                    >
-                      <IconMinus size={10} />
-                    </button>
-                    <button
-                      type="button"
-                      className="trend-seg-btn trend-icon-btn w-[20px] h-[18px] inline-flex items-center justify-center border-0 bg-transparent text-hud-muted hover:enabled:text-hud-fg rounded cursor-pointer transition-colors"
-                      disabled={!canZoomIn}
-                      title={tt.zoomInTip}
-                      aria-label={tt.zoomInTip}
-                      onClick={() => handleZoomButton('in')}
-                    >
-                      <IconPlus size={10} />
-                    </button>
-                  </div>
-                )}
-
-                {/* Dual X-Axis Toggle (#Seq vs Time) */}
-                <div
-                  className="trend-seg-group inline-flex items-center p-[1.5px] gap-px rounded-md bg-hud-tab-track"
-                  role="group"
-                >
-                  <button
-                    type="button"
-                    className={`trend-seg-btn border-0 bg-transparent text-hud-muted hover:text-hud-fg font-hud-mono tabular-nums font-semibold leading-tight px-[5px] py-0.5 rounded cursor-pointer whitespace-nowrap transition-colors${axisMode === 'seq' ? ' is-active' : ''}`}
-                    title={tt.axisSeqTip}
-                    onClick={() => setAxisMode('seq')}
-                  >
-                    {isNarrow ? tt.axisSeqShort : tt.axisSeq}
-                  </button>
-                  <button
-                    type="button"
-                    className={`trend-seg-btn border-0 bg-transparent text-hud-muted hover:text-hud-fg font-hud tabular-nums font-semibold leading-tight px-[5px] py-0.5 rounded cursor-pointer whitespace-nowrap inline-flex items-center justify-center transition-colors${axisMode === 'time' ? ' is-active' : ''}`}
-                    title={tt.axisTimeTip}
-                    onClick={() => setAxisMode('time')}
-                  >
-                    {isNarrow ? <IconClock size={10} /> : tt.axisTime}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      <TrendHeader
+        t={t}
+        tt={tt}
+        showGlobalToggle={showGlobalToggle}
+        isGlobalSource={isGlobalSource}
+        onSwitchChartSource={handleSwitchChartSource}
+        totalInvocations={invocations.length}
+        metric={metric}
+        onSelectMetric={onSelectMetric}
+        showModelPills={showModelPills}
+        sessionModels={sessionModels}
+        activeModel={activeModel}
+        onSelectModel={setActiveModel}
+        isNarrow={isNarrow}
+        totalCount={totalCount}
+        visiblePresets={visiblePresets}
+        followLive={followLive}
+        rangePreset={rangePreset}
+        onSelectPreset={handleSelectPreset}
+        minSpan={minSpan}
+        canZoomOut={canZoomOut}
+        canZoomIn={canZoomIn}
+        onZoomButton={handleZoomButton}
+        axisMode={axisMode}
+        onSelectAxisMode={setAxisMode}
+      />
 
       {isGlobalSource ? (
         <GlobalTrendView
@@ -1252,873 +636,123 @@ function TrendChartCardImpl({
         />
       ) : (
         <>
-          {/* Conditional Historical / Paused Follow-Live Banner */}
-          {isZoomedOrHistorical && (
-        <div className="trend-live-banner flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1 rounded-md border font-hud-mono tabular-nums text-hud-fg">
-          <span className="inline-flex items-center gap-1.5 min-w-0 text-hud-fg-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-hud-warn shrink-0" />
-            <span>
-              {tt.viewingRange(
-                visible[0].idx + 1,
-                visible[visible.length - 1].idx + 1,
-                totalCount,
-                visibleSpan < totalCount,
-              )}
-            </span>
-          </span>
-          <button
-            type="button"
-            className="trend-follow-btn inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[5px] border font-hud font-semibold text-hud-accent-ink cursor-pointer whitespace-nowrap transition-colors"
-            title={tt.followLiveTip}
-            onClick={handleFollowLive}
-          >
-            <span>{tt.followLiveBtn}</span>
-            <IconFastForward size={10} />
-          </button>
-        </div>
-      )}
-
-      {/* 4-Cell Borderless Recessed Viewport Summary Strip */}
-      {statCells.length > 0 && (
-        <div className={`grid gap-1.5 ${isNarrow ? 'grid-cols-2' : 'grid-cols-4'}`}>
-          {statCells.map((cell, ci) => (
-            <div
-              key={ci}
-              className="trend-stat-cell flex flex-col gap-px min-w-0 px-2 py-[5px] rounded-lg tabular-nums"
-            >
-              <div className="trend-stat-label flex items-center justify-between gap-1 font-hud font-semibold tracking-[0.04em] text-hud-muted whitespace-nowrap overflow-hidden text-ellipsis">
-                <span>{cell.label}</span>
-                {cell.badge && (
-                  <span className="trend-stat-buf-tag inline-flex items-center px-1 rounded-[3px] font-hud-mono font-bold text-hud-muted bg-hud-card">
-                    {cell.badge}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-baseline gap-1 min-w-0 flex-wrap">
-                <span className={`trend-stat-val font-hud-mono font-bold leading-tight whitespace-nowrap ${statToneClass(cell.tone)}`}>
-                  {cell.value}
-                </span>
-                {cell.deltaText && (
-                  <span className={`trend-stat-delta inline-flex items-center px-1 rounded font-hud-mono font-bold leading-[1.35] whitespace-nowrap is-${cell.deltaTone || 'neutral'}`}>
-                    {cell.deltaText}
-                  </span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* OpenRouter 30m Gemini Overlay / Cyber Cricket multi-line selector */}
-      {pulseModels.length > 0 && (metric === 'ttft' || metric === 'tps' || metric === 'cache') && (
-        <div className="flex flex-wrap items-center gap-1 min-w-0 px-0.5">
-          <span className="font-hud text-[9px] font-semibold uppercase tracking-[0.03em] text-hud-muted mr-0.5 whitespace-nowrap">
-            {tt.globalRefLabel}
-          </span>
-          {pulseModels.map((m, mi) => {
-            const val = getPulseMetricVal(m, metric);
-            if (val === null) return null;
-            const isSelected = activeArenaFamilies.includes(m.family);
-            const lineColor = stableGeminiModelColor(m.family, mi);
-            const valStr = metric === 'ttft' ? fmtSec(val) : metric === 'tps' ? fmtTps(val) : `${Math.round(val)}%`;
-            return (
-              <button
-                key={m.family}
-                type="button"
-                onClick={() => toggleArenaFamily(m.family)}
-                className={`inline-flex items-center gap-1 px-1.5 py-[1.5px] rounded-full border font-hud-mono text-[9px] tabular-nums cursor-pointer transition-colors ${
-                  isSelected
-                    ? 'text-hud-fg bg-hud-card font-semibold'
-                    : 'text-hud-muted bg-hud-fill/60 border-transparent hover:text-hud-fg hover:bg-hud-fill'
-                }`}
-                style={isSelected ? { borderColor: `color-mix(in srgb, ${lineColor} 58%, transparent)` } : undefined}
-                data-tip={tt.globalRefTip(m.label)}
-              >
-                <span
-                  className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ background: lineColor, opacity: isSelected ? 1 : 0.35 }}
-                />
-                <span>{shortArenaModelName(m.label)}</span>
-                <span className="opacity-75">{valStr}</span>
-              </button>
-            );
-          })}
-          {activeArenaFamilies.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setPinnedArenaFamilies([])}
-              className="px-1 py-[1px] rounded font-hud text-[9px] text-hud-muted hover:text-hud-fg cursor-pointer transition-colors"
-              title={tt.globalRefHide}
-              aria-label={tt.globalRefHide}
-            >
-              ×
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Row 4: Main SVG Plot Canvas + Zero-Lag Crosshair + Structured Popover */}
-      <div ref={boxRef} className="relative w-full min-w-0 select-none">
-        {visible.length === 0 ? (
-          <svg className="trend-main-svg block w-full overflow-visible" style={{ height: `${svgH}px` }} viewBox={`0 0 ${svgW} ${svgH}`}>
-            {[padTop, padTop + chartH * 0.5, yBase].map((gy, gi) => (
-              <line
-                key={gi}
-                x1={padLeft}
-                y1={gy.toFixed(1)}
-                x2={(padLeft + plotW).toFixed(1)}
-                y2={gy.toFixed(1)}
-                stroke="var(--hud-border)"
-                stroke-width="1"
-                stroke-dasharray={gi === 2 ? undefined : '2 3'}
-                opacity="0.45"
-              />
-            ))}
-            <text
-              x={(svgW / 2).toFixed(1)}
-              y={(padTop + chartH * 0.52).toFixed(1)}
-              text-anchor="middle"
-              className="trend-axis-label"
-              style={{ fontSize: '11px' }}
-            >
-              {invocations.length > 0 ? tt.emptyFiltered : t.noCalls}
-            </text>
-          </svg>
-        ) : (
-          <svg
-            ref={bindMainSvg}
-            tabIndex={0}
-            role="img"
-            aria-label={tt.plotAria}
-            className={`trend-main-svg block w-full overflow-visible focus:outline-none focus-visible:ring-1 focus-visible:ring-hud-accent rounded${dragZoom ? ' is-selecting' : ''}`}
-            style={{ height: `${svgH}px` }}
-            viewBox={`0 0 ${svgW} ${svgH}`}
-            onPointerDown={handleMainPointerDown}
-            onPointerMove={handleMainPointerMove}
-            onPointerUp={(e) => finishMainPointer(e, false)}
-            onPointerCancel={(e) => finishMainPointer(e, true)}
-            onPointerLeave={() => {
-              if (!plotDragRef.current.active) setHoveredIdx(null);
-            }}
-            onKeyDown={(e) => {
-              if (!allPoints.length) return;
-              if (e.key === 'ArrowRight') {
-                e.preventDefault();
-                setHoveredIdx((prev) => (prev === null ? 0 : Math.min(allPoints.length - 1, prev + 1)));
-              } else if (e.key === 'ArrowLeft') {
-                e.preventDefault();
-                setHoveredIdx((prev) => (prev === null ? allPoints.length - 1 : Math.max(0, prev - 1)));
-              } else if (e.key === 'Enter' && hoveredIdx !== null && allPoints[hoveredIdx] && onInspectCall) {
-                e.preventDefault();
-                onInspectCall(allPoints[hoveredIdx].inv.idx);
-              } else if (e.key === 'Escape') {
-                setHoveredIdx(null);
-              }
-            }}
-          >
-            <defs>
-              <linearGradient id={`${gradPrefix}-ctx`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="var(--seg-input)" stop-opacity="0.22" />
-                <stop offset="100%" stop-color="var(--seg-input)" stop-opacity="0" />
-              </linearGradient>
-              {seriesList.map((s, si) => (
-                <linearGradient key={`grad-${si}`} id={`${gradPrefix}-area-${si}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop
-                    offset="0%"
-                    stop-color={s.color}
-                    stop-opacity={seriesList.length === 1 ? '0.2' : '0.1'}
-                  />
-                  <stop offset="100%" stop-color={s.color} stop-opacity="0" />
-                </linearGradient>
-              ))}
-              <linearGradient id={`${gradPrefix}-danger`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="var(--hud-bad)" stop-opacity="0.14" />
-                <stop offset="100%" stop-color="var(--hud-bad)" stop-opacity="0.02" />
-              </linearGradient>
-            </defs>
-
-            {/* Context 80-100% shaded danger zone */}
-            {ctxDangerY !== null && (
-              <g>
-                <rect
-                  x={padLeft}
-                  y={padTop}
-                  width={plotW}
-                  height={Math.max(0, ctxDangerY - padTop)}
-                  fill={`url(#${gradPrefix}-danger)`}
-                />
-                <line
-                  x1={padLeft}
-                  y1={ctxDangerY.toFixed(1)}
-                  x2={(padLeft + plotW).toFixed(1)}
-                  y2={ctxDangerY.toFixed(1)}
-                  stroke="var(--hud-bad)"
-                  stroke-width="1"
-                  stroke-dasharray="3 3"
-                  opacity="0.45"
-                />
-                <text
-                  x={(padLeft + plotW - 2).toFixed(1)}
-                  y={(ctxDangerY - 2.5).toFixed(1)}
-                  text-anchor="end"
-                  className="trend-ref-label"
-                  fill="var(--hud-bad)"
-                  opacity="0.78"
-                >
-                  {tt.refDanger80}
-                </text>
-              </g>
-            )}
-
-            {/* Nice Y-axis horizontal gridlines (~6% soft) & non-overlapping left gutter labels */}
-            {yTicks.map((tickVal, gi) => {
-              const gy = valY(tickVal);
-              const label = yTickLabels[gi];
-              return (
-                <g key={`grid-${gi}`}>
-                  <line
-                    x1={padLeft}
-                    y1={gy.toFixed(1)}
-                    x2={(padLeft + plotW).toFixed(1)}
-                    y2={gy.toFixed(1)}
-                    stroke="var(--hud-fg)"
-                    stroke-width="1"
-                    stroke-dasharray={gi === 2 ? undefined : '2 3'}
-                    opacity={gi === 2 ? 0.12 : 0.06}
-                  />
-                  <text
-                    x={(padLeft - 6).toFixed(1)}
-                    y={(gy + 3).toFixed(1)}
-                    text-anchor="end"
-                    className="trend-axis-label"
-                  >
-                    {label}
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* TTFT SLA thresholds (3s / 10s) + P95 line */}
-            {ttftSla3Y !== null && (
-              <g>
-                <line
-                  x1={padLeft}
-                  y1={ttftSla3Y.toFixed(1)}
-                  x2={(padLeft + plotW).toFixed(1)}
-                  y2={ttftSla3Y.toFixed(1)}
-                  stroke="var(--hud-warn)"
-                  stroke-width="1"
-                  stroke-dasharray="3 3"
-                  opacity="0.48"
-                />
-                <text
-                  x={(padLeft + plotW - 2).toFixed(1)}
-                  y={(ttftSla3Y - 2.5).toFixed(1)}
-                  text-anchor="end"
-                  className="trend-ref-label"
-                  fill="var(--hud-warn)"
-                  opacity="0.82"
-                >
-                  {tt.refSla3}
-                </text>
-              </g>
-            )}
-            {ttftSla10Y !== null && (
-              <g>
-                <line
-                  x1={padLeft}
-                  y1={ttftSla10Y.toFixed(1)}
-                  x2={(padLeft + plotW).toFixed(1)}
-                  y2={ttftSla10Y.toFixed(1)}
-                  stroke="var(--hud-bad)"
-                  stroke-width="1"
-                  stroke-dasharray="3 3"
-                  opacity="0.52"
-                />
-                <text
-                  x={(padLeft + plotW - 2).toFixed(1)}
-                  y={(ttftSla10Y - 2.5).toFixed(1)}
-                  text-anchor="end"
-                  className="trend-ref-label"
-                  fill="var(--hud-bad)"
-                  opacity="0.85"
-                >
-                  {tt.refSla10}
-                </text>
-              </g>
-            )}
-            {ttftP95Y !== null && (
-              <g>
-                <line
-                  x1={padLeft}
-                  y1={ttftP95Y.toFixed(1)}
-                  x2={(padLeft + plotW).toFixed(1)}
-                  y2={ttftP95Y.toFixed(1)}
-                  stroke="var(--hud-fg)"
-                  stroke-width="1"
-                  stroke-dasharray="4 3"
-                  opacity="0.28"
-                />
-                <rect
-                  className="trend-y-pill-bg"
-                  x={(padLeft + 3).toFixed(1)}
-                  y={(Math.max(padTop + 1, ttftP95Y - 10.5)).toFixed(1)}
-                  width={Math.max(38, `${tt.refP95} ${fmtSec(stats.p95)}`.length * 5.2 + 6)}
-                  height="10"
-                  rx="2.5"
-                />
-                <text
-                  x={(padLeft + 6).toFixed(1)}
-                  y={(Math.max(padTop + 8.5, ttftP95Y - 2.5)).toFixed(1)}
-                  text-anchor="start"
-                  className="trend-ref-label"
-                  fill="var(--hud-muted)"
-                >
-                  {tt.refP95} {fmtSec(stats.p95)}
-                </text>
-              </g>
-            )}
-
-            {/* Global OpenRouter 30m P50 dashed lines rendered behind curves; pills rendered on top later */}
-            {globalRefs.map((ref) => (
-              <line
-                key={`gref-line-${ref.family}`}
-                x1={padLeft}
-                y1={ref.y.toFixed(1)}
-                x2={(padLeft + plotW).toFixed(1)}
-                y2={ref.y.toFixed(1)}
-                stroke={ref.color}
-                stroke-width="1.1"
-                stroke-dasharray="3 3"
-                opacity="0.72"
-              />
-            ))}
-
-            {/* Cache 80% target line */}
-            {cacheTargetY !== null && (
-              <g>
-                <line
-                  x1={padLeft}
-                  y1={cacheTargetY.toFixed(1)}
-                  x2={(padLeft + plotW).toFixed(1)}
-                  y2={cacheTargetY.toFixed(1)}
-                  stroke="var(--hud-ok)"
-                  stroke-width="1"
-                  stroke-dasharray="3 3"
-                  opacity="0.46"
-                />
-                <text
-                  x={(padLeft + plotW - 2).toFixed(1)}
-                  y={(cacheTargetY - 2.5).toFixed(1)}
-                  text-anchor="end"
-                  className="trend-ref-label"
-                  fill="var(--hud-ok)"
-                  opacity="0.82"
-                >
-                  {tt.refTarget80}
-                </text>
-              </g>
-            )}
-
-            {/* Quota mean reference line */}
-            {quotaAvgY !== null && (
-              <g>
-                <line
-                  x1={padLeft}
-                  y1={quotaAvgY.toFixed(1)}
-                  x2={(padLeft + plotW).toFixed(1)}
-                  y2={quotaAvgY.toFixed(1)}
-                  stroke="var(--hud-accent)"
-                  stroke-width="1"
-                  stroke-dasharray="3 3"
-                  opacity="0.42"
-                />
-                <text
-                  x={(padLeft + plotW - 2).toFixed(1)}
-                  y={(quotaAvgY - 2.5).toFixed(1)}
-                  text-anchor="end"
-                  className="trend-ref-label"
-                  fill="var(--hud-accent-ink)"
-                  opacity="0.82"
-                >
-                  {tt.refAvg}
-                </text>
-              </g>
-            )}
-
-            {/* Single-call reference line (n = 1 edge state) */}
-            {visible.length === 1 && allPoints[0] && (
-              <g>
-                <line
-                  x1={padLeft}
-                  y1={allPoints[0].y.toFixed(1)}
-                  x2={(padLeft + plotW).toFixed(1)}
-                  y2={allPoints[0].y.toFixed(1)}
-                  stroke="var(--hud-accent)"
-                  stroke-width="1"
-                  stroke-dasharray="3 3"
-                  opacity="0.42"
-                />
-                <text
-                  x={(padLeft + plotW - 2).toFixed(1)}
-                  y={(padTop + 9).toFixed(1)}
-                  text-anchor="end"
-                  className="trend-axis-label"
-                >
-                  {tt.singleCallNote}
-                </text>
-              </g>
-            )}
-
-            {/* Cross-metric Compaction Markers (ALL 6 metrics!) */}
-            {compactMarkers.map((m, ci) => (
-              <g key={`cmp-${ci}`}>
-                <line
-                  x1={m.x.toFixed(1)}
-                  y1={padTop}
-                  x2={m.x.toFixed(1)}
-                  y2={yBase.toFixed(1)}
-                  stroke="var(--seg-think)"
-                  stroke-width="1.2"
-                  stroke-dasharray="2.5 2.5"
-                  opacity={metric === 'ctx' ? 0.82 : 0.56}
-                />
-                <polygon
-                  points={`${m.x.toFixed(1)},${(padTop - 3.5).toFixed(1)} ${(m.x + 3.2).toFixed(1)},${padTop.toFixed(1)} ${m.x.toFixed(1)},${(padTop + 3.5).toFixed(1)} ${(m.x - 3.2).toFixed(1)},${padTop.toFixed(1)}`}
-                  fill="var(--seg-think)"
-                  opacity={metric === 'ctx' ? 0.95 : 0.78}
-                />
-              </g>
-            ))}
-
-            {/* Metric: OUT (stacked thinking violet atop visible green + 5-call EMA polyline) */}
-            {metric === 'out' && (
-              <g>
-                {visible.map((r, i) => {
-                  const x = xLayout.xs[i] - xLayout.barW / 2;
-                  const tot = Math.max(0, r.outputTokens || 0);
-                  const thk = Math.max(0, r.thinkingTokens || 0);
-                  const vis = Math.max(0, r.candidateTokens || tot - thk);
-                  const totH = tot > 0 ? Math.max(3, (tot / yMax) * chartH) : 1.5;
-                  const isHovered = safeHoveredIdx === i;
-
-                  if (tot > 0 && thk > 0 && vis > 0) {
-                    const thkH = Math.max(1.5, (thk / tot) * totH);
-                    const visH = Math.max(1.5, totH - thkH);
-                    const yThk = yBase - totH;
-                    const yVis = yBase - visH;
-                    return (
-                      <g key={`out-${r.idx}`} opacity={isHovered ? 1 : 0.88}>
-                        <rect
-                          className="chart-bar out-thk"
-                          x={x.toFixed(1)}
-                          y={yThk.toFixed(1)}
-                          width={xLayout.barW.toFixed(1)}
-                          height={thkH.toFixed(1)}
-                          rx="1.5"
-                        />
-                        <rect
-                          className="chart-bar out-vis"
-                          x={x.toFixed(1)}
-                          y={yVis.toFixed(1)}
-                          width={xLayout.barW.toFixed(1)}
-                          height={visH.toFixed(1)}
-                          rx="1.5"
-                        />
-                      </g>
-                    );
-                  }
-                  const cls = thk > vis ? 'chart-bar out-thk' : 'chart-bar out-vis';
-                  return (
-                    <rect
-                      key={`out-${r.idx}`}
-                      className={cls}
-                      x={x.toFixed(1)}
-                      y={(yBase - totH).toFixed(1)}
-                      width={xLayout.barW.toFixed(1)}
-                      height={totH.toFixed(1)}
-                      rx="2"
-                      opacity={isHovered ? 1 : 0.86}
-                    />
-                  );
-                })}
-                {emaPath && (
-                  <path
-                    d={emaPath}
-                    fill="none"
-                    stroke="var(--hud-fg)"
-                    stroke-width="1.25"
-                    stroke-dasharray="3 2.5"
-                    opacity="0.52"
-                    stroke-linecap="round"
-                  />
-                )}
-              </g>
-            )}
-
-            {/* Metric: CTX (monotone curve + area + model dots) */}
-            {metric === 'ctx' && (
-              <g>
-                {ctxCurvePath && (
-                  <>
-                    <path
-                      d={`${ctxCurvePath} L ${allPoints[allPoints.length - 1].x.toFixed(1)} ${yBase.toFixed(1)} L ${allPoints[0].x.toFixed(1)} ${yBase.toFixed(1)} Z`}
-                      fill={`url(#${gradPrefix}-ctx)`}
-                    />
-                    <path
-                      d={ctxCurvePath}
-                      fill="none"
-                      stroke="var(--seg-input)"
-                      stroke-width="1.75"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </>
-                )}
-                {allPoints.map((pt, i) => {
-                  const color = modelColorMap.get(getModelKey(pt.inv)) || 'var(--seg-input)';
-                  const isLast = i === allPoints.length - 1;
-                  const dense = visible.length > 56;
-                  if (dense && !isLast && safeHoveredIdx !== i) return null;
-                  return (
-                    <circle
-                      key={`ctx-pt-${pt.inv.idx}`}
-                      cx={pt.x.toFixed(1)}
-                      cy={pt.y.toFixed(1)}
-                      r={isLast ? 3.4 : 2.2}
-                      fill={color}
-                      stroke="var(--hud-card)"
-                      stroke-width="1.1"
-                    />
-                  );
-                })}
-              </g>
-            )}
-
-            {/* Metric: QUOTA (rounded bars colored by model or high-k multiplier) */}
-            {metric === 'quota' &&
-              visible.map((r, i) => {
-                const x = xLayout.xs[i] - xLayout.barW / 2;
-                const val = Math.max(0, r.quotaPct5h || 0);
-                const barH = val > 0 ? Math.max(3, (val / yMax) * chartH) : 1.5;
-                const isHighMult = (r.quotaMultiplierK || 1) >= 1.8;
-                const fill = isMultiInView
-                  ? modelColorMap.get(getModelKey(r)) || 'var(--hud-accent)'
-                  : isHighMult
-                    ? 'var(--seg-out)'
-                    : 'var(--hud-accent)';
-                const isEmphasized = i === visible.length - 1 || safeHoveredIdx === i;
-                return (
-                  <rect
-                    key={`quota-${r.idx}`}
-                    x={x.toFixed(1)}
-                    y={(yBase - barH).toFixed(1)}
-                    width={xLayout.barW.toFixed(1)}
-                    height={barH.toFixed(1)}
-                    rx="2"
-                    fill={fill}
-                    opacity={isEmphasized ? 1 : 0.82}
-                  />
-                );
-              })}
-
-            {/* Metrics: TPS / TTFT / CACHE (monotone curves + gradient area + EMA + special markers) */}
-            {metric !== 'out' &&
-              metric !== 'ctx' &&
-              metric !== 'quota' && (
-                <g>
-                  {seriesList.map((s, si) => {
-                    const curve = s.points.length >= 2 ? buildMonotonePath(s.points, padTop, yBase) : '';
-                    const meanVal = s.points.reduce((acc, p) => acc + p.val, 0) / Math.max(1, s.points.length);
-                    const meanY = valY(meanVal);
-                    const dense = visible.length > 56;
-
-                    return (
-                      <g key={`series-${s.key}`}>
-                        {s.points.length >= 2 && !(metric === 'tps' && emaPath) && (
-                          <line
-                            x1={padLeft}
-                            y1={meanY.toFixed(1)}
-                            x2={(padLeft + plotW).toFixed(1)}
-                            y2={meanY.toFixed(1)}
-                            stroke={s.color}
-                            stroke-width="1"
-                            stroke-dasharray="3 3"
-                            opacity="0.26"
-                          />
-                        )}
-                        {curve && (
-                          <path
-                            d={`${curve} L ${s.points[s.points.length - 1].x.toFixed(1)} ${yBase.toFixed(1)} L ${s.points[0].x.toFixed(1)} ${yBase.toFixed(1)} Z`}
-                            fill={`url(#${gradPrefix}-area-${si})`}
-                          />
-                        )}
-                        {curve && (
-                          <path
-                            d={curve}
-                            fill="none"
-                            stroke={s.color}
-                            stroke-width="1.75"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                          />
-                        )}
-                        {s.points.map((pt) => {
-                          const isLast = pt.slotIdx === visible.length - 1;
-                          const isBufNode = metric === 'tps' && pt.inv.isBuffered;
-                          const isStallNode = metric === 'tps' && pt.inv.isToolStall;
-                          const isLowCache =
-                            metric === 'cache' && pt.inv.cacheHitPct !== null && pt.inv.cacheHitPct < 40;
-                          const isSlowTtft = metric === 'ttft' && ttftTier(pt.inv.ttftSec || 0) === 'slow';
-                          const isSpecial = isLast || isBufNode || isStallNode || isLowCache || isSlowTtft;
-
-                          if (dense && !isSpecial && safeHoveredIdx !== pt.slotIdx) return null;
-
-                          let dotFill = isBufNode ? 'var(--hud-card)' : s.color;
-                          if (!isMultiInView && !isBufNode) {
-                            if (metric === 'ttft') {
-                              const tier = ttftTier(pt.inv.ttftSec || 0);
-                              dotFill =
-                                tier === 'slow' ? 'var(--hud-bad)' : tier === 'mid' ? 'var(--hud-warn)' : s.color;
-                            } else if (metric === 'cache') {
-                              const tier = cacheTier(pt.inv.cacheHitPct);
-                              dotFill =
-                                tier === 'low' ? 'var(--hud-bad)' : tier === 'mid' ? 'var(--hud-warn)' : s.color;
-                            }
-                          } else if (isLowCache) {
-                            dotFill = 'var(--hud-bad)';
-                          }
-
-                          return (
-                            <g key={`pt-${pt.inv.idx}`}>
-                              {isStallNode && (
-                                <circle
-                                  cx={pt.x.toFixed(1)}
-                                  cy={pt.y.toFixed(1)}
-                                  r={isLast ? 5.6 : 4.6}
-                                  fill="none"
-                                  stroke="var(--hud-warn)"
-                                  stroke-width="1.4"
-                                  opacity="0.92"
-                                />
-                              )}
-                              <circle
-                                cx={pt.x.toFixed(1)}
-                                cy={pt.y.toFixed(1)}
-                                r={isLast ? 3.5 : isBufNode ? 2.8 : 2.3}
-                                fill={dotFill}
-                                stroke={isBufNode ? s.color : 'var(--hud-card)'}
-                                stroke-width={isBufNode ? '1.5' : '1.1'}
-                              />
-                            </g>
-                          );
-                        })}
-                      </g>
-                    );
-                  })}
-
-                  {/* TPS 5-call EMA dashed trendline (single series, n >= 6) */}
-                  {metric === 'tps' && emaPath && (
-                    <g>
-                      <path
-                        d={emaPath}
-                        fill="none"
-                        stroke="var(--hud-fg)"
-                        stroke-width="1.25"
-                        stroke-dasharray="4 3"
-                        opacity="0.52"
-                        stroke-linecap="round"
-                      />
-                      {emaLastY !== null && (
-                        <text
-                          x={(padLeft + plotW - 2).toFixed(1)}
-                          y={clamp(emaLastY - 3.5, padTop + 8, yBase - 4).toFixed(1)}
-                          text-anchor="end"
-                          className="trend-ref-label"
-                          fill="var(--hud-muted)"
-                        >
-                          {tt.refEma}
-                        </text>
-                      )}
-                    </g>
-                  )}
-                </g>
-              )}
-
-            {/* Multi-model phase indicator strip along X baseline */}
-            {isMultiInView &&
-              visible.map((r, i) => {
-                const color = modelColorMap.get(getModelKey(r)) || 'var(--hud-accent)';
-                const wTick = Math.max(2, Math.min(xLayout.barW, plotW / visible.length));
-                const x = xLayout.xs[i] - wTick / 2;
-                return (
-                  <rect
-                    key={`phase-${r.idx}`}
-                    x={x.toFixed(1)}
-                    y={(yBase + 2.5).toFixed(1)}
-                    width={wTick.toFixed(1)}
-                    height="2.5"
-                    rx="1"
-                    fill={color}
-                    opacity="0.86"
-                  />
-                );
-              })}
-
-            {/* X-axis tick labels (#Seq or Time) */}
-            {xTicks.map((tk, ti) => (
-              <text
-                key={`xtick-${ti}`}
-                x={tk.x.toFixed(1)}
-                y={(svgH - 4).toFixed(1)}
-                text-anchor={tk.anchor}
-                className="trend-axis-label"
-              >
-                {tk.label}
-              </text>
-            ))}
-
-            {/* Global OpenRouter 30m P50 pill labels rendered ABOVE curves/bars/dots with anti-overlap & safe right margin */}
-            {globalRefs.map((ref) => {
-              const rectX =
-                ref.side === 'right'
-                  ? Math.max(padLeft + 2, padLeft + plotW - ref.pillW - 2)
-                  : padLeft + 3;
-              const textX = ref.side === 'right' ? rectX + ref.pillW - 4 : rectX + 4;
-              return (
-                <g key={`gref-pill-${ref.family}`} pointer-events="none">
-                  <rect
-                    className="trend-y-pill-bg"
-                    x={rectX.toFixed(1)}
-                    y={ref.pillY.toFixed(1)}
-                    width={ref.pillW.toFixed(1)}
-                    height="11.5"
-                    rx="3"
-                    stroke={ref.color}
-                    stroke-opacity="0.32"
-                    stroke-width="0.75"
-                  />
-                  <text
-                    x={textX.toFixed(1)}
-                    y={(ref.pillY + 8.4).toFixed(1)}
-                    text-anchor={ref.side === 'right' ? 'end' : 'start'}
-                    className="trend-ref-label"
-                    fill={ref.color}
-                  >
-                    {ref.label}
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* Zero-lag SVG Crosshair + Horizontal Value Guide + Focus Halo */}
-            {hoveredPt && (
-              <g pointer-events="none">
-                {(metric === 'out' || metric === 'quota') && (
-                  <rect
-                    className="trend-hover-col"
-                    x={(hoveredPt.x - Math.max(4, xLayout.barW * 0.65)).toFixed(1)}
-                    y={padTop}
-                    width={Math.max(8, xLayout.barW * 1.3).toFixed(1)}
-                    height={chartH}
-                    rx="2"
-                  />
-                )}
-                <line
-                  className="trend-crosshair-line"
-                  x1={hoveredPt.x.toFixed(1)}
-                  y1={padTop}
-                  x2={hoveredPt.x.toFixed(1)}
-                  y2={yBase.toFixed(1)}
-                />
-                <line
-                  className="trend-crosshair-guide"
-                  x1={padLeft}
-                  y1={hoveredPt.y.toFixed(1)}
-                  x2={(padLeft + plotW).toFixed(1)}
-                  y2={hoveredPt.y.toFixed(1)}
-                />
-                <circle
-                  cx={hoveredPt.x.toFixed(1)}
-                  cy={hoveredPt.y.toFixed(1)}
-                  r="6.5"
-                  fill={modelColorMap.get(getModelKey(hoveredPt.inv)) || 'var(--hud-accent)'}
-                  opacity="0.22"
-                />
-                <circle
-                  cx={hoveredPt.x.toFixed(1)}
-                  cy={hoveredPt.y.toFixed(1)}
-                  r="3.5"
-                  fill={modelColorMap.get(getModelKey(hoveredPt.inv)) || 'var(--hud-accent)'}
-                  stroke="var(--hud-card)"
-                  stroke-width="1.4"
-                />
-              </g>
-            )}
-
-            {/* Drag-to-Zoom Selection Marquee */}
-            {dragZoom && (
-              <g pointer-events="none">
-                <rect
-                  className="trend-zoom-marquee"
-                  x={dragZoom.x1.toFixed(1)}
-                  y={padTop}
-                  width={Math.max(2, dragZoom.x2 - dragZoom.x1).toFixed(1)}
-                  height={chartH}
-                  rx="2"
-                />
-                <g
-                  transform={`translate(${clamp((dragZoom.x1 + dragZoom.x2) / 2, padLeft + 28, padLeft + plotW - 28).toFixed(1)}, ${(padTop + 13).toFixed(1)})`}
-                >
-                  <rect className="trend-zoom-badge-bg" x="-26" y="-9" width="52" height="15" rx="4" />
-                  <text className="trend-zoom-badge-text" x="0" y="1.5" text-anchor="middle">
-                    {tt.zoomSelecting(dragZoom.count)}
-                  </text>
-                </g>
-              </g>
-            )}
-          </svg>
-        )}
-
-        <div className="sr-only" aria-live="polite">
-          {hoveredInv ? `#${hoveredInv.idx + 1} ${shortModelName(hoveredInv)} ${formatPrimaryMetricValue(hoveredInv, metric)}` : ''}
-        </div>
-
-        {/* Structured Zero-Lag Floating In-Card Popover */}
-        {hoveredPt && hoveredInv && (
-          <TrendPopover
-            inv={hoveredInv}
-            metric={metric}
-            modelColor={modelColorMap.get(getModelKey(hoveredInv)) || 'var(--hud-accent)'}
-            leftPx={popoverLeftPx}
-            isNarrow={isNarrow}
-            delta={popoverDelta}
-            grid={popoverGrid}
-            canInspect={Boolean(onInspectCall)}
+          <TrendSessionStrips
             tt={tt}
+            isZoomedOrHistorical={isZoomedOrHistorical}
+            visible={visible}
+            totalCount={totalCount}
+            visibleSpan={visibleSpan}
+            onFollowLive={handleFollowLive}
+            statCells={statCells}
+            isNarrow={isNarrow}
+            pulseModels={pulseModels}
+            metric={metric}
+            activeArenaFamilies={activeArenaFamilies}
+            onToggleArenaFamily={toggleArenaFamily}
+            onClearArenaFamilies={() => setPinnedArenaFamilies([])}
           />
-        )}
-      </div>
 
-      {/* Row 5: Interactive Minimap Brush / Scrubber (shown whenever filteredInvs.length > 8) */}
-      {showMinimap && (
-        <TrendMinimap
-          filteredInvs={filteredInvs}
-          compactions={compactions}
-          metric={metric}
-          svgW={svgW}
-          minimapH={minimapH}
-          totalCount={totalCount}
-          minSpan={minSpan}
-          safeRange={safeRange}
-          followLive={followLive}
-          isZoomed={rangePreset === 'custom'}
-          tt={tt}
-          onRangeChange={handleMinimapRangeChange}
-          onClearHover={handleClearHover}
-          onFollowLive={handleFollowLive}
-        />
-      )}
+          <div ref={boxRef} className="relative w-full min-w-0 select-none">
+            <TrendSvgPlot
+              bindMainSvg={bindMainSvg}
+              gradPrefix={gradPrefix}
+              metric={metric}
+              invocationsCount={invocations.length}
+              visible={visible}
+              svgW={svgW}
+              svgH={svgH}
+              padLeft={padLeft}
+              padTop={padTop}
+              chartH={chartH}
+              yBase={yBase}
+              plotW={plotW}
+              yMax={yMax}
+              yTicks={yTicks}
+              yTickLabels={yTickLabels}
+              stats={stats}
+              xLayout={xLayout}
+              seriesList={seriesList}
+              allPoints={allPoints}
+              modelColorMap={modelColorMap}
+              isMultiInView={isMultiInView}
+              emaPath={emaPath}
+              emaLastY={emaLastY}
+              compactMarkers={compactMarkers}
+              ctxCurvePath={ctxCurvePath}
+              xTicks={xTicks}
+              ttftSla3Y={ttftSla3Y}
+              ttftSla10Y={ttftSla10Y}
+              ttftP95Y={ttftP95Y}
+              cacheTargetY={cacheTargetY}
+              ctxDangerY={ctxDangerY}
+              quotaAvgY={quotaAvgY}
+              globalRefs={globalRefs}
+              safeHoveredIdx={safeHoveredIdx}
+              hoveredPt={hoveredPt}
+              dragZoom={dragZoom}
+              t={t}
+              tt={tt}
+              onPointerDown={handleMainPointerDown}
+              onPointerMove={handleMainPointerMove}
+              onPointerUp={(e) => finishMainPointer(e, false)}
+              onPointerCancel={(e) => finishMainPointer(e, true)}
+              onPointerLeave={() => {
+                if (!plotDragRef.current.active) setHoveredIdx(null);
+              }}
+              onKeyDown={(e) => {
+                if (!allPoints.length) return;
+                if (e.key === 'ArrowRight') {
+                  e.preventDefault();
+                  setHoveredIdx((prev) => (prev === null ? 0 : Math.min(allPoints.length - 1, prev + 1)));
+                } else if (e.key === 'ArrowLeft') {
+                  e.preventDefault();
+                  setHoveredIdx((prev) => (prev === null ? allPoints.length - 1 : Math.max(0, prev - 1)));
+                } else if (e.key === 'Enter' && hoveredIdx !== null && allPoints[hoveredIdx] && onInspectCall) {
+                  e.preventDefault();
+                  onInspectCall(allPoints[hoveredIdx].inv.idx);
+                } else if (e.key === 'Escape') {
+                  setHoveredIdx(null);
+                }
+              }}
+            />
+
+            <div className="sr-only" aria-live="polite">
+              {hoveredInv ? `#${hoveredInv.idx + 1} ${shortModelName(hoveredInv)} ${formatPrimaryMetricValue(hoveredInv, metric)}` : ''}
+            </div>
+
+            {hoveredPt && hoveredInv && (
+              <TrendPopover
+                inv={hoveredInv}
+                metric={metric}
+                modelColor={modelColorMap.get(getModelKey(hoveredInv)) || 'var(--hud-accent)'}
+                leftPx={popoverLeftPx}
+                isNarrow={isNarrow}
+                delta={popoverDelta}
+                grid={popoverGrid}
+                canInspect={Boolean(onInspectCall)}
+                tt={tt}
+              />
+            )}
+          </div>
+
+          {showMinimap && (
+            <TrendMinimap
+              filteredInvs={filteredInvs}
+              compactions={compactions}
+              metric={metric}
+              svgW={svgW}
+              minimapH={minimapH}
+              totalCount={totalCount}
+              minSpan={minSpan}
+              safeRange={safeRange}
+              followLive={followLive}
+              isZoomed={rangePreset === 'custom'}
+              tt={tt}
+              onRangeChange={handleMinimapRangeChange}
+              onClearHover={handleClearHover}
+              onFollowLive={handleFollowLive}
+            />
+          )}
         </>
       )}
     </section>

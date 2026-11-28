@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { computeActivityInsights } from '../../../../web/src/utils/activityStats.ts';
+import { computeActivityInsights } from '../src/utils/activityStats.ts';
 
 test('computeActivityInsights calculates streak, peak day, cache rate, and Ultra persona accurately', () => {
   const days = [

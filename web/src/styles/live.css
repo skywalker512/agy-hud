@@ -1,0 +1,288 @@
+@layer components {
+  /* Subtle top-edge breathing glow during active LLM streaming */
+  .hud-card.is-streaming::before {
+    content: "";
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    top: 0;
+    height: 1.5px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--hud-ok) 80%, transparent) 50%,
+      transparent 100%
+    );
+    animation: hud-stream-breathe 2s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  /* Live First-Token waiting radar scan (calm emerald -> amber when slow -> red when stalled, green arrival flash when locked) */
+  .hud-card.is-waiting-calm::before,
+  .history-row.is-waiting-calm::before {
+    content: "";
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--seg-cache) 25%, transparent) 30%,
+      var(--seg-cache) 50%,
+      color-mix(in srgb, var(--seg-cache) 25%, transparent) 70%,
+      transparent 100%
+    );
+    background-size: 220% 100%;
+    animation: hud-ttft-scan 2s linear infinite;
+    pointer-events: none;
+  }
+  .hud-card.is-waiting-calm {
+    border-color: color-mix(in srgb, var(--seg-cache) 30%, transparent);
+  }
+  .hud-card.is-waiting-ttft::before,
+  .history-row.is-waiting-ttft::before {
+    content: "";
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--hud-warn) 25%, transparent) 30%,
+      var(--hud-warn) 50%,
+      color-mix(in srgb, var(--hud-warn) 25%, transparent) 70%,
+      transparent 100%
+    );
+    background-size: 220% 100%;
+    animation: hud-ttft-scan 1.55s linear infinite;
+    pointer-events: none;
+  }
+  .hud-card.is-waiting-ttft {
+    border-color: color-mix(in srgb, var(--hud-warn) 38%, transparent);
+  }
+  .hud-card.is-waiting-stalled::before,
+  .history-row.is-waiting-stalled::before {
+    content: "";
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--hud-bad) 30%, transparent) 28%,
+      var(--hud-bad) 50%,
+      color-mix(in srgb, var(--hud-bad) 30%, transparent) 72%,
+      transparent 100%
+    );
+    background-size: 220% 100%;
+    animation: hud-ttft-scan 1.1s linear infinite;
+    pointer-events: none;
+  }
+  .hud-card.is-waiting-stalled {
+    border-color: color-mix(in srgb, var(--hud-bad) 46%, transparent);
+  }
+  .hud-card.is-ttft-locked {
+    animation: hud-ttft-arrive 0.9s ease-out 1;
+  }
+
+  .ttft-bars-svg rect {
+    transition: height 110ms linear, y 110ms linear, fill 200ms ease;
+  }
+  .ttft-avg-line {
+    transition: y1 110ms linear, y2 110ms linear;
+  }
+  .ttft-bar-live {
+    animation: hud-bar-pulse 1.1s ease-in-out infinite;
+  }
+
+  .ttft-wait-track {
+    @apply relative w-full h-[3px] rounded-full overflow-hidden mt-1.5;
+    background: color-mix(in srgb, var(--hud-fg) 9%, transparent);
+    transition: opacity 200ms ease;
+  }
+  .ttft-wait-track.is-idle {
+    opacity: 0.42;
+  }
+  .ttft-wait-fill {
+    @apply h-full rounded-full;
+    transition: width 110ms linear, background-color 220ms ease;
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.35) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: hud-shimmer 1.4s linear infinite;
+  }
+  .ttft-wait-fill.is-locked {
+    background-image: none;
+    animation: none;
+  }
+  .ttft-wait-avg-tick {
+    @apply pointer-events-none absolute top-0 bottom-0 w-[1.5px];
+    background: color-mix(in srgb, var(--hud-fg) 55%, transparent);
+  }
+
+  .live-pill {
+    @apply font-hud font-semibold px-1.5 py-[1px] rounded-full text-hud-ok inline-flex items-center gap-1 whitespace-nowrap shrink-0;
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+    background: var(--tint-ok);
+  }
+  .live-pill.is-wait-calm {
+    color: var(--seg-cache);
+    background: color-mix(in srgb, var(--seg-cache) 14%, transparent);
+  }
+  .live-pill.is-wait {
+    @apply text-hud-warn;
+    background: var(--tint-warn);
+  }
+  .live-pill.is-bad {
+    @apply text-hud-bad;
+    background: var(--tint-bad);
+  }
+  .live-pill.is-compact {
+    @apply text-seg-think;
+    background: var(--tint-think);
+  }
+
+  .cache-pill {
+    @apply inline-flex items-center px-1.5 py-[1px] rounded-full font-hud-mono font-semibold tabular-nums whitespace-nowrap;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+  .cache-pill.good {
+    @apply text-hud-ok;
+    background: var(--tint-ok);
+  }
+  .cache-pill.mid {
+    @apply text-hud-warn;
+    background: var(--tint-warn);
+  }
+  .cache-pill.low {
+    @apply text-hud-bad;
+    background: var(--tint-bad);
+  }
+  .cache-pill.muted {
+    @apply text-hud-muted bg-hud-fill;
+  }
+
+  .ttft-pill {
+    @apply inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full font-hud-mono font-semibold tabular-nums whitespace-nowrap;
+    font-size: calc(10.5px * var(--hud-font-scale, 1));
+  }
+  .ttft-pill.fast {
+    @apply text-hud-ok;
+    background: var(--tint-ok);
+  }
+  .ttft-pill.mid {
+    @apply text-hud-warn;
+    background: var(--tint-warn);
+  }
+  .ttft-pill.slow {
+    @apply text-hud-bad;
+    background: var(--tint-bad);
+  }
+
+  /* Restrained cache survival pill: fresh is calm neutral, warm/stale get amber/red */
+  .cache-age-pill {
+    @apply inline-flex items-center px-1.5 py-[1px] rounded font-hud-mono font-medium tabular-nums whitespace-nowrap;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+  .cache-age-pill.fresh {
+    @apply text-hud-fg-2 bg-hud-fill;
+  }
+  .cache-age-pill.warm {
+    @apply text-hud-warn font-semibold;
+    background: var(--tint-warn);
+  }
+  .cache-age-pill.stale {
+    @apply text-hud-bad font-semibold;
+    background: var(--tint-bad);
+  }
+
+  .quota-pill {
+    @apply inline-flex items-center px-1.5 py-[1px] rounded-full font-hud-mono font-semibold tabular-nums whitespace-nowrap text-hud-accent-ink;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+    background: var(--tint-accent);
+  }
+
+  .quota-burn-pill {
+    @apply inline-flex items-center gap-[3px] px-[5px] py-[0.5px] rounded font-hud-mono tabular-nums whitespace-nowrap text-hud-muted bg-hud-surface-2;
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+  .quota-burn-pill.is-high-mult {
+    @apply text-seg-out font-semibold;
+    background: var(--tint-out);
+  }
+
+  /* Segment Bar Colors */
+  .seg-sys {
+    @apply bg-seg-other;
+  }
+  .seg-tdef {
+    @apply bg-seg-think;
+  }
+  .seg-tres {
+    @apply bg-seg-out;
+  }
+  .seg-model,
+  .seg-cache {
+    @apply bg-seg-cache;
+  }
+  .seg-user,
+  .seg-input {
+    @apply bg-seg-input;
+  }
+  .seg-think {
+    @apply bg-seg-think;
+  }
+  .seg-out {
+    @apply bg-seg-out;
+  }
+  .seg-other {
+    @apply bg-seg-other;
+  }
+  .seg-free {
+    background: color-mix(in srgb, var(--hud-muted) 26%, transparent);
+  }
+
+  .ctx-tool-chip {
+    @apply inline-flex items-center gap-1 px-1.5 py-[1.5px] rounded-md bg-hud-surface-2 font-hud-mono text-hud-fg tabular-nums cursor-help transition-colors;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+  .ctx-tool-chip.is-top {
+    background: color-mix(in srgb, var(--seg-out) 11%, var(--hud-surface-2));
+  }
+
+  /* ── Hero Speed Delta Badge ── */
+  .hero-delta {
+    @apply inline-flex items-center px-1.5 py-[1px] rounded-full font-hud-mono font-semibold whitespace-nowrap tabular-nums;
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+  .hero-delta.is-up {
+    @apply text-hud-ok bg-tint-ok;
+  }
+  .hero-delta.is-down {
+    @apply text-hud-warn bg-tint-warn;
+  }
+  .hero-delta.is-flat {
+    @apply text-hud-muted bg-hud-fill;
+  }
+
+  /* ── Session Model Mix Grid ── */
+  .model-mix-grid {
+    @apply grid gap-x-2 gap-y-1 items-center font-hud-mono tabular-nums;
+    grid-template-columns: minmax(80px, 1.5fr) auto auto auto auto auto;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+}

@@ -1,0 +1,61 @@
+@layer components {
+  /* ── Account Spend Cells: Borderless Recessed L2 Surface ── */
+  .spend-cell {
+    @apply rounded-lg bg-hud-surface-2 flex flex-col gap-[2px] min-w-0;
+    border: 1px solid transparent;
+    padding: 7px 9px;
+  }
+
+  /* ── Hatched Diagonal Runway Stripes (Quota Bar) ── */
+  .runway-hatch-safe {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--hud-ok) 46%, transparent),
+      color-mix(in srgb, var(--hud-ok) 46%, transparent) 3px,
+      color-mix(in srgb, var(--hud-ok) 14%, transparent) 3px,
+      color-mix(in srgb, var(--hud-ok) 14%, transparent) 6px
+    );
+  }
+  .runway-hatch-warn {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--hud-warn) 78%, transparent),
+      color-mix(in srgb, var(--hud-warn) 78%, transparent) 3px,
+      color-mix(in srgb, var(--hud-warn) 22%, transparent) 3px,
+      color-mix(in srgb, var(--hud-warn) 22%, transparent) 6px
+    );
+  }
+  .runway-hatch-bad {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--hud-bad) 82%, transparent),
+      color-mix(in srgb, var(--hud-bad) 82%, transparent) 3px,
+      color-mix(in srgb, var(--hud-bad) 24%, transparent) 3px,
+      color-mix(in srgb, var(--hud-bad) 24%, transparent) 6px
+    );
+  }
+
+  /* ── Borderless Heatmap Cells ── */
+  .heatmap-cell {
+    @apply rounded-[3px] aspect-square w-full transition-transform duration-100;
+  }
+  .heatmap-cell:hover {
+    transform: scale(1.18);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--hud-fg) 35%, transparent);
+  }
+  .heatmap-cell.lvl-0 {
+    background: var(--hud-fill);
+  }
+  .heatmap-cell.lvl-1 {
+    background: color-mix(in srgb, var(--hud-ok) 24%, var(--hud-fill));
+  }
+  .heatmap-cell.lvl-2 {
+    background: color-mix(in srgb, var(--hud-ok) 48%, var(--hud-fill));
+  }
+  .heatmap-cell.lvl-3 {
+    background: color-mix(in srgb, var(--hud-ok) 74%, var(--hud-fill));
+  }
+  .heatmap-cell.lvl-4 {
+    background: var(--hud-ok);
+  }
+}

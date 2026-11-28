@@ -21,8 +21,8 @@ import {
   panViewRange,
   percentile,
   zoomViewRange,
-} from '../../../../web/src/components/calls/trendMath.ts';
-import type { Compaction, Invocation } from '../../../../web/src/types/telemetry.ts';
+} from '../src/components/calls/trendMath.ts';
+import type { Compaction, Invocation } from '../src/types/telemetry.ts';
 
 function makeInv(overrides: Partial<Invocation> = {}): Invocation {
   const idx = overrides.idx ?? 0;

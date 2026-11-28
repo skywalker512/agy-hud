@@ -1,0 +1,394 @@
+@layer components {
+  /* ── Metric Tabs ── */
+  .metric-tabs {
+    @apply inline-flex flex-wrap p-[2px] rounded-[7px] bg-hud-tab-track gap-0.5;
+    border: 1px solid var(--hud-hairline);
+  }
+  .metric-tab {
+    @apply border-0 bg-transparent text-hud-muted font-hud font-medium px-[7px] py-[2.5px] rounded-[5px] cursor-pointer whitespace-nowrap transition-colors;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+  .metric-tab:hover {
+    @apply text-hud-fg;
+  }
+  .metric-tab.is-active {
+    @apply bg-hud-tab-active-bg text-hud-fg font-semibold;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  }
+
+  .chart-bar {
+    fill: var(--hud-accent);
+    opacity: 0.8;
+    transition: opacity 0.15s;
+  }
+  .chart-bar.latest {
+    fill: var(--hud-ok);
+    opacity: 1;
+  }
+  .chart-bar.ttft-fast {
+    fill: var(--seg-cache);
+    opacity: 0.85;
+  }
+  .chart-bar.ttft-mid {
+    fill: var(--hud-warn);
+    opacity: 0.88;
+  }
+  .chart-bar.ttft-slow {
+    fill: var(--hud-bad);
+    opacity: 0.9;
+  }
+  .chart-bar.out-vis {
+    fill: var(--seg-cache);
+    opacity: 0.85;
+  }
+  .chart-bar.out-thk {
+    fill: var(--seg-think);
+    opacity: 0.85;
+  }
+  .chart-bar.cache-good {
+    fill: var(--seg-cache);
+    opacity: 0.85;
+  }
+  .chart-bar.cache-mid {
+    fill: var(--hud-warn);
+    opacity: 0.88;
+  }
+  .chart-bar.cache-low {
+    fill: var(--hud-bad);
+    opacity: 0.9;
+  }
+  .chart-bar.ctx-bar {
+    fill: var(--seg-input);
+    opacity: 0.82;
+  }
+  .chart-bar.ctx-bar.latest {
+    fill: var(--seg-think);
+    opacity: 1;
+  }
+  .chart-bar:hover {
+    opacity: 1;
+  }
+
+  .trend-model-pill {
+    @apply inline-flex items-center gap-[5px] rounded-full px-[7px] py-[2px] font-hud leading-[1.35] text-hud-muted bg-hud-surface-2 cursor-pointer whitespace-nowrap transition-colors;
+    border: 1px solid transparent;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+  .trend-model-pill:hover {
+    @apply text-hud-fg;
+    background: color-mix(in srgb, var(--hud-fg) 7%, var(--hud-card));
+  }
+  .trend-model-pill.is-active {
+    @apply text-hud-fg font-semibold bg-hud-tab-active-bg;
+    border-color: var(--hud-tab-active-border);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  }
+
+  .filter-chip {
+    @apply rounded-full px-[7px] py-[1.5px] font-hud font-medium cursor-pointer whitespace-nowrap text-hud-muted bg-hud-surface-2 transition-colors border-0;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+  .filter-chip:hover {
+    @apply text-hud-fg;
+  }
+  .filter-chip.is-active {
+    @apply text-seg-think font-semibold;
+    background: var(--tint-think);
+  }
+
+  .turn-group {
+    @apply flex flex-col gap-1.5 min-w-0;
+  }
+  .turn-group + .turn-group {
+    margin-top: 4px;
+  }
+
+  .turn-divider {
+    @apply sticky z-[6] flex items-center gap-1.5 min-w-0 text-hud-muted font-hud-mono cursor-pointer select-none;
+    top: calc(var(--hud-sticky-h, 52px) - 1px);
+    margin: 0;
+    padding: 5px 0 4px;
+    background: linear-gradient(var(--hud-card), var(--hud-card)), var(--hud-bg);
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+  .turn-divider::before {
+    content: "";
+    width: 6px;
+    height: 1px;
+    flex-shrink: 0;
+    background: var(--hud-hairline);
+  }
+  .turn-divider::after {
+    content: "";
+    flex: 1;
+    min-width: 12px;
+    height: 1px;
+    background: var(--hud-hairline);
+  }
+  .turn-divider-badge {
+    @apply inline-flex items-center gap-[3px] shrink-0 px-1.5 py-[1px] rounded font-hud-mono font-semibold tracking-[0.02em] text-hud-accent-ink;
+    background: var(--tint-accent);
+  }
+  .turn-divider:hover .turn-divider-badge {
+    background: color-mix(in srgb, var(--hud-accent) 18%, transparent);
+  }
+  .turn-divider.is-compact-turn .turn-divider-badge {
+    @apply text-seg-think;
+    background: var(--tint-think);
+  }
+  .turn-divider.is-collapsed .turn-divider-badge {
+    @apply text-hud-muted bg-hud-fill;
+  }
+
+  /* ── Call History Rows: Borderless Recessed Wells ── */
+  .history-row {
+    @apply flex flex-col gap-1 rounded-lg bg-hud-surface-2 cursor-pointer transition-colors relative;
+    border: 1px solid transparent;
+    padding: 8px 10px;
+    font-size: calc(12px * var(--hud-font-scale, 1));
+    scroll-margin-top: calc(var(--hud-sticky-h, 52px) + 34px);
+  }
+  .history-row:hover {
+    background: color-mix(in srgb, var(--hud-fg) 6.5%, var(--hud-card));
+  }
+  .history-row.is-latest {
+    border-color: color-mix(in srgb, var(--hud-ok) 32%, transparent);
+  }
+  .history-row.is-live-call {
+    border-color: color-mix(in srgb, var(--hud-accent) 42%, transparent);
+    background: color-mix(in srgb, var(--hud-accent) 7%, var(--hud-surface-2));
+    cursor: default;
+  }
+  .history-row.is-compact {
+    border-color: color-mix(in srgb, var(--seg-think) 30%, transparent);
+    background: color-mix(in srgb, var(--seg-think) 6%, var(--hud-surface-2));
+  }
+  .history-row.is-compact:hover {
+    border-color: color-mix(in srgb, var(--seg-think) 48%, transparent);
+    background: color-mix(in srgb, var(--seg-think) 10%, var(--hud-surface-2));
+  }
+
+  .compact-pill {
+    @apply inline-flex items-center px-1.5 py-[1px] rounded-full font-hud font-semibold text-seg-think whitespace-nowrap;
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+    background: var(--tint-think);
+  }
+
+  .live-stage-pill {
+    @apply inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full font-hud font-semibold whitespace-nowrap;
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+  .live-stage-pill.wait {
+    @apply text-hud-warn;
+    background: var(--tint-warn);
+  }
+  .live-stage-pill.stream {
+    @apply text-hud-ok;
+    background: var(--tint-ok);
+  }
+  .live-stage-pill.compact {
+    @apply text-seg-think;
+    background: var(--tint-think);
+  }
+
+  .history-model {
+    @apply font-hud-mono text-hud-fg bg-hud-card rounded px-[5px] py-[1px] min-w-0 max-w-[168px] overflow-hidden text-ellipsis whitespace-nowrap;
+    border: 1px solid var(--hud-hairline);
+    font-size: calc(10.5px * var(--hud-font-scale, 1));
+  }
+
+  .history-content-block {
+    @apply bg-hud-card rounded-md flex flex-col gap-[3px];
+    border: 1px solid var(--hud-hairline);
+    padding: 6px 8px;
+  }
+  .history-content-label {
+    @apply font-hud font-semibold tracking-[0.03em] text-hud-accent-ink uppercase;
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+  .history-content-label.think {
+    @apply text-seg-think;
+  }
+  .history-content-label.reply {
+    @apply text-seg-cache;
+  }
+  .history-content-label.tool {
+    @apply text-seg-out;
+  }
+  .history-content-text {
+    @apply text-hud-fg font-hud leading-[1.48] whitespace-pre-wrap break-words max-h-[260px] overflow-y-auto;
+    font-size: calc(11.5px * var(--hud-font-scale, 1));
+  }
+
+  .row-latency-hairline {
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    bottom: 0;
+    height: 2px;
+    display: flex;
+    overflow: hidden;
+    border-radius: 0 0 6px 6px;
+    pointer-events: none;
+    opacity: 0.72;
+  }
+  .history-row:hover .row-latency-hairline {
+    opacity: 1;
+  }
+
+  .row-micro-pill {
+    @apply inline-flex items-center px-[4.5px] py-[0.5px] rounded font-hud-mono font-semibold leading-[1.35] whitespace-nowrap shrink-0 tabular-nums;
+    font-size: calc(9px * var(--hud-font-scale, 1));
+  }
+  .row-micro-pill.is-buf {
+    @apply text-hud-muted bg-hud-card;
+    border: 1px solid var(--hud-hairline);
+  }
+  .row-micro-pill.is-stall {
+    @apply text-hud-warn bg-tint-warn;
+  }
+  .row-micro-pill.is-turn {
+    @apply text-hud-accent-ink bg-tint-accent;
+  }
+
+  /* ── Tabbed Call Detail Inspector (De-boxed L2 Surface Wells) ── */
+  .insp-tab {
+    @apply border-0 bg-transparent text-hud-muted font-hud font-medium px-[5.5px] py-[2px] rounded-[4.5px] cursor-pointer inline-flex items-center gap-[3px] whitespace-nowrap transition-colors tabular-nums;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+  .insp-tab:hover {
+    @apply text-hud-fg;
+  }
+  .insp-tab.is-active {
+    @apply bg-hud-tab-active-bg text-hud-fg font-semibold;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  }
+
+  .insp-copy-btn {
+    @apply bg-hud-card text-hud-muted rounded-[5px] px-[5.5px] py-[2px] font-hud font-medium cursor-pointer whitespace-nowrap inline-flex items-center gap-[3px] transition-colors;
+    border: 1px solid var(--hud-hairline);
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+  .insp-copy-btn:hover {
+    @apply text-hud-fg;
+    border-color: color-mix(in srgb, var(--hud-fg) 22%, transparent);
+  }
+  .insp-copy-btn.is-copied {
+    @apply text-hud-ok bg-tint-ok;
+    border-color: transparent;
+  }
+
+  .insp-cell {
+    @apply rounded-md bg-hud-card flex flex-col gap-[2px] min-w-0 px-[8px] py-[6px];
+    border: 1px solid var(--hud-hairline);
+  }
+  .insp-cell-k {
+    @apply font-hud font-semibold uppercase text-hud-muted truncate tracking-[0.04em];
+    font-size: calc(9px * var(--hud-font-scale, 1));
+  }
+  .insp-cell-v {
+    @apply font-hud-mono font-bold text-hud-fg leading-[1.2] truncate tabular-nums;
+    font-size: calc(11px * var(--hud-font-scale, 1));
+  }
+  .insp-cell-sub {
+    @apply font-hud-mono text-hud-muted leading-[1.25] truncate tabular-nums;
+    font-size: calc(9.5px * var(--hud-font-scale, 1));
+  }
+
+  .insp-wf-seg.is-stall {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      var(--seg-out),
+      var(--seg-out) 4px,
+      color-mix(in srgb, var(--hud-bad) 75%, var(--seg-out)) 4px,
+      color-mix(in srgb, var(--hud-bad) 75%, var(--seg-out)) 8px
+    );
+  }
+
+  .insp-tool-pill {
+    @apply inline-flex items-center px-1.5 py-[1px] rounded font-hud-mono font-semibold text-hud-fg bg-tint-out;
+    font-size: calc(10.5px * var(--hud-font-scale, 1));
+  }
+
+  .insp-shimmer {
+    height: 44px;
+    border-radius: 6px;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--hud-fg) 4%, var(--hud-surface-2)) 25%,
+      color-mix(in srgb, var(--hud-fg) 9%, var(--hud-surface-2)) 50%,
+      color-mix(in srgb, var(--hud-fg) 4%, var(--hud-surface-2)) 75%
+    );
+    background-size: 200% 100%;
+    animation: hud-shimmer 1.3s ease-in-out infinite;
+  }
+
+  /* ── Call Explorer Toolbar ── */
+  .call-search-input {
+    @apply w-full rounded-md bg-hud-surface-2 text-hud-fg font-hud transition-colors py-[4.5px] pl-[24px] pr-[24px];
+    border: 1px solid transparent;
+    font-size: calc(11px * var(--hud-font-scale, 1));
+    scroll-margin-top: calc(var(--hud-sticky-h, 52px) + 12px);
+  }
+  .call-search-input::placeholder {
+    color: var(--hud-faint);
+  }
+  .call-search-input:focus {
+    border-color: color-mix(in srgb, var(--hud-accent) 55%, transparent);
+    background: var(--hud-card);
+  }
+
+  .anomaly-chip {
+    @apply inline-flex items-center gap-1 rounded-full px-[7px] py-[2px] font-hud font-medium cursor-pointer whitespace-nowrap transition-colors bg-hud-surface-2 text-hud-muted tabular-nums;
+    border: 1px solid transparent;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+  }
+  .anomaly-chip:hover {
+    @apply text-hud-fg;
+    background: color-mix(in srgb, var(--hud-fg) 7%, var(--hud-card));
+  }
+  .anomaly-chip.is-active {
+    @apply text-hud-fg bg-tint-accent font-semibold;
+  }
+  .anomaly-chip.is-warn.is-active {
+    @apply text-hud-warn bg-tint-warn;
+  }
+  .anomaly-chip.is-bad.is-active {
+    @apply text-hud-bad bg-tint-bad;
+  }
+  .anomaly-chip.is-think {
+    @apply text-seg-think bg-tint-think;
+  }
+  .anomaly-chip.is-think.is-active {
+    @apply text-hud-fg font-semibold;
+    background: color-mix(in srgb, var(--seg-think) 22%, var(--hud-card));
+    border-color: color-mix(in srgb, var(--seg-think) 42%, transparent);
+  }
+  .anomaly-chip.is-model {
+    @apply text-hud-accent-ink bg-tint-accent;
+  }
+}
+
+.call-log-scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--hud-muted) 40%, transparent) transparent;
+}
+.call-log-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.call-log-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.call-log-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--hud-muted) 35%, transparent);
+  border-radius: 999px;
+}
+.call-log-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--hud-muted) 60%, transparent);
+}
+.call-log-scroll .turn-divider {
+  top: -1px;
+}

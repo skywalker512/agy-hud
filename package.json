@@ -2,19 +2,25 @@
   "name": "agy-hud",
   "version": "1.2.0",
   "private": true,
-  "description": "AGY-HUD monorepo scripts for sidecar tests, UI/site builds, and Worker typecheck",
+  "description": "AGY-HUD monorepo: zero-dependency Antigravity sidecar plugin, Preact HUD UI, launch site, and Cloudflare Edge Worker",
+  "workspaces": [
+    "web",
+    "site",
+    "workers/gemini-pulse"
+  ],
   "scripts": {
     "test:sidecar": "node --test --experimental-strip-types plugin/sidecars/hud_panel/test/*.test.ts",
+    "test:web": "npm -w web run test",
     "test:worker": "node --test --experimental-strip-types workers/gemini-pulse/test/*.test.ts",
     "test:tools": "node --test tools/test/installer.test.mjs tools/test/trace.test.mjs",
-    "test": "npm run test:sidecar && npm run test:worker && npm run test:tools",
-    "typecheck:web": "npm --prefix web run typecheck",
-    "typecheck:site": "npm --prefix site run typecheck",
-    "typecheck:worker": "npm --prefix workers/gemini-pulse run typecheck",
-    "typecheck:sidecar": "npm --prefix plugin/sidecars/hud_panel run typecheck",
+    "test": "npm run test:sidecar && npm run test:web && npm run test:worker && npm run test:tools",
+    "typecheck:web": "npm -w web run typecheck",
+    "typecheck:site": "npm -w site run typecheck",
+    "typecheck:worker": "npm -w workers/gemini-pulse run typecheck",
+    "typecheck:sidecar": "tsc -p plugin/sidecars/hud_panel/tsconfig.json --noEmit",
     "typecheck": "npm run typecheck:web && npm run typecheck:site && npm run typecheck:worker && npm run typecheck:sidecar",
-    "build:ui": "npm --prefix web run build",
-    "build:site": "npm --prefix site run build",
+    "build:ui": "npm -w web run build",
+    "build:site": "npm -w site run build",
     "check": "npm run typecheck && npm test"
   }
 }

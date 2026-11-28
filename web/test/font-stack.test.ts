@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildHudFontStack } from '../../../../web/src/utils/fontStack.ts';
+import { buildHudFontStack } from '../src/utils/fontStack.ts';
 
 test('buildHudFontStack preserves official Antigravity Hub google-sans + system-ui order and appends CJK before sans-serif', () => {
   const input =

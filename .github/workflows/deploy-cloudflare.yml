@@ -7,6 +7,7 @@ on:
     paths:
       - 'site/**'
       - 'scripts/**'
+      - 'AGENTS.md'
       - 'plugin/sidecars/hud_panel/ui/**'
       - 'plugin/sidecars/hud_panel/lib/pulse-core.ts'
       - 'workers/gemini-pulse/**'
@@ -32,18 +33,13 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: |
-            site/package-lock.json
-            workers/gemini-pulse/package-lock.json
 
-      - name: Install & build static site
+      - name: Install workspace dependencies & build static site
         run: |
-          npm --prefix site ci
-          npm --prefix site run build
+          npm ci
+          npm run build:site
 
       - name: Deploy Worker + Static Assets to agy-hud.512.pub
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
         working-directory: workers/gemini-pulse
-        run: |
-          npm ci
-          npx wrangler deploy
+        run: npx wrangler deploy

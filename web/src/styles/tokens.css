@@ -1,0 +1,327 @@
+@theme {
+  --color-hud-bg: var(--hud-bg);
+  --color-hud-card: var(--hud-card);
+  --color-hud-surface-2: var(--hud-surface-2);
+  --color-hud-secondary: var(--hud-secondary);
+  --color-hud-muted-surface: var(--hud-muted-surface);
+  --color-hud-fg: var(--hud-fg);
+  --color-hud-fg-2: var(--hud-fg-2);
+  --color-hud-muted: var(--hud-muted);
+  --color-hud-faint: var(--hud-faint);
+  --color-hud-border: var(--hud-border);
+  --color-hud-hairline: var(--hud-hairline);
+  --color-hud-accent: var(--hud-accent);
+  --color-hud-accent-fg: var(--hud-accent-fg);
+  --color-hud-accent-ink: var(--hud-accent-ink);
+  --color-hud-fill: var(--hud-fill);
+  --color-hud-tab-track: var(--hud-tab-track);
+  --color-hud-tab-active-bg: var(--hud-tab-active-bg);
+  --color-hud-tab-active-border: var(--hud-tab-active-border);
+  --color-hud-ok: var(--hud-ok);
+  --color-hud-warn: var(--hud-warn);
+  --color-hud-bad: var(--hud-bad);
+  --color-seg-cache: var(--seg-cache);
+  --color-seg-input: var(--seg-input);
+  --color-seg-think: var(--seg-think);
+  --color-seg-out: var(--seg-out);
+  --color-seg-other: var(--seg-other);
+  --color-tint-ok: var(--tint-ok);
+  --color-tint-ok-border: var(--tint-ok-border);
+  --color-tint-warn: var(--tint-warn);
+  --color-tint-warn-border: var(--tint-warn-border);
+  --color-tint-bad: var(--tint-bad);
+  --color-tint-bad-border: var(--tint-bad-border);
+  --color-tint-accent: var(--tint-accent);
+  --color-tint-accent-border: var(--tint-accent-border);
+  --color-tint-think: var(--tint-think);
+  --color-tint-think-border: var(--tint-think-border);
+  --color-tint-out: var(--tint-out);
+  --color-tint-out-border: var(--tint-out-border);
+  --font-hud: var(--hud-font);
+  --font-hud-mono: var(--hud-mono);
+  --font-sans: var(--hud-font);
+  --font-mono: var(--hud-mono);
+}
+
+@layer base {
+  :root {
+    color-scheme: light dark;
+    --hud-bg: var(--background, #f6f7f9);
+    --hud-card: var(--card, #ffffff);
+    --hud-surface-2: color-mix(in srgb, var(--hud-fg) 3.4%, var(--hud-card));
+    --hud-secondary: var(--secondary, #e6e8ec);
+    --hud-muted-surface: var(--muted, #eff1f4);
+    --hud-fg: var(--foreground, #181a1f);
+    --hud-fg-2: var(--secondary-foreground, color-mix(in srgb, var(--hud-fg) 80%, var(--hud-bg)));
+    --hud-muted: var(--muted-foreground, #646c79);
+    --hud-faint: var(--placeholder, color-mix(in srgb, var(--hud-muted) 78%, var(--hud-bg)));
+    --hud-border: var(--card-border, var(--border, color-mix(in srgb, var(--hud-fg) 9%, transparent)));
+    --hud-hairline: color-mix(in srgb, var(--hud-fg) 6.5%, transparent);
+    --hud-accent: var(--primary, #3b82f6);
+    --hud-accent-fg: var(--primary-foreground, #ffffff);
+    --hud-accent-ink: var(--hud-accent);
+    --hud-fill: color-mix(in srgb, var(--hud-fg) 4%, transparent);
+    --hud-tab-track: color-mix(in srgb, var(--hud-fg) 4.5%, var(--hud-bg));
+    --hud-tab-active-bg: var(--hud-card);
+    --hud-tab-active-border: color-mix(in srgb, var(--hud-fg) 10%, transparent);
+
+    /* Refined semantic tokens: crisp emerald / amber / violet / coral */
+    --hud-ok: #0f8a5f;
+    --hud-warn: #b86e00;
+    --hud-bad: var(--error, #d1384b);
+    --seg-cache: var(--hud-ok);
+    --seg-input: var(--hud-accent);
+    --seg-think: #6f42d8;
+    --seg-out: #c97812;
+    --seg-other: color-mix(in srgb, var(--hud-muted) 84%, var(--hud-fg));
+
+    --tint-ok: color-mix(in srgb, var(--hud-ok) 11%, transparent);
+    --tint-ok-border: color-mix(in srgb, var(--hud-ok) 28%, transparent);
+    --tint-warn: color-mix(in srgb, var(--hud-warn) 12%, transparent);
+    --tint-warn-border: color-mix(in srgb, var(--hud-warn) 32%, transparent);
+    --tint-bad: color-mix(in srgb, var(--hud-bad) 11%, transparent);
+    --tint-bad-border: color-mix(in srgb, var(--hud-bad) 32%, transparent);
+    --tint-accent: color-mix(in srgb, var(--hud-accent) 11%, transparent);
+    --tint-accent-border: color-mix(in srgb, var(--hud-accent) 30%, transparent);
+    --tint-think: color-mix(in srgb, var(--seg-think) 11%, transparent);
+    --tint-think-border: color-mix(in srgb, var(--seg-think) 30%, transparent);
+    --tint-out: color-mix(in srgb, var(--seg-out) 11%, transparent);
+    --tint-out-border: color-mix(in srgb, var(--seg-out) 30%, transparent);
+
+    --hud-cjk: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC";
+    --hud-font: var(
+      --font-family,
+      var(
+        --ui-font-family,
+        var(
+          --vscode-font-family,
+          "Google Sans Flex",
+          "Google Sans",
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          "Helvetica Neue",
+          Arial,
+          var(--hud-cjk),
+          sans-serif
+        )
+      )
+    );
+    --hud-mono: var(
+      --editor-font-family,
+      var(
+        --monospace-font-family,
+        var(
+          --vscode-editor-font-family,
+          "Google Sans Code",
+          "JetBrains Mono",
+          SFMono-Regular,
+          Menlo,
+          Monaco,
+          Consolas,
+          "Liberation Mono",
+          var(--hud-cjk),
+          ui-monospace,
+          monospace
+        )
+      )
+    );
+    --hud-font-scale: 1;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --hud-bg: var(--background, #121316);
+      --hud-card: var(--card, #191a1e);
+      --hud-secondary: var(--secondary, #23252b);
+      --hud-muted-surface: var(--muted, #1d1e23);
+      --hud-fg: var(--foreground, #eaedf2);
+      --hud-muted: var(--muted-foreground, #8b92a0);
+      --hud-border: var(--card-border, var(--border, color-mix(in srgb, var(--hud-fg) 8%, transparent)));
+      --hud-hairline: color-mix(in srgb, var(--hud-fg) 7.5%, transparent);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --hud-surface-2: color-mix(in srgb, var(--hud-fg) 4.4%, var(--hud-card));
+    --hud-border: var(--card-border, var(--border, color-mix(in srgb, var(--hud-fg) 8%, transparent)));
+    --hud-hairline: color-mix(in srgb, var(--hud-fg) 7.5%, transparent);
+    --hud-ok: #34c78b;
+    --hud-warn: #eab308;
+    --hud-bad: var(--error, #ef6461);
+    --seg-cache: var(--hud-ok);
+    --seg-input: color-mix(in srgb, var(--hud-accent) 88%, var(--hud-fg));
+    --seg-think: #a78bfa;
+    --seg-out: #f59e0b;
+    --seg-other: color-mix(in srgb, var(--hud-muted) 86%, var(--hud-fg));
+    --tint-ok: color-mix(in srgb, var(--hud-ok) 13%, transparent);
+    --tint-ok-border: color-mix(in srgb, var(--hud-ok) 32%, transparent);
+    --tint-warn: color-mix(in srgb, var(--hud-warn) 14%, transparent);
+    --tint-warn-border: color-mix(in srgb, var(--hud-warn) 34%, transparent);
+    --tint-bad: color-mix(in srgb, var(--hud-bad) 13%, transparent);
+    --tint-bad-border: color-mix(in srgb, var(--hud-bad) 34%, transparent);
+    --tint-accent: color-mix(in srgb, var(--hud-accent) 14%, transparent);
+    --tint-accent-border: color-mix(in srgb, var(--hud-accent) 34%, transparent);
+    --tint-think: color-mix(in srgb, var(--seg-think) 14%, transparent);
+    --tint-think-border: color-mix(in srgb, var(--seg-think) 34%, transparent);
+    --tint-out: color-mix(in srgb, var(--seg-out) 13%, transparent);
+    --tint-out-border: color-mix(in srgb, var(--seg-out) 34%, transparent);
+    --hud-fill: color-mix(in srgb, var(--hud-fg) 5%, transparent);
+    --hud-tab-track: color-mix(in srgb, var(--hud-fg) 4%, var(--hud-bg));
+    --hud-tab-active-bg: color-mix(in srgb, var(--hud-fg) 8%, var(--hud-card));
+    --hud-tab-active-border: color-mix(in srgb, var(--hud-fg) 12%, transparent);
+  }
+
+  :root[data-contrast="strong"] {
+    --hud-surface-2: color-mix(in srgb, var(--hud-fg) 6.5%, var(--hud-card));
+    --hud-muted: color-mix(in srgb, var(--muted-foreground, #646c79) 60%, var(--hud-fg));
+    --hud-border: var(--card-border, var(--border, color-mix(in srgb, var(--hud-fg) 26%, transparent)));
+    --hud-hairline: color-mix(in srgb, var(--hud-fg) 22%, transparent);
+    --hud-fill: color-mix(in srgb, var(--hud-fg) 8%, transparent);
+    --hud-tab-track: color-mix(in srgb, var(--hud-fg) 7.5%, var(--hud-bg));
+    --hud-tab-active-bg: color-mix(in srgb, var(--hud-accent) 18%, var(--hud-card));
+    --hud-tab-active-border: color-mix(in srgb, var(--hud-accent) 72%, var(--hud-fg) 22%);
+    --tint-ok-border: color-mix(in srgb, var(--hud-ok) 58%, var(--hud-border));
+    --tint-warn-border: color-mix(in srgb, var(--hud-warn) 58%, var(--hud-border));
+    --tint-bad-border: color-mix(in srgb, var(--hud-bad) 58%, var(--hud-border));
+    --tint-accent-border: color-mix(in srgb, var(--hud-accent) 58%, var(--hud-border));
+    --tint-think-border: color-mix(in srgb, var(--seg-think) 58%, var(--hud-border));
+    --tint-out-border: color-mix(in srgb, var(--seg-out) 58%, var(--hud-border));
+  }
+
+  * {
+    box-sizing: border-box;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--hud-fg) 18%, transparent) transparent;
+  }
+
+  button:focus-visible,
+  select:focus-visible,
+  input:focus-visible,
+  a:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 1.5px solid var(--hud-accent);
+    outline-offset: 1px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--hud-accent) 26%, transparent);
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
+    background: var(--hud-bg);
+    color: var(--hud-fg);
+    font-family: var(--hud-font);
+    font-size: calc(13px * var(--hud-font-scale, 1));
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background: var(--hud-bg) !important;
+    color: var(--hud-fg) !important;
+    font-family: var(--hud-font) !important;
+    font-variant-ligatures: no-contextual;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92;
+    text-rendering: optimizeLegibility;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp,
+  .font-hud-mono {
+    font-variation-settings: normal;
+  }
+}
+
+@keyframes hud-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.42;
+    transform: scale(0.82);
+  }
+}
+
+@keyframes hud-stream-breathe {
+  0%,
+  100% {
+    opacity: 0.48;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
+@keyframes hud-jump-flash {
+  0% {
+    box-shadow: 0 0 0 2px var(--hud-accent), 0 0 12px color-mix(in srgb, var(--hud-accent) 38%, transparent);
+  }
+  65% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--hud-accent) 55%, transparent), 0 0 8px color-mix(in srgb, var(--hud-accent) 18%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@keyframes hud-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes hud-expand-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes hud-ttft-scan {
+  0% {
+    background-position: 180% 0;
+  }
+  100% {
+    background-position: -180% 0;
+  }
+}
+
+@keyframes hud-bar-pulse {
+  0%,
+  100% {
+    opacity: 0.98;
+  }
+  50% {
+    opacity: 0.56;
+  }
+}
+
+@keyframes hud-ttft-arrive {
+  0% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--hud-ok) 60%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
