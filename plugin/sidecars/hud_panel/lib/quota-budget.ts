@@ -242,9 +242,14 @@ function forEachPoolWindowCall(
   visit: (c: any) => void,
 ) {
   const activeAccountId = accountFilter?.activeAccountId || '';
+  const seenBotIds = new Set<string>();
   for (const s of summaries) {
     if (s.latestTsMs && s.latestTsMs < startMs) continue;
     for (const c of (s.recentCalls || [])) {
+      if (c.botId) {
+        if (seenBotIds.has(c.botId)) continue;
+        seenBotIds.add(c.botId);
+      }
       if (c.ts < startMs || c.ts > endMs) continue;
       if (poolKey !== 'other' && c.poolKey !== poolKey) continue;
       if (activeAccountId && isCallOwnedByOtherAccount(accountFilter?.fitStore, activeAccountId, c.ts, c.source)) {

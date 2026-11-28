@@ -606,4 +606,68 @@ export const en: Translations = {
     `Your 7d (${i.localBucketLabel}): P50 ${i.localP50} · P90 ${i.localP90}\n` +
     `Global 30m (${i.globalReq30m} reqs${i.globalAvgCtx ? `, avg ${i.globalAvgCtx}` : ''}): P50 ${i.globalP50} · P90 ${i.globalP90} · TPS ${i.globalTps} · Cache ${i.globalCache} · Up ${i.globalUptime}`,
   trendGlobalRef: (val) => `Global P50 ${val}`,
+
+  cacheDiagTag: (kind) => {
+    if (kind === 'side_cold') return 'Side Cold';
+    if (kind === 'sys_prefix_only') return 'Sys Only';
+    if (kind === 'partial_prefix') return 'Partial';
+    if (kind === 'ttl_expired') return 'Expired';
+    if (kind === 'revert_kept') return 'Revert ✓';
+    if (kind === 'revert_miss') return 'Revert Cold';
+    if (kind === 'gemini_2k_floor') return '2K Floor';
+    return '';
+  },
+  cacheDiagTip: ({ kind, cachedStr, prevStr, gapStr, costStr, sysPrefixOnly, sessionChanged, revertStep }) => {
+    if (kind === 'side_cold') {
+      return (
+        `Side (/btw) 1st-call cold start\n` +
+        `Side branches inject <side_question> + new Conversation ID${sessionChanged ? ' & new sessionID' : ''}, breaking parent prefix cache.\n` +
+        (sysPrefixOnly
+          ? `Only shared Tools + System Prompt prefix (${cachedStr}) hit; parent chat history (${prevStr}) missed.`
+          : `Parent history (${prevStr}) fully recomputed (${cachedStr} cached).`) +
+        `${costStr ? `\nExtra cold prefill cost: +${costStr}` : ''}`
+      );
+    }
+    if (kind === 'sys_prefix_only') {
+      return `Global System + Tools prefix hit (${cachedStr}), but conversation history (${prevStr}) missed.${gapStr ? `\nIdle gap: ${gapStr}` : ''}${costStr ? ` · Extra cost: +${costStr}` : ''}`;
+    }
+    if (kind === 'partial_prefix') {
+      return `Prefix-tree partial fallback: hit ${cachedStr} of ${prevStr} previous tokens.${gapStr ? `\nIdle gap: ${gapStr}` : ''}${costStr ? ` · Extra cost: +${costStr}` : ''}`;
+    }
+    if (kind === 'ttl_expired') {
+      return `Cache expired / evicted after ${gapStr || 'idle gap'} (same model & sessionID).\nPrevious ${prevStr} tokens recomputed.${costStr ? ` Extra cost: +${costStr}` : ''}`;
+    }
+    if (kind === 'revert_kept') {
+      return `Reverted to step #${revertStep ?? '?'} — prompt cache preserved!\nSame sessionID & unchanged prefix before revert point kept cache warm.${gapStr ? ` (gap ${gapStr})` : ''}`;
+    }
+    if (kind === 'revert_miss') {
+      return `Reverted to step #${revertStep ?? '?'} — cache expired before follow-up${gapStr ? ` (gap ${gapStr})` : ''}.${costStr ? `\nExtra cost: +${costStr}` : ''}`;
+    }
+    if (kind === 'gemini_2k_floor') {
+      return `Gemini implicit cache 2,048-token tail floor:\nWhen a follow-up adds <2,048 tokens, Gemini steps the cache boundary back by ~2,049 tokens so newInput stays ≥2,049. Cache is healthy — not a miss.`;
+    }
+    return '';
+  },
+  inheritedRowTag: 'Parent',
+  forkDividerText: (stepIdx, inheritedCalls, coldCostStr) =>
+    `Branched @ step #${stepIdx} · ${inheritedCalls} inherited${coldCostStr ? ` · 1st cold +${coldCostStr}` : ''}`,
+  forkDividerToggle: (showing, inheritedCalls) =>
+    showing ? `Hide ${inheritedCalls} parent` : `Show ${inheritedCalls} parent`,
+  forkDividerTip: (stepIdx, inheritedCalls, firstHitPct, coldCostStr) =>
+    `Side (/btw) conversation forked from parent at step #${stepIdx}\n${inheritedCalls} parent calls before fork are excluded from Side totals & global spend to avoid double-counting.\n1st side call cache: ${firstHitPct}${coldCostStr ? ` (cold penalty +${coldCostStr})` : ''}`,
+  revertDividerText: (stepIdx, count, kept, hitPct) =>
+    `Reverted to step #${stepIdx}${count > 1 ? ` (×${count})` : ''}${kept === true ? ` · Cache kept ${hitPct}` : kept === false ? ` · Cache expired` : ''}`,
+  revertDividerTip: (stepIdx, count, gapStr, hitPct, sessionKept) =>
+    `In-conversation undo/revert back to step #${stepIdx}${count > 1 ? ` (${count}×)` : ''}\nNext call cache: ${hitPct}${gapStr ? ` · Gap: ${gapStr}` : ''}${sessionKept !== null ? `\nsessionID preserved: ${sessionKept ? 'Yes' : 'No'}` : ''}`,
+  sideChildColdBadge: (firstHitPct, coldCostStr) =>
+    coldCostStr ? `1st ${firstHitPct} · +${coldCostStr}` : `1st ${firstHitPct}`,
+  sideChildTipLine: (ownCachePct, firstHitPct, coldCostStr, inheritedCalls) =>
+    `Side own cache: ${ownCachePct} · 1st call: ${firstHitPct}${coldCostStr ? ` (+${coldCostStr} cold)` : ''}${inheritedCalls > 0 ? ` · ${inheritedCalls} parent calls deduped` : ''}`,
+  cacheTtlSideColdSub: (count, costStr) =>
+    `${count} side fork cold${costStr ? ` (+${costStr})` : ''}`,
+  cacheTtlSideColdTip: (count, sysOnly, costStr) =>
+    `Side (/btw) 1st-call cold starts: ${count}${sysOnly > 0 ? ` (${sysOnly} hit ~16.9K global prefix only)` : ''}${costStr ? `\nExtra cold recompute API-eq cost: +${costStr}` : ''}\nExcluded from TTL survival curve so Side forks do not distort idle decay.`,
+  cacheTtlRevertSub: (kept, total) => `Reverts ${kept}/${total} kept`,
+  cacheTtlRevertTip: (kept, total, expired) =>
+    `In-conversation reverts: ${kept}/${total} preserved prompt cache (≥80% hit)${expired > 0 ? `\n${expired} missed due to idle TTL expiration` : ''}\nReverts keep the same sessionID and prefix, so cache stays warm.`,
 };

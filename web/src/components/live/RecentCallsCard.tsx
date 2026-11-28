@@ -4,7 +4,9 @@ import type {
   ActiveStep,
   CallDetailPayload,
   Compaction,
+  ForkInfo,
   Invocation,
+  RevertEvent,
   TurnSummary,
 } from '../../types/telemetry';
 import { CallLogCard } from '../calls/CallLogCard';
@@ -12,6 +14,8 @@ import { CallLogCard } from '../calls/CallLogCard';
 interface RecentCallsCardProps {
   invocations: Invocation[];
   compactions: Compaction[];
+  reverts?: RevertEvent[];
+  forkInfo?: ForkInfo | null;
   turns: TurnSummary[];
   activeStep: ActiveStep | null | undefined;
   serverTimeMs: number | undefined;
@@ -37,6 +41,8 @@ interface RecentCallsCardProps {
 export function RecentCallsCard({
   invocations,
   compactions,
+  reverts,
+  forkInfo,
   turns,
   activeStep,
   serverTimeMs,
@@ -74,6 +80,8 @@ export function RecentCallsCard({
       onViewAll={onViewAll}
       invocations={invocations}
       compactions={compactions}
+      reverts={reverts}
+      forkInfo={forkInfo}
       turns={turns}
       activeStep={activeStep}
       serverTimeMs={serverTimeMs}

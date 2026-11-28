@@ -583,4 +583,29 @@ export interface Translations {
   ttftVerdictHeadline: (verdict: string) => string;
   ttftBucketLabel: (bucket: 'hit' | 'miss' | 'all' | '<50k' | '50k-100k' | '100k-200k' | '>=200k') => string;
   trendGlobalRef: (val: string) => string;
+
+  // Cache diagnostics, Side fork & Revert timeline markers
+  cacheDiagTag: (kind: string) => string;
+  cacheDiagTip: (args: {
+    kind: string;
+    cachedStr: string;
+    prevStr: string;
+    gapStr: string;
+    costStr: string;
+    sysPrefixOnly?: boolean;
+    sessionChanged?: boolean;
+    revertStep?: number;
+  }) => string;
+  inheritedRowTag: string;
+  forkDividerText: (stepIdx: number, inheritedCalls: number, coldCostStr: string) => string;
+  forkDividerToggle: (showing: boolean, inheritedCalls: number) => string;
+  forkDividerTip: (stepIdx: number, inheritedCalls: number, firstHitPct: string, coldCostStr: string) => string;
+  revertDividerText: (stepIdx: number, count: number, kept: boolean | null, hitPct: string) => string;
+  revertDividerTip: (stepIdx: number, count: number, gapStr: string, hitPct: string, sessionKept: boolean | null) => string;
+  sideChildColdBadge: (firstHitPct: string, coldCostStr: string) => string;
+  sideChildTipLine: (ownCachePct: string, firstHitPct: string, coldCostStr: string, inheritedCalls: number) => string;
+  cacheTtlSideColdSub: (count: number, costStr: string) => string;
+  cacheTtlSideColdTip: (count: number, sysOnly: number, costStr: string) => string;
+  cacheTtlRevertSub: (kept: number, total: number) => string;
+  cacheTtlRevertTip: (kept: number, total: number, expired: number) => string;
 }

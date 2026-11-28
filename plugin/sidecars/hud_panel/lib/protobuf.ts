@@ -23,6 +23,14 @@ export interface UsageSubmsg {
   thinkingTokens: number;
   candidateTokens: number;
   botId: string;
+  sessionId: string;
+}
+
+export interface ParentReference {
+  parentTrajectoryId: string;
+  stepIndex: number | null;
+  isResetToStart: boolean;
+  parentCascadeId: string;
 }
 
 export function unescapePbtxtString(raw: string): string {
@@ -152,10 +160,22 @@ export function parseUsageSubmsg(buf: Uint8Array): UsageSubmsg {
     thinkingTokens: 0,
     candidateTokens: 0,
     botId: '',
+    sessionId: '',
   };
   for (const [fn, wt, val] of iterFields(buf)) {
     if (wt === 2 && fn === 7) {
       out.botId = Buffer.from(val).toString('utf8');
+      continue;
+    }
+    if (wt === 2 && fn === 8) {
+      let k = '';
+      let v = '';
+      for (const [sf, sw, sv] of iterFields(val)) {
+        if (sw !== 2) continue;
+        if (sf === 1) k = Buffer.from(sv).toString('utf8');
+        else if (sf === 2) v = Buffer.from(sv).toString('utf8');
+      }
+      if (k === 'sessionID' && v) out.sessionId = v;
       continue;
     }
     if (wt !== 0) continue;
@@ -168,6 +188,38 @@ export function parseUsageSubmsg(buf: Uint8Array): UsageSubmsg {
     else if (fn === 10) out.candidateTokens = n;
   }
   return out;
+}
+
+const PARENT_REF_MAX_VALID_STEP = 1_000_000_000n;
+
+export function parseParentReference(buf: Uint8Array): ParentReference {
+  let parentTrajectoryId = '';
+  let stepIndex: number | null = null;
+  let isResetToStart = false;
+  let parentCascadeId = '';
+
+  for (const [fn, wt, val] of iterFields(buf)) {
+    if (wt === 2 && fn === 1) {
+      const s = Buffer.from(val).toString('utf8');
+      if (UUID_RE.test(s)) parentTrajectoryId = s;
+    } else if (wt === 0 && fn === 2) {
+      if (val <= PARENT_REF_MAX_VALID_STEP) {
+        stepIndex = Number(val);
+      } else {
+        isResetToStart = true;
+      }
+    } else if (wt === 2 && fn === 6) {
+      const s = Buffer.from(val).toString('utf8');
+      if (UUID_RE.test(s)) parentCascadeId = s;
+    }
+  }
+
+  return {
+    parentTrajectoryId,
+    stepIndex,
+    isResetToStart,
+    parentCascadeId,
+  };
 }
 
 export function parseGenRow(idx: number, raw: Uint8Array) {
@@ -185,6 +237,8 @@ export function parseGenRow(idx: number, raw: Uint8Array) {
   let contextReported = 0;
   let contextLimit = 0;
   let lastStepIndex: number | null = null;
+  let cascadeId = '';
+  let trajectoryId = '';
   let parentCascadeId = '';
   let rootCascadeId = '';
   let subagentType = '';
@@ -226,6 +280,10 @@ export function parseGenRow(idx: number, raw: Uint8Array) {
         if (Number.isFinite(parsed)) lastStepIndex = parsed;
       } else if (k === 'model_enum' && v) {
         modelEnumName = v;
+      } else if (k === 'cascade_id' && UUID_RE.test(v)) {
+        cascadeId = v;
+      } else if (k === 'trajectory_id' && UUID_RE.test(v)) {
+        trajectoryId = v;
       } else if (k === 'parent_cascade_id' && UUID_RE.test(v)) {
         parentCascadeId = v;
       } else if (k === 'root_cascade_id' && UUID_RE.test(v)) {
@@ -258,6 +316,9 @@ export function parseGenRow(idx: number, raw: Uint8Array) {
     idx,
     lastStepIndex,
     botId: (primaryUsage && primaryUsage.botId) || (legacyUsage && legacyUsage.botId) || '',
+    sessionId: (primaryUsage && primaryUsage.sessionId) || (legacyUsage && legacyUsage.sessionId) || '',
+    cascadeId,
+    trajectoryId,
     modelEnum,
     model,
     modelId,

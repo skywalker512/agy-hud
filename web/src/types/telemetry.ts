@@ -24,12 +24,60 @@ export interface ToolCallItem {
 
 export type QuotaFitSource = 'fitted' | 'provisional' | 'prior';
 
+export type CacheDiagKind =
+  | 'side_cold'
+  | 'sys_prefix_only'
+  | 'partial_prefix'
+  | 'ttl_expired'
+  | 'revert_kept'
+  | 'revert_miss'
+  | 'gemini_2k_floor';
+
+export interface CacheDiagInfo {
+  kind: CacheDiagKind;
+  idleGapSec?: number;
+  prevPromptTokens?: number;
+  missCostUSD?: number;
+  sysPrefixOnly?: boolean;
+  sessionChanged?: boolean;
+  revertStepIdx?: number;
+}
+
+export interface RevertEvent {
+  stepIdx: number;
+  count: number;
+  afterGmIdx: number | null;
+  turnIndex: number | null;
+  timestampMs: number;
+  idleGapSec: number | null;
+  cacheHitPct: number | null;
+  cacheKept: boolean | null;
+  sessionKept: boolean | null;
+}
+
+export interface ForkInfo {
+  parentCascadeId: string;
+  forkStepIndex: number;
+  inheritedCalls: number;
+  ownCalls: number;
+  firstOwnGmIdx: number | null;
+  firstOwnCacheHitPct: number | null;
+  firstOwnCachedInput: number;
+  firstOwnTotalPrompt: number;
+  firstOwnColdCostUSD: number;
+  sysPrefixOnly: boolean;
+  sessionChanged: boolean;
+}
+
 export interface Invocation {
   idx: number;
   stepIdx: number | null;
   turnIndex: number | null;
   lastStepIndex: number | null;
   botId: string;
+  sessionId?: string;
+  isInherited?: boolean;
+  cacheDiag?: CacheDiagInfo;
   modelEnum: number | null;
   model: string;
   modelId: string;
@@ -116,6 +164,7 @@ export interface TurnSummary {
   promptFull?: string;
   hasFullPrompt?: boolean;
   isCompact?: boolean;
+  isInherited?: boolean;
   compactCount?: number;
   callCount: number;
   outputTokens: number;
@@ -192,6 +241,7 @@ export interface CurrentModelInfo {
 
 export interface TelemetrySummary {
   count: number;
+  inheritedCount?: number;
   userTurns: number;
   totalSteps: number;
   toolStepCount: number;
@@ -309,6 +359,10 @@ export interface ChildSessionItem {
   subagentType: string;
   title: string;
   calls: number;
+  inheritedCalls?: number;
+  ownCacheHitPct?: number | null;
+  firstOwnCacheHitPct?: number | null;
+  sideColdCostUSD?: number;
   outputTokens: number;
   costUSD: number;
   savedUSD: number;
@@ -670,6 +724,12 @@ export interface CacheTtlOverview {
   totalLongGapPairs: number;
   totalExpiredMisses: number;
   totalMissCostUSD: number;
+  sideColdStartCount?: number;
+  sideColdStartCostUSD?: number;
+  sideSysPrefixOnlyCount?: number;
+  revertTotalCount?: number;
+  revertKeptCount?: number;
+  revertExpiredCount?: number;
   models: CacheTtlModelSummary[];
   currentSession: CurrentSessionCachePrediction | null;
 }
@@ -902,6 +962,8 @@ export interface StatsSnapshot {
   activeStep?: ActiveStep | null;
   pendingCompact?: PendingCompact | null;
   compactions?: Compaction[];
+  reverts?: RevertEvent[];
+  forkInfo?: ForkInfo | null;
   turns?: TurnSummary[];
   contextBreakdown?: ContextBreakdown | null;
 }

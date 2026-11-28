@@ -30,6 +30,33 @@ export interface CacheGapSample {
   ts: number;
 }
 
+export interface SideColdStartSample {
+  key: string;
+  family: string;
+  idleGapSec: number;
+  prevPromptTokens: number;
+  cachedInput: number;
+  totalPromptTokens: number;
+  sysPrefixOnly: boolean;
+  sessionChanged: boolean;
+  coldCostUSD: number;
+  ts: number;
+}
+
+export interface RevertCacheSample {
+  key: string;
+  family: string;
+  revStep: number;
+  idleGapSec: number;
+  prevPromptTokens: number;
+  cachedInput: number;
+  totalPromptTokens: number;
+  retention: number;
+  hit: boolean;
+  sessionKept: boolean;
+  ts: number;
+}
+
 export interface CacheSurvivalParams {
   bgMissRate: number;
   t50Sec: number;
@@ -89,6 +116,12 @@ export interface CacheTtlOverview {
   totalLongGapPairs: number;
   totalExpiredMisses: number;
   totalMissCostUSD: number;
+  sideColdStartCount: number;
+  sideColdStartCostUSD: number;
+  sideSysPrefixOnlyCount: number;
+  revertTotalCount: number;
+  revertKeptCount: number;
+  revertExpiredCount: number;
   models: CacheTtlModelSummary[];
   currentSession: CurrentSessionCachePrediction | null;
 }
@@ -416,6 +449,7 @@ let cachedOverviewBase: Omit<CacheTtlOverview, 'currentSession'> | null = null;
 
 export function buildCacheTtlStats(summaries: any[]): Omit<CacheTtlOverview, 'currentSession'> {
   let rawCount = 0;
+  let extraCount = 0;
   let tsChecksum = 0;
   for (const s of summaries || []) {
     const arr = s?.cachePairs;
@@ -423,21 +457,46 @@ export function buildCacheTtlStats(summaries: any[]): Omit<CacheTtlOverview, 'cu
       rawCount += arr.length;
       tsChecksum += Number(s.latestTsMs || 0);
     }
+    if (Array.isArray(s?.sideColdStarts) && s.sideColdStarts.length) {
+      extraCount += s.sideColdStarts.length;
+      tsChecksum += Number(s.latestTsMs || 0);
+    }
+    if (Array.isArray(s?.revertCacheEvents) && s.revertCacheEvents.length) {
+      extraCount += s.revertCacheEvents.length;
+      tsChecksum += Number(s.latestTsMs || 0);
+    }
   }
-  const sig = `${(summaries || []).length}:${rawCount}:${tsChecksum}`;
+  const sig = `${(summaries || []).length}:${rawCount}:${extraCount}:${tsChecksum}`;
   if (cachedOverviewBase && cachedOverviewSig === sig) {
     return cachedOverviewBase;
   }
 
   const dedupByKey = new Map<string, CacheGapSample>();
+  const sideColdByKey = new Map<string, SideColdStartSample>();
+  const revertByKey = new Map<string, RevertCacheSample>();
   for (const s of summaries || []) {
     const arr = s?.cachePairs;
-    if (!Array.isArray(arr)) continue;
-    for (const pair of arr) {
-      if (!pair || !pair.family || pair.family === 'unknown') continue;
-      const k = pair.key || `${pair.family}:${pair.ts}:${pair.idleGapSec}:${pair.prevPromptTokens}`;
-      if (!dedupByKey.has(k)) {
-        dedupByKey.set(k, pair);
+    if (Array.isArray(arr)) {
+      for (const pair of arr) {
+        if (!pair || !pair.family || pair.family === 'unknown') continue;
+        const k = pair.key || `${pair.family}:${pair.ts}:${pair.idleGapSec}:${pair.prevPromptTokens}`;
+        if (!dedupByKey.has(k)) {
+          dedupByKey.set(k, pair);
+        }
+      }
+    }
+    if (Array.isArray(s?.sideColdStarts)) {
+      for (const sc of s.sideColdStarts) {
+        if (!sc) continue;
+        const k = sc.key || `${sc.family}:${sc.ts}:${sc.totalPromptTokens}`;
+        if (!sideColdByKey.has(k)) sideColdByKey.set(k, sc);
+      }
+    }
+    if (Array.isArray(s?.revertCacheEvents)) {
+      for (const rv of s.revertCacheEvents) {
+        if (!rv) continue;
+        const k = rv.key || `${rv.family}:${rv.ts}:${rv.revStep}`;
+        if (!revertByKey.has(k)) revertByKey.set(k, rv);
       }
     }
   }
@@ -470,11 +529,35 @@ export function buildCacheTtlStats(summaries: any[]): Omit<CacheTtlOverview, 'cu
 
   models.sort((a, b) => (b.sampleCount - a.sampleCount) || (b.longGapCount - a.longGapCount));
 
+  let sideColdStartCount = 0;
+  let sideColdStartCostUSD = 0;
+  let sideSysPrefixOnlyCount = 0;
+  for (const sc of sideColdByKey.values()) {
+    sideColdStartCount += 1;
+    if (Number.isFinite(sc.coldCostUSD) && sc.coldCostUSD > 0) sideColdStartCostUSD += sc.coldCostUSD;
+    if (sc.sysPrefixOnly) sideSysPrefixOnlyCount += 1;
+  }
+
+  let revertTotalCount = 0;
+  let revertKeptCount = 0;
+  let revertExpiredCount = 0;
+  for (const rv of revertByKey.values()) {
+    revertTotalCount += 1;
+    if (rv.hit) revertKeptCount += 1;
+    else if (rv.idleGapSec >= 300) revertExpiredCount += 1;
+  }
+
   const result: Omit<CacheTtlOverview, 'currentSession'> = {
     totalPairs,
     totalLongGapPairs,
     totalExpiredMisses,
     totalMissCostUSD: Number(totalMissCostUSD.toFixed(4)),
+    sideColdStartCount,
+    sideColdStartCostUSD: Number(sideColdStartCostUSD.toFixed(4)),
+    sideSysPrefixOnlyCount,
+    revertTotalCount,
+    revertKeptCount,
+    revertExpiredCount,
     models,
   };
   cachedOverviewSig = sig;

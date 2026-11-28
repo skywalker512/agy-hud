@@ -1,5 +1,5 @@
 import { readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
   ACTIVE_STEP_STATUSES,
@@ -12,15 +12,61 @@ import {
   UUID_RE,
 } from './constants.ts';
 import { getLsModelCatalogVersion } from './ls-client.ts';
-import { computeCallCost } from './pricing.ts';
+import { computeCallCost, resolveModelPricing } from './pricing.ts';
 import {
   parseCompactPayload,
   parseContextBreakdown,
   parseGenRow,
+  parseParentReference,
   parsePlannerPayload,
   parseStepMetadata,
   parseUserPromptPayload,
 } from './protobuf.ts';
+
+export type CacheDiagKind =
+  | 'side_cold'
+  | 'sys_prefix_only'
+  | 'partial_prefix'
+  | 'ttl_expired'
+  | 'revert_kept'
+  | 'revert_miss'
+  | 'gemini_2k_floor';
+
+export interface CacheDiagInfo {
+  kind: CacheDiagKind;
+  idleGapSec?: number;
+  prevPromptTokens?: number;
+  missCostUSD?: number;
+  sysPrefixOnly?: boolean;
+  sessionChanged?: boolean;
+  revertStepIdx?: number;
+}
+
+export interface RevertEvent {
+  stepIdx: number;
+  count: number;
+  afterGmIdx: number | null;
+  turnIndex: number | null;
+  timestampMs: number;
+  idleGapSec: number | null;
+  cacheHitPct: number | null;
+  cacheKept: boolean | null;
+  sessionKept: boolean | null;
+}
+
+export interface ForkInfo {
+  parentCascadeId: string;
+  forkStepIndex: number;
+  inheritedCalls: number;
+  ownCalls: number;
+  firstOwnGmIdx: number | null;
+  firstOwnCacheHitPct: number | null;
+  firstOwnCachedInput: number;
+  firstOwnTotalPrompt: number;
+  firstOwnColdCostUSD: number;
+  sysPrefixOnly: boolean;
+  sessionChanged: boolean;
+}
 
 const globalModelEnumCache = new Map<number, { model: string; modelId: string; modelDisplay: string }>();
 let lastCatalogScanMs = 0;
@@ -178,6 +224,48 @@ export function readTelemetry(dbPath: string, conversations: any[] = [], fallbac
       'SELECT idx, step_type, status, metadata, CASE WHEN step_type IN (14, 15, 23) OR status IN (1, 2) THEN step_payload ELSE NULL END AS step_payload FROM steps ORDER BY idx ASC'
     ).all();
 
+    let trajectoryType = 0;
+    let ownCascadeId = '';
+    const baseName = basename(String(dbPath || ''), '.db');
+    if (UUID_RE.test(baseName)) ownCascadeId = baseName;
+    try {
+      let tm: any;
+      try {
+        tm = db.prepare('SELECT trajectory_type, cascade_id FROM trajectory_meta LIMIT 1').get();
+      } catch {
+        tm = db.prepare('SELECT trajectory_type FROM trajectory_meta LIMIT 1').get();
+      }
+      if (tm && Number.isFinite(tm.trajectory_type)) trajectoryType = tm.trajectory_type;
+      if (tm && typeof tm.cascade_id === 'string' && UUID_RE.test(tm.cascade_id)) {
+        ownCascadeId = tm.cascade_id;
+      }
+    } catch { /* table missing */ }
+
+    let forkParentCascadeId = '';
+    let forkStepIndex: number | null = null;
+    const rawRevertCounts = new Map<number, number>();
+    try {
+      const prRows: any[] = db.prepare('SELECT data FROM parent_references ORDER BY idx ASC').all();
+      let lastExternalFork: { parentCascadeId: string; stepIndex: number } | null = null;
+      for (const pr of prRows) {
+        if (!pr?.data) continue;
+        const ref = parseParentReference(pr.data);
+        if (ref.parentCascadeId && ownCascadeId && ref.parentCascadeId !== ownCascadeId) {
+          if (ref.stepIndex !== null && ref.stepIndex >= 0) {
+            lastExternalFork = { parentCascadeId: ref.parentCascadeId, stepIndex: ref.stepIndex };
+          }
+        } else if (ref.parentCascadeId && ownCascadeId && ref.parentCascadeId === ownCascadeId) {
+          if (ref.stepIndex !== null && ref.stepIndex >= 0) {
+            rawRevertCounts.set(ref.stepIndex, (rawRevertCounts.get(ref.stepIndex) || 0) + 1);
+          }
+        }
+      }
+      if (trajectoryType === 22 && lastExternalFork) {
+        forkParentCascadeId = lastExternalFork.parentCascadeId;
+        forkStepIndex = lastExternalFork.stepIndex;
+      }
+    } catch { /* table missing */ }
+
     const plannerByStepIdx = new Map<number, any>();
     const plannerByGmIdx = new Map<number, any>();
     const plannerByBotId = new Map<string, any>();
@@ -216,6 +304,7 @@ export function readTelemetry(dbPath: string, conversations: any[] = [], fallbac
           promptPreview: prompt.preview,
           promptFull: prompt.full,
           isCompact: Boolean(prompt.isCompact),
+          isInherited: forkStepIndex !== null && s.idx <= forkStepIndex,
           compactCount: 0,
           callCount: 0,
           outputTokens: 0,
@@ -388,11 +477,17 @@ export function readTelemetry(dbPath: string, conversations: any[] = [], fallbac
         && (nonThinkTokens / toolGenSec) < 15
       );
 
+      const isInherited = forkStepIndex !== null && (
+        (resolvedStepIdx !== null && resolvedStepIdx <= forkStepIndex)
+        || Boolean(parsed.cascadeId && ownCascadeId && parsed.cascadeId !== ownCascadeId)
+      );
+
       invocations.push({
         ...parsed,
         stepIdx: resolvedStepIdx,
         turnIndex: turn ? turn.turnIndex : null,
         timestampMs,
+        isInherited,
         ...cost,
         thinkSec,
         toolGenSec,
@@ -537,6 +632,221 @@ export function readTelemetry(dbPath: string, conversations: any[] = [], fallbac
       };
     }
 
+    // Attach per-call cache diagnostics, build in-conversation revert markers, and fork metadata
+    const sortedRevertEntries = [...rawRevertCounts.entries()].sort((a, b) => a[0] - b[0]);
+    const revertAfterInvIdx = new Map<number, { revStep: number; count: number; beforeInv: any; afterInv: any }>();
+    const reverts: RevertEvent[] = [];
+
+    for (const [revStep, count] of sortedRevertEntries) {
+      let beforeInv: any = null;
+      let afterInv: any = null;
+      for (const inv of invocations) {
+        if (inv.stepIdx !== null && inv.stepIdx <= revStep) {
+          beforeInv = inv;
+        } else if (inv.stepIdx !== null && inv.stepIdx > revStep) {
+          afterInv = inv;
+          break;
+        }
+      }
+      const idleGapSec = (beforeInv?.timestampMs && afterInv?.timestampMs)
+        ? Math.max(0, Math.round((afterInv.timestampMs - beforeInv.timestampMs) / 1000))
+        : null;
+      const cacheHitPct = afterInv && afterInv.totalPromptTokens > 0 ? afterInv.cacheHitPct : null;
+      const cacheKept = cacheHitPct !== null ? cacheHitPct >= 80 : null;
+      const sessionKept = (beforeInv?.sessionId && afterInv?.sessionId)
+        ? beforeInv.sessionId === afterInv.sessionId
+        : null;
+      const turn = findTurnForStep(turns, afterInv?.stepIdx ?? revStep);
+      reverts.push({
+        stepIdx: revStep,
+        count,
+        afterGmIdx: afterInv ? afterInv.idx : null,
+        turnIndex: turn ? turn.turnIndex : null,
+        timestampMs: afterInv?.timestampMs || beforeInv?.timestampMs || 0,
+        idleGapSec,
+        cacheHitPct,
+        cacheKept,
+        sessionKept,
+      });
+      if (afterInv) {
+        revertAfterInvIdx.set(afterInv.idx, { revStep, count, beforeInv, afterInv });
+      }
+    }
+
+    const computeMissExtraUSD = (inv: any, prevPromptTokens: number) => {
+      const rates = resolveModelPricing(inv.modelId, inv.modelDisplay, inv.model, inv.timestampMs || fallbackTsMs);
+      if (!rates) return 0;
+      const uncached = Math.max(0, prevPromptTokens - (inv.cachedInput || 0));
+      return Number(((uncached * Math.max(0, rates.input - rates.cached)) / 1e6).toFixed(4));
+    };
+
+    let forkInfo: ForkInfo | null = null;
+    let firstOwnAfterForkIdx: number | null = null;
+    if (forkStepIndex !== null) {
+      const inheritedList = invocations.filter((x) => x.isInherited);
+      const ownList = invocations.filter((x) => !x.isInherited);
+      const lastInherited = inheritedList.length ? inheritedList[inheritedList.length - 1] : null;
+      const firstOwn = ownList.find((x) => x.totalPromptTokens > 0) || ownList[0] || null;
+      let coldCost = 0;
+      let sysPrefixOnly = false;
+      let sessionChanged = false;
+      if (firstOwn && lastInherited && lastInherited.totalPromptTokens > 2_000) {
+        firstOwnAfterForkIdx = firstOwn.idx;
+        const retention = firstOwn.cachedInput / lastInherited.totalPromptTokens;
+        sysPrefixOnly = firstOwn.cachedInput > 0 && firstOwn.cachedInput <= 20_000 && retention < 0.5;
+        sessionChanged = Boolean(lastInherited.sessionId && firstOwn.sessionId && lastInherited.sessionId !== firstOwn.sessionId);
+        if (retention < 0.5) {
+          coldCost = computeMissExtraUSD(firstOwn, lastInherited.totalPromptTokens);
+        }
+      }
+      forkInfo = {
+        parentCascadeId: forkParentCascadeId,
+        forkStepIndex,
+        inheritedCalls: inheritedList.length,
+        ownCalls: ownList.length,
+        firstOwnGmIdx: firstOwn ? firstOwn.idx : null,
+        firstOwnCacheHitPct: firstOwn ? firstOwn.cacheHitPct : null,
+        firstOwnCachedInput: firstOwn?.cachedInput || 0,
+        firstOwnTotalPrompt: firstOwn?.totalPromptTokens || 0,
+        firstOwnColdCostUSD: coldCost,
+        sysPrefixOnly,
+        sessionChanged,
+      };
+    }
+
+    for (let i = 0; i < invocations.length; i++) {
+      const inv = invocations[i];
+      if (inv.totalPromptTokens <= 0) continue;
+      const prev = i > 0 ? invocations[i - 1] : null;
+      const prevTotal = prev?.totalPromptTokens || 0;
+      const idleGapSec = (prev?.timestampMs && inv.timestampMs && inv.timestampMs >= prev.timestampMs)
+        ? Math.round((inv.timestampMs - prev.timestampMs) / 1000)
+        : undefined;
+      const sameModel = Boolean(prev && prev.model === inv.model);
+      const compactedBetween = Boolean(prev && compactions.some((cp) => (
+        (cp.afterGmIdx !== null && cp.afterGmIdx > prev.idx && cp.afterGmIdx <= inv.idx)
+        || (prev.stepIdx !== null && inv.stepIdx !== null && cp.stepIdx > prev.stepIdx && cp.stepIdx < inv.stepIdx)
+      )));
+
+      // 1. Side conversation first call after fork
+      if (firstOwnAfterForkIdx !== null && inv.idx === firstOwnAfterForkIdx && prev && prevTotal > 2_000) {
+        const retention = inv.cachedInput / prevTotal;
+        if (retention < 0.5) {
+          const sysPrefixOnly = inv.cachedInput > 0 && inv.cachedInput <= 20_000;
+          const sessionChanged = Boolean(prev.sessionId && inv.sessionId && prev.sessionId !== inv.sessionId);
+          inv.cacheDiag = {
+            kind: 'side_cold',
+            idleGapSec,
+            prevPromptTokens: prevTotal,
+            missCostUSD: computeMissExtraUSD(inv, prevTotal),
+            sysPrefixOnly,
+            sessionChanged,
+          };
+          continue;
+        }
+      }
+
+      // 2. First call right after an in-conversation revert
+      const revHit = revertAfterInvIdx.get(inv.idx);
+      if (revHit && !compactedBetween) {
+        const revPrevTotal = revHit.beforeInv?.totalPromptTokens || prevTotal;
+        if (inv.cacheHitPct !== null && inv.cacheHitPct >= 80) {
+          inv.cacheDiag = {
+            kind: 'revert_kept',
+            idleGapSec,
+            prevPromptTokens: revPrevTotal,
+            revertStepIdx: revHit.revStep,
+          };
+          continue;
+        }
+        if (revPrevTotal > 2_000) {
+          inv.cacheDiag = {
+            kind: 'revert_miss',
+            idleGapSec,
+            prevPromptTokens: revPrevTotal,
+            missCostUSD: computeMissExtraUSD(inv, revPrevTotal),
+            revertStepIdx: revHit.revStep,
+          };
+          continue;
+        }
+      }
+
+      if (!prev || prevTotal <= 2_000 || !sameModel || compactedBetween) continue;
+      const retention = inv.cachedInput / prevTotal;
+      const sessionChanged = Boolean(prev.sessionId && inv.sessionId && prev.sessionId !== inv.sessionId);
+
+      // 3. Global system+tools prefix only (~16.9K) when history missed
+      if (prevTotal > 25_000 && inv.cachedInput > 0 && inv.cachedInput <= 20_000 && retention < 0.5) {
+        inv.cacheDiag = {
+          kind: 'sys_prefix_only',
+          idleGapSec,
+          prevPromptTokens: prevTotal,
+          missCostUSD: computeMissExtraUSD(inv, prevTotal),
+          sysPrefixOnly: true,
+          sessionChanged,
+        };
+        continue;
+      }
+
+      // 4. TTL expired (full miss after >= 60s idle, same model & session)
+      if (inv.cachedInput === 0 && !sessionChanged && idleGapSec !== undefined && idleGapSec >= 60) {
+        inv.cacheDiag = {
+          kind: 'ttl_expired',
+          idleGapSec,
+          prevPromptTokens: prevTotal,
+          missCostUSD: computeMissExtraUSD(inv, prevTotal),
+        };
+        continue;
+      }
+
+      // 5. Prefix-tree partial fallback (hit > 20K but dropped < 80% of prev prompt)
+      if (prevTotal > 25_000 && inv.cachedInput > 20_000 && retention < 0.8) {
+        inv.cacheDiag = {
+          kind: 'partial_prefix',
+          idleGapSec,
+          prevPromptTokens: prevTotal,
+          missCostUSD: computeMissExtraUSD(inv, prevTotal),
+        };
+        continue;
+      }
+
+      // 6. Gemini ~2,048-token implicit cache tail floor (delta ≈ -2049 on short follow-ups)
+      const isGemini = /gemini|neon|hydrogen|carbon|argon|flash/i.test(`${inv.modelId} ${inv.modelDisplay} ${inv.model}`);
+      const deltaFromPrev = inv.cachedInput - prevTotal;
+      const promptGrowth = inv.totalPromptTokens - prevTotal;
+      if (
+        isGemini
+        && !sessionChanged
+        && inv.cachedInput > 0
+        && promptGrowth >= 0
+        && promptGrowth < 2_050
+        && deltaFromPrev <= -800
+        && deltaFromPrev >= -2_200
+        && inv.newInput >= 2_040
+        && inv.cacheHitPct !== null
+        && inv.cacheHitPct < 93
+      ) {
+        inv.cacheDiag = {
+          kind: 'gemini_2k_floor',
+          idleGapSec,
+          prevPromptTokens: prevTotal,
+        };
+      }
+    }
+
+    const summaryInvocations = forkStepIndex !== null
+      ? invocations.filter((x) => !x.isInherited)
+      : invocations;
+    const summaryCompactions = forkStepIndex !== null
+      ? compactions.filter((c) => c.stepIdx > forkStepIndex!)
+      : compactions;
+    const summaryUserTurns = forkStepIndex !== null
+      ? turns.filter((t) => !t.isInherited).length
+      : userTurns;
+    const inheritedCount = forkStepIndex !== null
+      ? invocations.length - summaryInvocations.length
+      : 0;
+
     let totalOutput = 0;
     let totalThinking = 0;
     let totalCandidate = 0;
@@ -554,7 +864,7 @@ export function readTelemetry(dbPath: string, conversations: any[] = [], fallbac
     let peakGenTps = 0;
     let latestSustained: any = null;
 
-    for (const inv of invocations) {
+    for (const inv of summaryInvocations) {
       totalOutput += inv.outputTokens;
       totalThinking += inv.thinkingTokens;
       totalCandidate += inv.candidateTokens;
@@ -577,7 +887,7 @@ export function readTelemetry(dbPath: string, conversations: any[] = [], fallbac
         if (inv.genTps > peakGenTps) peakGenTps = inv.genTps;
       }
     }
-    for (const c of compactions) {
+    for (const c of summaryCompactions) {
       if (c.priced) {
         pricedCount += 1;
         totalCostUSD += c.costUSD;
@@ -586,8 +896,8 @@ export function readTelemetry(dbPath: string, conversations: any[] = [], fallbac
       if (c.timestampMs > latestCallMs) latestCallMs = c.timestampMs;
     }
 
-    if (peakGenTps === 0 && invocations.length) {
-      peakGenTps = Math.max(...invocations.map((i) => i.e2eTps));
+    if (peakGenTps === 0 && summaryInvocations.length) {
+      peakGenTps = Math.max(...summaryInvocations.map((i) => i.e2eTps));
     }
     const avgE2eTps = totalE2eSec > 0 ? totalOutput / totalE2eSec : 0;
     const avgGenTps = sustainedGenSec > 0 ? (sustainedOutput / sustainedGenSec) : avgE2eTps;
@@ -595,7 +905,9 @@ export function readTelemetry(dbPath: string, conversations: any[] = [], fallbac
     const totalPrompt = totalCachedInput + totalNewInput;
     const avgCacheHitPct = totalPrompt > 0 ? (totalCachedInput / totalPrompt) * 100 : null;
     const totalToolSec = mergeIntervalDurationSec(toolIntervals);
-    const latest = invocations.length ? invocations[invocations.length - 1] : null;
+    const latest = summaryInvocations.length
+      ? summaryInvocations[summaryInvocations.length - 1]
+      : (invocations.length ? invocations[invocations.length - 1] : null);
     if (!latestCallMs && stepMetaList.length) {
       for (let i = stepMetaList.length - 1; i >= 0; i--) {
         const m = stepMetaList[i].meta;
@@ -634,8 +946,9 @@ export function readTelemetry(dbPath: string, conversations: any[] = [], fallbac
       latestSustained,
       currentModel,
       summary: {
-        count: invocations.length,
-        userTurns,
+        count: summaryInvocations.length,
+        inheritedCount,
+        userTurns: summaryUserTurns,
         totalSteps: stepRows.length,
         toolStepCount,
         totalOutput,
@@ -644,7 +957,7 @@ export function readTelemetry(dbPath: string, conversations: any[] = [], fallbac
         totalCachedInput,
         totalNewInput,
         avgCacheHitPct,
-        avgTtftSec: invocations.length > 0 ? totalTtftSec / invocations.length : 0,
+        avgTtftSec: summaryInvocations.length > 0 ? totalTtftSec / summaryInvocations.length : 0,
         totalModelSec: totalE2eSec,
         totalToolSec,
         avgGenTps,
@@ -664,6 +977,8 @@ export function readTelemetry(dbPath: string, conversations: any[] = [], fallbac
           }
         : null,
       compactions,
+      reverts,
+      forkInfo,
       turns,
       contextBreakdown,
     };
@@ -738,6 +1053,7 @@ export function createEmptyTelemetry() {
     currentModel: null,
     summary: {
       count: 0,
+      inheritedCount: 0,
       userTurns: 0,
       totalSteps: 0,
       toolStepCount: 0,
@@ -762,6 +1078,8 @@ export function createEmptyTelemetry() {
     activeStep: null,
     pendingCompact: null,
     compactions: [],
+    reverts: [],
+    forkInfo: null,
     turns: [],
     contextBreakdown: null,
   };

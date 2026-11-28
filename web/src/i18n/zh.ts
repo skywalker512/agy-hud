@@ -606,4 +606,68 @@ export const zh: Translations = {
     `你的 7d（${i.localBucketLabel}）：P50 ${i.localP50} · P90 ${i.localP90}\n` +
     `全球 30m（${i.globalReq30m} 次${i.globalAvgCtx ? `，均 ${i.globalAvgCtx}` : ''}）：P50 ${i.globalP50} · P90 ${i.globalP90} · 速度 ${i.globalTps} · 缓存 ${i.globalCache} · 可用 ${i.globalUptime}`,
   trendGlobalRef: (val) => `大盘 P50 ${val}`,
+
+  cacheDiagTag: (kind) => {
+    if (kind === 'side_cold') return 'Side 冷启';
+    if (kind === 'sys_prefix_only') return '仅系统前缀';
+    if (kind === 'partial_prefix') return '部分回退';
+    if (kind === 'ttl_expired') return '缓存过期';
+    if (kind === 'revert_kept') return '撤回续存';
+    if (kind === 'revert_miss') return '撤回过期';
+    if (kind === 'gemini_2k_floor') return '2K 尾窗';
+    return '';
+  },
+  cacheDiagTip: ({ kind, cachedStr, prevStr, gapStr, costStr, sysPrefixOnly, sessionChanged, revertStep }) => {
+    if (kind === 'side_cold') {
+      return (
+        `Side（/btw）首轮分叉冷启动\n` +
+        `Side 分支在系统提示词末尾注入了 <side_question> 并更换了 Conversation ID${sessionChanged ? ' 与 sessionID' : ''}，导致父对话历史前缀失效。\n` +
+        (sysPrefixOnly
+          ? `仅命中共享的 Tools + 系统提示词前缀（${cachedStr}），父对话聊天历史（${prevStr}）全部重算。`
+          : `父对话上下文（${prevStr}）全量重算（仅命中 ${cachedStr}）。`) +
+        `${costStr ? `\n冷启动额外重算成本：+${costStr}` : ''}`
+      );
+    }
+    if (kind === 'sys_prefix_only') {
+      return `仅命中全局 Tools + 系统提示词前缀（${cachedStr}），对话历史（${prevStr}）未命中。${gapStr ? `\n空闲间隔：${gapStr}` : ''}${costStr ? ` · 额外重算：+${costStr}` : ''}`;
+    }
+    if (kind === 'partial_prefix') {
+      return `前缀树部分回退：从上一轮 ${prevStr} tokens 回退命中至 ${cachedStr} tokens。${gapStr ? `\n空闲间隔：${gapStr}` : ''}${costStr ? ` · 额外重算：+${costStr}` : ''}`;
+    }
+    if (kind === 'ttl_expired') {
+      return `空闲 ${gapStr || '超时'} 后缓存过期/被驱逐（同模型且 sessionID 未变）。\n上一轮 ${prevStr} tokens 全量重算。${costStr ? `额外成本：+${costStr}` : ''}`;
+    }
+    if (kind === 'revert_kept') {
+      return `撤回至 step #${revertStep ?? '?'} 后成功续上缓存！\n撤回保留了原 sessionID 与撤回点之前的完整前缀。${gapStr ? `（间隔 ${gapStr}）` : ''}`;
+    }
+    if (kind === 'revert_miss') {
+      return `撤回至 step #${revertStep ?? '?'} 后未命中缓存（多因空闲超时${gapStr ? ` ${gapStr}` : ''}）。${costStr ? `\n额外重算：+${costStr}` : ''}`;
+    }
+    if (kind === 'gemini_2k_floor') {
+      return `Gemini 隐式缓存 ~2,048-token 尾部最小窗口：\n当本轮新增 <2,048 tokens 时，服务端将缓存边界向前退回约 2,049 tokens 以保持新输入 ≥2,049，属正常机制而非缓存失效。`;
+    }
+    return '';
+  },
+  inheritedRowTag: '父历史',
+  forkDividerText: (stepIdx, inheritedCalls, coldCostStr) =>
+    `自父对话 step #${stepIdx} 分叉 · ${inheritedCalls} 条父历史已去重${coldCostStr ? ` · 首轮冷启 +${coldCostStr}` : ''}`,
+  forkDividerToggle: (showing, inheritedCalls) =>
+    showing ? `收起 ${inheritedCalls} 条父历史` : `展开 ${inheritedCalls} 条父历史`,
+  forkDividerTip: (stepIdx, inheritedCalls, firstHitPct, coldCostStr) =>
+    `当前 Side（/btw）对话于父对话 step #${stepIdx} 处分叉\n分叉前继承的 ${inheritedCalls} 条父对话调用已从本会话统计与全局总账中剔除，避免重复计费。\nSide 首轮命中率：${firstHitPct}${coldCostStr ? `（冷启动多花 +${coldCostStr}）` : ''}`,
+  revertDividerText: (stepIdx, count, kept, hitPct) =>
+    `撤回至 step #${stepIdx}${count > 1 ? ` (×${count})` : ''}${kept === true ? ` · 缓存续上 ${hitPct}` : kept === false ? ` · 缓存已过期` : ''}`,
+  revertDividerTip: (stepIdx, count, gapStr, hitPct, sessionKept) =>
+    `会话内撤回消息并回退至 step #${stepIdx}${count > 1 ? `（共 ${count} 次）` : ''}\n撤回后首轮缓存命中：${hitPct}${gapStr ? ` · 间隔：${gapStr}` : ''}${sessionKept !== null ? `\nsessionID 保持不变：${sessionKept ? '是' : '否'}` : ''}`,
+  sideChildColdBadge: (firstHitPct, coldCostStr) =>
+    coldCostStr ? `首轮 ${firstHitPct} · +${coldCostStr}` : `首轮 ${firstHitPct}`,
+  sideChildTipLine: (ownCachePct, firstHitPct, coldCostStr, inheritedCalls) =>
+    `Side 纯新增缓存：${ownCachePct} · 首轮：${firstHitPct}${coldCostStr ? `（冷启 +${coldCostStr}）` : ''}${inheritedCalls > 0 ? ` · 已去重 ${inheritedCalls} 条父历史` : ''}`,
+  cacheTtlSideColdSub: (count, costStr) =>
+    `Side 冷启 ${count} 次${costStr ? ` (+${costStr})` : ''}`,
+  cacheTtlSideColdTip: (count, sysOnly, costStr) =>
+    `Side（/btw）首轮分叉冷启动共 ${count} 次${sysOnly > 0 ? `（其中 ${sysOnly} 次仅命中 ~16.9K 全局前缀）` : ''}${costStr ? `\n累计冷启动额外 API 等价成本：+${costStr}` : ''}\n已从上方 TTL 存活曲线中剔除，避免拉偏真实空闲衰减。`,
+  cacheTtlRevertSub: (kept, total) => `撤回续存 ${kept}/${total}`,
+  cacheTtlRevertTip: (kept, total, expired) =>
+    `会话内撤回消息共 ${total} 次，其中 ${kept} 次成功保住缓存（≥80% 命中）${expired > 0 ? `\n另有 ${expired} 次因空闲超时过期` : ''}\n撤回保留原 sessionID 与前缀，因此有效期内几乎无缓存损耗。`,
 };

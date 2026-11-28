@@ -4,11 +4,16 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  buildAccountHistory,
   buildCacheTtlOverview,
   buildCacheTtlStats,
+  buildSessionInfo,
   evalCacheSurvival,
   fitCacheSurvivalModel,
   getCacheTtlPrior,
+  getConversationGraph,
+  parseParentReference,
+  readTelemetry,
   solveTimeForSurvival,
   summarizeConversationDb,
 } from '../server.ts';
@@ -34,22 +39,27 @@ function writeTestDb(
   db.close();
 }
 
-function buildGenWithBotId(opts: Parameters<typeof buildGenMetadataBlob>[0] & { botId?: string }) {
-  const { botId, ...rest } = opts;
-  if (!botId) return buildGenMetadataBlob(rest);
-  const usage = Buffer.concat([
+function buildGenWithBotId(
+  opts: Parameters<typeof buildGenMetadataBlob>[0] & { botId?: string; sessionId?: string; lastStepIndex?: number; cascadeId?: string },
+) {
+  const { botId, sessionId, lastStepIndex, cascadeId, ...rest } = opts;
+  if (!botId && !sessionId && lastStepIndex === undefined && !cascadeId) return buildGenMetadataBlob(rest);
+  const usageParts = [
     vField(2, rest.newIn ?? 5_000),
     vField(3, rest.output ?? 244),
     vField(5, rest.cached ?? 100_000),
-    bField(7, botId),
-    vField(9, rest.thinking ?? 88),
-    vField(10, rest.candidate ?? 156),
-  ]);
+  ];
+  if (botId) usageParts.push(bField(7, botId));
+  if (sessionId) {
+    usageParts.push(bField(8, Buffer.concat([bField(1, 'sessionID'), bField(2, sessionId)])));
+  }
+  usageParts.push(vField(9, rest.thinking ?? 88), vField(10, rest.candidate ?? 156));
+  const usage = Buffer.concat(usageParts);
   const ctxInner = Buffer.concat([
     vField(1, rest.reportedCtx ?? ((rest.cached ?? 100_000) + (rest.newIn ?? 5_000))),
     vField(4, rest.ctxLimit ?? 512_000),
   ]);
-  const inner = Buffer.concat([
+  const innerParts: Buffer[] = [
     vField(3, rest.modelEnum ?? 1532),
     bField(4, usage),
     bField(9, bField(10, ctxInner)),
@@ -57,8 +67,14 @@ function buildGenWithBotId(opts: Parameters<typeof buildGenMetadataBlob>[0] & { 
     bField(12, durationMsg(rest.genSec ?? 3.0)),
     bField(19, rest.modelId ?? 'gemini-4-neon'),
     bField(21, rest.modelDisplay ?? 'Gemini 4 Neon'),
-  ]);
-  return bField(1, inner);
+  ];
+  if (lastStepIndex !== undefined) {
+    innerParts.push(bField(20, Buffer.concat([bField(1, 'last_step_index'), bField(2, String(lastStepIndex))])));
+  }
+  if (cascadeId) {
+    innerParts.push(bField(20, Buffer.concat([bField(1, 'cascade_id'), bField(2, cascadeId)])));
+  }
+  return bField(1, Buffer.concat(innerParts));
 }
 
 test('evalCacheSurvival and solveTimeForSurvival are monotonic and invert accurately', () => {
@@ -284,6 +300,160 @@ test('summarizeConversationDb extracts clean cache pairs, excludes compactions/s
     // 0.57 * beta(2.0) = 1.14% 5h quota
     assert.ok(overview.currentSession.missPenaltyQuota5hPct !== null);
     assert.ok(Math.abs(overview.currentSession.missPenaltyQuota5hPct - 1.14) < 0.05);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Side-Q fork deduplicates inherited calls, isolates cold start from TTL, and tracks reverts + Gemini 2K floor', () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'agy-hud-side-revert-'));
+  try {
+    const parentId = '11111111-1111-4111-8111-111111111111';
+    const sideId = '22222222-2222-4222-8222-222222222222';
+    const oldTrajId = '33333333-3333-4333-8333-333333333333';
+    const parentDbPath = join(tmpDir, `${parentId}.db`);
+    const sideDbPath = join(tmpDir, `${sideId}.db`);
+    const t0 = 1_760_100_000;
+
+    // Verify parseParentReference handles valid step and u64(-1) reset sentinel
+    const validRef = parseParentReference(Buffer.concat([bField(1, oldTrajId), vField(2, 5), bField(6, parentId)]));
+    assert.equal(validRef.parentTrajectoryId, oldTrajId);
+    assert.equal(validRef.stepIndex, 5);
+    assert.equal(validRef.isResetToStart, false);
+    assert.equal(validRef.parentCascadeId, parentId);
+
+    const resetRef = parseParentReference(Buffer.concat([bField(1, oldTrajId), vField(2, 18446744073709551615n), bField(6, parentId)]));
+    assert.equal(resetRef.stepIndex, null);
+    assert.equal(resetRef.isResetToStart, true);
+
+    // Parent DB: 4 calls with a revert at step 5 (between gm#1 step=5 and gm#2 step=7) and a Gemini 2K tail floor at gm#3
+    const pDb = createSchema(parentDbPath);
+    pDb.prepare('INSERT INTO trajectory_meta (trajectory_type) VALUES (?)').run(4);
+    pDb.prepare('INSERT INTO parent_references (idx, data) VALUES (?, ?)').run(
+      0,
+      Buffer.concat([bField(1, oldTrajId), vField(2, 5), bField(6, parentId)]),
+    );
+    const parentRows = [
+      // gm#0 step=1: initial 20k
+      { idx: 0, stepIdx: 1, cSec: t0, dSec: t0 + 5, cached: 0, newIn: 20_000, botId: 'p-bot-0', sess: 'sess-parent' },
+      // gm#1 step=5: normal hit 20001 + 2500 = 22501
+      { idx: 1, stepIdx: 5, cSec: t0 + 25, dSec: t0 + 30, cached: 20_001, newIn: 2_500, botId: 'p-bot-1', sess: 'sess-parent' },
+      // gm#2 step=7: after revert to step 5 (gap=80s), same sessionID -> 91.6% cache kept! (22502 + 2050 = 24552)
+      { idx: 2, stepIdx: 7, cSec: t0 + 110, dSec: t0 + 115, cached: 22_502, newIn: 2_050, botId: 'p-bot-2', sess: 'sess-parent' },
+      // gm#3 step=9: short follow-up (+900 tokens < 2048) -> Gemini 2K tail floor: cached = 24552 - 2049 = 22503, new = 2949 (hit=88.4%)
+      { idx: 3, stepIdx: 9, cSec: t0 + 135, dSec: t0 + 140, cached: 22_503, newIn: 2_949, botId: 'p-bot-3', sess: 'sess-parent' },
+    ];
+    for (const r of parentRows) {
+      pDb.prepare('INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, 15, 3, ?, NULL)').run(
+        r.stepIdx,
+        buildStepMetadata({ createdSec: r.cSec, completedSec: r.dSec, gmIdx: r.idx }),
+      );
+      pDb.prepare('INSERT INTO gen_metadata (idx, data) VALUES (?, ?)').run(
+        r.idx,
+        buildGenWithBotId({
+          botId: r.botId,
+          sessionId: r.sess,
+          lastStepIndex: r.stepIdx - 1,
+          cascadeId: parentId,
+          modelId: 'gemini-4-neon',
+          modelDisplay: 'Gemini 4 Neon',
+          cached: r.cached,
+          newIn: r.newIn,
+        }),
+      );
+    }
+    pDb.close();
+
+    // Side DB: copies parent's 4 calls up to step 9 (forkStepIndex = 9), then adds 2 own calls:
+    //   gm#4 (step=11, gap=20s): 1st own call -> new sessionID, hits only 16,989 global prefix out of 180k (side_cold!)
+    //   gm#5 (step=13, gap=15s): 2nd own call -> 98% hit inside side conversation
+    const sDb = createSchema(sideDbPath);
+    sDb.prepare('INSERT INTO trajectory_meta (trajectory_type) VALUES (?)').run(22);
+    sDb.prepare('INSERT INTO parent_references (idx, data) VALUES (?, ?)').run(
+      0,
+      Buffer.concat([bField(1, oldTrajId), vField(2, 9), bField(6, parentId)]),
+    );
+    const sideRows = [
+      ...parentRows.slice(0, 3),
+      { idx: 3, stepIdx: 9, cSec: t0 + 135, dSec: t0 + 140, cached: 170_000, newIn: 10_000, botId: 'p-bot-3', sess: 'sess-parent', cascade: parentId },
+      { idx: 4, stepIdx: 11, cSec: t0 + 160, dSec: t0 + 168, cached: 16_989, newIn: 165_011, botId: 's-bot-4', sess: 'sess-side', cascade: sideId },
+      { idx: 5, stepIdx: 13, cSec: t0 + 183, dSec: t0 + 189, cached: 182_001, newIn: 3_000, botId: 's-bot-5', sess: 'sess-side', cascade: sideId },
+    ];
+    for (const r of sideRows) {
+      sDb.prepare('INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, 15, 3, ?, NULL)').run(
+        r.stepIdx,
+        buildStepMetadata({ createdSec: r.cSec, completedSec: r.dSec, gmIdx: r.idx }),
+      );
+      sDb.prepare('INSERT INTO gen_metadata (idx, data) VALUES (?, ?)').run(
+        r.idx,
+        buildGenWithBotId({
+          botId: r.botId,
+          sessionId: r.sess,
+          lastStepIndex: r.stepIdx - 1,
+          cascadeId: (r as any).cascade || parentId,
+          modelId: 'gemini-4-neon',
+          modelDisplay: 'Gemini 4 Neon',
+          cached: r.cached,
+          newIn: r.newIn,
+        }),
+      );
+    }
+    sDb.close();
+
+    const convList = [
+      { id: sideId, dbPath: sideDbPath, annoPath: '', key: 'sk', annoKey: 'sa', updatedMs: (t0 + 200) * 1000, dbMtimeMs: (t0 + 200) * 1000 },
+      { id: parentId, dbPath: parentDbPath, annoPath: '', key: 'pk', annoKey: 'pa', updatedMs: (t0 + 140) * 1000, dbMtimeMs: (t0 + 140) * 1000 },
+    ];
+
+    const graph = getConversationGraph(convList, { syncAll: true });
+    const pSum = graph.byId.get(parentId);
+    const sSum = graph.byId.get(sideId);
+
+    // Side DB must only count its 2 own calls (4 inherited calls deduplicated!)
+    assert.equal(pSum.calls, 4);
+    assert.equal(sSum.calls, 2);
+    assert.equal(sSum.inheritedCalls, 4);
+    assert.equal(sSum.forkStepIndex, 9);
+    assert.ok(sSum.firstOwnCacheHitPct !== null && sSum.firstOwnCacheHitPct < 10);
+    assert.ok(sSum.sideColdCostUSD > 0.4, `expected side cold penalty > $0.40, got ${sSum.sideColdCostUSD}`);
+
+    // Account history & session tree totals must sum 4 + 2 = 6 calls (zero double-counting!)
+    const hist = buildAccountHistory(graph, (t0 + 300) * 1000);
+    assert.equal(hist.totalCalls, 6);
+    const pSession = buildSessionInfo(parentId, graph);
+    assert.equal(pSession.treeTotals.calls, 6);
+    assert.equal(pSession.childSessions[0].calls, 2);
+    assert.equal(pSession.childSessions[0].inheritedCalls, 4);
+
+    // Cache TTL stats: Side cold start MUST NOT pollute <1m cachePairs, and MUST be tracked separately alongside reverts!
+    const ttlStats = buildCacheTtlStats(graph.summaries);
+    // Parent has 3 valid pairs (#0->#1, #1->#2, #2->#3), Side has 1 valid own pair (#4->#5) -> total 4 pairs, ALL hits!
+    assert.equal(ttlStats.totalPairs, 4);
+    assert.equal(ttlStats.models[0].missCount, 0);
+    assert.equal(ttlStats.sideColdStartCount, 1);
+    assert.equal(ttlStats.sideSysPrefixOnlyCount, 1);
+    assert.ok(ttlStats.sideColdStartCostUSD > 0.4);
+    assert.equal(ttlStats.revertTotalCount, 1);
+    assert.equal(ttlStats.revertKeptCount, 1);
+
+    // readTelemetry diagnostics: parent sees revert_kept & gemini_2k_floor; side sees forkInfo, inherited flag, own-only summary, & side_cold!
+    const pTel = readTelemetry(parentDbPath, convList, (t0 + 140) * 1000);
+    assert.equal(pTel.reverts.length, 1);
+    assert.equal(pTel.reverts[0].stepIdx, 5);
+    assert.equal(pTel.reverts[0].cacheKept, true);
+    assert.equal(pTel.invocations[2].cacheDiag?.kind, 'revert_kept');
+    assert.equal(pTel.invocations[3].cacheDiag?.kind, 'gemini_2k_floor');
+
+    const sTel = readTelemetry(sideDbPath, convList, (t0 + 200) * 1000);
+    assert.equal(sTel.summary.count, 2);
+    assert.equal(sTel.summary.inheritedCount, 4);
+    assert.ok(sTel.forkInfo);
+    assert.equal(sTel.forkInfo.forkStepIndex, 9);
+    assert.equal(sTel.forkInfo.sysPrefixOnly, true);
+    assert.equal(sTel.forkInfo.sessionChanged, true);
+    assert.equal(sTel.invocations[3].isInherited, true);
+    assert.equal(sTel.invocations[4].isInherited, false);
+    assert.equal(sTel.invocations[4].cacheDiag?.kind, 'side_cold');
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
   }

@@ -13,6 +13,7 @@ import type {
   TelemetrySummary,
 } from '../../types/telemetry';
 import {
+  fmtCachePct,
   fmtClock,
   fmtNum,
   fmtUsd,
@@ -190,7 +191,22 @@ function SwarmMemberRow({ item: c, boardSeq, sw, t, onJumpConversation }: Member
     const lbl = c.title || sw.subagentRoleFallback(c.subagentType, c.id.slice(0, 8));
     const fullMeta = t.linkedMeta(c.calls || 0, fmtNum(c.outputTokens || 0), costStr, qStr);
     const statusLabel = isRunning ? t.childRunningBadge(c.activeKind) : t.childFinishedBadge;
-    const rowTip = [`${lbl} · ${statusLabel}`, tip].filter(Boolean).join('\n\n');
+    const isSide = c.kind === 'side_question';
+    const hasSideCold = isSide && (
+      (typeof c.firstOwnCacheHitPct === 'number' && c.firstOwnCacheHitPct < 50)
+      || (typeof c.sideColdCostUSD === 'number' && c.sideColdCostUSD >= 0.005)
+    );
+    const coldCostStr = c.sideColdCostUSD && c.sideColdCostUSD >= 0.005 ? fmtUsd(c.sideColdCostUSD) : '';
+    const firstHitStr = fmtCachePct(c.firstOwnCacheHitPct ?? null);
+    const sideTipLine = isSide && (c.ownCacheHitPct != null || c.inheritedCalls)
+      ? t.sideChildTipLine(
+          fmtCachePct(c.ownCacheHitPct ?? null),
+          firstHitStr,
+          coldCostStr,
+          c.inheritedCalls || 0,
+        )
+      : '';
+    const rowTip = [`${lbl} · ${statusLabel}`, sideTipLine, tip].filter(Boolean).join('\n\n');
     return (
       <button
         type="button"
@@ -239,7 +255,14 @@ function SwarmMemberRow({ item: c, boardSeq, sw, t, onJumpConversation }: Member
           </span>
         </div>
         <div className="flex items-center justify-between gap-2 font-hud-mono text-[10px] text-hud-muted tabular-nums pl-[13px]">
-          <span className="truncate">{fullMeta}</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="truncate">{fullMeta}</span>
+            {hasSideCold && (
+              <span className="px-1 py-[0.5px] rounded font-hud-mono text-[9px] font-semibold text-hud-warn bg-tint-warn shrink-0 whitespace-nowrap">
+                {t.sideChildColdBadge(firstHitStr, coldCostStr)}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1.5 shrink-0 text-hud-faint">
             {!isRunning && <span className="font-hud text-[9.5px] text-hud-muted/80">{t.childFinishedBadge}</span>}
             {clockStr && <span>{clockStr}</span>}

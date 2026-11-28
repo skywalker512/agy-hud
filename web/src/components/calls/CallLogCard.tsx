@@ -5,14 +5,16 @@ import type {
   ActiveStep,
   CallDetailPayload,
   Compaction,
+  ForkInfo,
   Invocation,
   Lang,
+  RevertEvent,
   StatsSnapshot,
   TurnSummary,
 } from '../../types/telemetry';
 import { copyText } from '../../utils/clipboard';
 import { downloadOrCopyJson, formatSessionJson, formatSessionMarkdown } from '../../utils/exportReport';
-import { formatModelTag } from '../../utils/format';
+import { fmtCachePct, fmtTtlDuration, fmtUsd, formatModelTag } from '../../utils/format';
 import { FixedPopover } from '../common/FixedPopover';
 import {
   IconArrowRight,
@@ -39,6 +41,8 @@ export interface JumpRequest {
 export interface CallLogCardProps {
   invocations: Invocation[];
   compactions: Compaction[];
+  reverts?: RevertEvent[];
+  forkInfo?: ForkInfo | null;
   turns: TurnSummary[];
   activeStep: ActiveStep | null | undefined;
   serverTimeMs: number | undefined;
@@ -117,6 +121,8 @@ function matchesSearch(
 export function CallLogCard({
   invocations,
   compactions,
+  reverts = [],
+  forkInfo = null,
   turns,
   activeStep,
   serverTimeMs,
@@ -156,8 +162,26 @@ export function CallLogCard({
   const isFull = !isRecent;
   const isCollapsible = typeof onToggleOpen === 'function';
   const isOpen = isCollapsible ? Boolean(open) : true;
-  const timelineDesc = useMemo(() => buildTimelineDesc(invocations, compactions), [invocations, compactions]);
-  const revCompacts = useMemo(() => [...compactions].reverse(), [compactions]);
+  const [showInherited, setShowInherited] = useState(false);
+  const hasInheritedFork = Boolean(forkInfo && forkInfo.inheritedCalls > 0);
+  const effectiveInvocations = useMemo(() => {
+    if (!hasInheritedFork || showInherited) return invocations;
+    const own = invocations.filter((r) => !r.isInherited);
+    return own.length > 0 ? own : invocations;
+  }, [hasInheritedFork, showInherited, invocations]);
+  const effectiveCompactions = useMemo(() => {
+    if (!hasInheritedFork || showInherited || !forkInfo) return compactions;
+    return compactions.filter((c) => c.stepIdx > forkInfo.forkStepIndex);
+  }, [hasInheritedFork, showInherited, compactions, forkInfo]);
+  const effectiveReverts = useMemo(() => {
+    if (!hasInheritedFork || showInherited || !forkInfo) return reverts;
+    return reverts.filter((rv) => rv.stepIdx > forkInfo.forkStepIndex);
+  }, [hasInheritedFork, showInherited, reverts, forkInfo]);
+  const timelineDesc = useMemo(
+    () => buildTimelineDesc(effectiveInvocations, effectiveCompactions, effectiveReverts, hasInheritedFork ? forkInfo : null),
+    [effectiveInvocations, effectiveCompactions, effectiveReverts, hasInheritedFork, forkInfo],
+  );
+  const revCompacts = useMemo(() => [...effectiveCompactions].reverse(), [effectiveCompactions]);
   const limit = initialLimit ?? (isRecent ? 6 : 40);
   const cardTitle = title ?? (isRecent ? t.recentTitle : t.histTitle);
 
@@ -183,6 +207,7 @@ export function CallLogCard({
     setLowCacheOnly(false);
     setStallBufOnly(false);
     setHighlightedIdx(null);
+    setShowInherited(false);
   }, [convId]);
 
   useEffect(() => {
@@ -208,9 +233,9 @@ export function CallLogCard({
 
   // Anomaly counts computed over model-scoped invocations
   const modelScopedInvs = useMemo(() => {
-    if (!isFull || !activeModelFilter) return invocations;
-    return invocations.filter((r) => getModelKey(r) === activeModelFilter);
-  }, [isFull, invocations, activeModelFilter]);
+    if (!isFull || !activeModelFilter) return effectiveInvocations;
+    return effectiveInvocations.filter((r) => getModelKey(r) === activeModelFilter);
+  }, [isFull, effectiveInvocations, activeModelFilter]);
 
   const anomalyCounts = useMemo(() => {
     let slowTtft = 0;
@@ -244,7 +269,7 @@ export function CallLogCard({
   // Filtered & sorted flat invocations
   const flatInvocations = useMemo(() => {
     if (!isFlatMode) return [];
-    const filtered = invocations.filter((r) => {
+    const filtered = effectiveInvocations.filter((r) => {
       if (activeModelFilter && getModelKey(r) !== activeModelFilter) return false;
       if (slowTtftOnly && !(r.ttftSec > 3)) return false;
       if (lowCacheOnly && !(r.cacheHitPct !== null && r.cacheHitPct < 60)) return false;
@@ -274,7 +299,7 @@ export function CallLogCard({
     return sorted;
   }, [
     isFlatMode,
-    invocations,
+    effectiveInvocations,
     activeModelFilter,
     slowTtftOnly,
     lowCacheOnly,
@@ -304,6 +329,9 @@ export function CallLogCard({
     if (stallBufOnly && !(target.isToolStall || target.isBuffered)) setStallBufOnly(false);
     if (trimmedSearch && !matchesSearch(target, trimmedSearch, convId, turnByIdx, detailCache)) {
       setSearchQuery('');
+    }
+    if (target.isInherited && hasInheritedFork && !showInherited) {
+      setShowInherited(true);
     }
     if (target.turnIndex != null && collapsedTurns.has(target.turnIndex)) {
       onUnfoldTurn?.(target.turnIndex);
@@ -509,9 +537,9 @@ export function CallLogCard({
     }
 
     let visibleItems: TimelineItem[] = timelineDesc;
-    let shownInvCount = invocations.length;
+    let shownInvCount = effectiveInvocations.length;
 
-    if (!showAllHistory && invocations.length > limit) {
+    if (!showAllHistory && effectiveInvocations.length > limit) {
       visibleItems = [];
       shownInvCount = 0;
       for (const item of timelineDesc) {
@@ -524,6 +552,52 @@ export function CallLogCard({
     }
 
     visibleItems.forEach((entry, idx) => {
+      if (entry.kind === 'fork') {
+        const f = entry.fork;
+        const coldStr = f.firstOwnColdCostUSD >= 0.005 ? fmtUsd(f.firstOwnColdCostUSD) : '';
+        const firstHitStr = fmtCachePct(f.firstOwnCacheHitPct);
+        blocks.push({
+          kind: 'node',
+          node: (
+            <div
+              key={`fork-${f.forkStepIndex}`}
+              className="event-divider is-fork"
+              data-tip={t.forkDividerTip(f.forkStepIndex, f.inheritedCalls, firstHitStr, coldStr)}
+            >
+              <span className="truncate">{t.forkDividerText(f.forkStepIndex, f.inheritedCalls, coldStr)}</span>
+              {isFull && (
+                <button
+                  type="button"
+                  onClick={() => setShowInherited((p) => !p)}
+                  className="shrink-0 px-1.5 py-[1px] rounded bg-hud-card text-hud-accent-ink hover:text-hud-fg border-0 font-hud-mono text-[9.5px] font-semibold cursor-pointer transition-colors"
+                >
+                  {t.forkDividerToggle(showInherited, f.inheritedCalls)}
+                </button>
+              )}
+            </div>
+          ),
+        });
+        return;
+      }
+
+      if (entry.kind === 'revert') {
+        const rv = entry.revert;
+        const hitStr = fmtCachePct(rv.cacheHitPct);
+        const gapStr = rv.idleGapSec !== null ? fmtTtlDuration(rv.idleGapSec) : '';
+        const cls = rv.cacheKept === true ? 'is-revert-ok' : rv.cacheKept === false ? 'is-revert-warn' : '';
+        appendToTurnOrRoot(
+          rv.turnIndex,
+          <div
+            key={`rev-${rv.stepIdx}`}
+            className={`event-divider ${cls} cursor-help`}
+            data-tip={t.revertDividerTip(rv.stepIdx, rv.count, gapStr, hitStr, rv.sessionKept)}
+          >
+            <span className="truncate">{t.revertDividerText(rv.stepIdx, rv.count, rv.cacheKept, hitStr)}</span>
+          </div>,
+        );
+        return;
+      }
+
       const turnIdx = entry.kind === 'inv' ? entry.inv.turnIndex : entry.compact.turnIndex;
       ensureTurnBlock(turnIdx);
       const isTurnCollapsed = Boolean(turnIdx && collapsedTurns.has(turnIdx));
@@ -586,7 +660,7 @@ export function CallLogCard({
       }
     }
 
-    if (invocations.length > limit) {
+    if (effectiveInvocations.length > limit) {
       nodes.push(
         <button
           key="toggle-all-history"
@@ -594,7 +668,7 @@ export function CallLogCard({
           onClick={onToggleShowAllHistory}
           className="w-full mt-0.5 px-2.5 py-1.5 rounded-md border border-hud-border bg-hud-fill text-hud-muted font-hud-mono text-[11px] font-semibold cursor-pointer hover:text-hud-fg hover:border-hud-accent transition-colors"
         >
-          {showAllHistory ? t.collapseHistoryBtn(limit) : t.showAllHistoryBtn(shownInvCount, invocations.length)}
+          {showAllHistory ? t.collapseHistoryBtn(limit) : t.showAllHistoryBtn(shownInvCount, effectiveInvocations.length)}
         </button>,
       );
     }
@@ -635,7 +709,7 @@ export function CallLogCard({
           onClick={isCollapsible ? onToggleOpen : undefined}
         >
           <span className="card-k">{cardTitle}</span>
-          {invocations.length > 0 && <span className="micro-badge">{invocations.length}</span>}
+          {effectiveInvocations.length > 0 && <span className="micro-badge">{effectiveInvocations.length}</span>}
         </div>
 
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">

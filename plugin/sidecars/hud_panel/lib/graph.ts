@@ -26,11 +26,12 @@ import {
   CACHE_HIT_RETENTION_THRESHOLD,
   CACHE_MIN_PREV_PROMPT_TOKENS,
 } from './cache-ttl.ts';
-import type { CacheGapSample } from './cache-ttl.ts';
+import type { CacheGapSample, RevertCacheSample, SideColdStartSample } from './cache-ttl.ts';
 import {
   iterFields,
   parseAnnotationPbtxt,
   parseGenRow,
+  parseParentReference,
   parseStepMetadata,
   parseUserPromptPayload,
 } from './protobuf.ts';
@@ -107,6 +108,13 @@ export function summarizeConversationDb(conv) {
   const recentCutoffMs = Date.now() - 30 * 86_400_000;
   const recentCalls: any[] = [];
   const cachePairs: CacheGapSample[] = [];
+  const sideColdStarts: SideColdStartSample[] = [];
+  const revertCacheEvents: RevertCacheSample[] = [];
+  let inheritedCalls = 0;
+  let forkStepIndex: number | null = null;
+  let firstOwnCacheHitPct: number | null = null;
+  let sideColdCostUSD = 0;
+  const selfRevertStepSet = new Set<number>();
 
   let db;
   try {
@@ -127,14 +135,22 @@ export function summarizeConversationDb(conv) {
     }
 
     try {
-      const prRows = db.prepare('SELECT data FROM parent_references').all();
+      const prRows: any[] = db.prepare('SELECT data FROM parent_references ORDER BY idx ASC').all();
+      let lastExternalForkStep: number | null = null;
       for (const pr of prRows) {
-        for (const [fn, wt, val] of iterFields(pr.data)) {
-          if (fn === 6 && wt === 2) {
-            const pid = Buffer.from(val).toString('utf8');
-            if (UUID_RE.test(pid) && pid !== conv.id) parentIds.add(pid);
+        if (!pr?.data) continue;
+        const ref = parseParentReference(pr.data);
+        if (ref.parentCascadeId && ref.parentCascadeId !== conv.id) {
+          parentIds.add(ref.parentCascadeId);
+          if (ref.stepIndex !== null && ref.stepIndex >= 0) {
+            lastExternalForkStep = ref.stepIndex;
           }
+        } else if (ref.parentCascadeId && ref.parentCascadeId === conv.id && ref.stepIndex !== null && ref.stepIndex >= 0) {
+          selfRevertStepSet.add(ref.stepIndex);
         }
+      }
+      if (trajectoryType === 22 && lastExternalForkStep !== null) {
+        forkStepIndex = lastExternalForkStep;
       }
     } catch { /* table missing */ }
 
@@ -183,7 +199,7 @@ export function summarizeConversationDb(conv) {
     const stepStartByBotId = new Map<string, number>();
     const stepStartByIdx = new Map<number, number>();
     const firstToolCreatedByGmIdx = new Map<number, number>();
-    const compactionMetas: { ts: number; usage: UsageSubmsg }[] = [];
+    const compactionMetas: { stepIdx: number; ts: number; usage: UsageSubmsg }[] = [];
     const compactionSpans: { stepIdx: number; gmIdx: number | null; ts: number }[] = [];
     try {
       const firstPromptRow: any = db.prepare('SELECT step_payload FROM steps WHERE step_type = 14 AND step_payload IS NOT NULL ORDER BY idx ASC LIMIT 1').get();
@@ -229,7 +245,7 @@ export function summarizeConversationDb(conv) {
           compactionSpans.push({ stepIdx: s.idx, gmIdx: meta.gmIdx, ts });
           const isDone = TERMINAL_STEP_STATUSES.has(s.status) || meta.endAtMs > 0 || meta.completedAtMs > 0;
           if (isDone && meta.usage) {
-            compactionMetas.push({ ts, usage: meta.usage });
+            compactionMetas.push({ stepIdx: s.idx, ts, usage: meta.usage });
           }
         }
       }
@@ -266,7 +282,7 @@ export function summarizeConversationDb(conv) {
 
     latestTsMs = stepLatestTsMs;
 
-    const recordSpend = ({ modelId, modelDisplay, model, newIn, cachedIn, outTok, ts, genUncertainStartTs = ts, countStats, ttftSec = 0, genTps = 0 }) => {
+    const recordSpend = ({ modelId, modelDisplay, model, newIn, cachedIn, outTok, ts, genUncertainStartTs = ts, countStats, ttftSec = 0, genTps = 0, botId = '' }) => {
       const cost = computeCallCost(modelId, modelDisplay, model, newIn, cachedIn, outTok, ts);
       if (countStats) {
         calls += 1;
@@ -306,6 +322,7 @@ export function summarizeConversationDb(conv) {
           baseUSD: ref.baseUSD,
           costUSD: cost.costUSD,
           priced: cost.priced,
+          ...(botId ? { botId } : {}),
           ...(ttftSec > 0 ? { ttftSec } : {}),
           ...(genTps > 0 ? { genTps } : {}),
         });
@@ -350,14 +367,18 @@ export function summarizeConversationDb(conv) {
 
     try {
       const gmRows = db.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx ASC').all();
+      const sortedRevertSteps = [...selfRevertStepSet].sort((a, b) => a - b);
       let prevCacheInv: {
         idx: number;
         stepIdx: number | null;
         botId: string;
+        sessionId: string;
         family: string;
         totalPrompt: number;
         completedTs: number;
+        isInherited: boolean;
       } | null = null;
+      let seenFirstOwnCall = false;
       for (const row of gmRows) {
         const parsed = parseGenRow(row.idx, row.data);
         if (!parsed) continue;
@@ -405,8 +426,76 @@ export function summarizeConversationDb(conv) {
 
         const currFamily = resolveModelFamily(parsed.modelId, parsed.modelDisplay, parsed.model);
         const currTotalPrompt = parsed.totalPromptTokens || (parsed.cachedInput + parsed.newInput);
-        if (
+
+        const isInherited = forkStepIndex !== null && (
+          (stepIdx !== null && stepIdx <= forkStepIndex)
+          || Boolean(parsed.cascadeId && parsed.cascadeId !== conv.id)
+        );
+
+        if (isInherited) {
+          inheritedCalls += 1;
+          prevCacheInv = {
+            idx: row.idx,
+            stepIdx,
+            botId: parsed.botId || '',
+            sessionId: parsed.sessionId || '',
+            family: currFamily,
+            totalPrompt: currTotalPrompt,
+            completedTs: stepTs || stepStartTs || 0,
+            isInherited: true,
+          };
+          continue;
+        }
+
+        const isFirstOwnAfterFork = Boolean(forkStepIndex !== null && !seenFirstOwnCall && prevCacheInv?.isInherited);
+        if (!seenFirstOwnCall && currTotalPrompt > 0) {
+          seenFirstOwnCall = true;
+          firstOwnCacheHitPct = parsed.cacheHitPct;
+        }
+
+        if (isFirstOwnAfterFork && prevCacheInv) {
+          if (
+            currFamily !== 'unknown'
+            && prevCacheInv.family === currFamily
+            && prevCacheInv.totalPrompt >= CACHE_MIN_PREV_PROMPT_TOKENS
+            && currTotalPrompt >= prevCacheInv.totalPrompt * 0.9
+          ) {
+            const retention = parsed.cachedInput / prevCacheInv.totalPrompt;
+            const rawGapSec = (stepStartTs > 0 && prevCacheInv.completedTs > 0)
+              ? (stepStartTs - prevCacheInv.completedTs) / 1000
+              : 0;
+            const idleGapSec = Math.max(0, rawGapSec);
+            if (retention < CACHE_HIT_RETENTION_THRESHOLD) {
+              const rates = resolveModelPricing(parsed.modelId, parsed.modelDisplay, parsed.model, completedTs);
+              const uncachedPrefix = Math.max(0, prevCacheInv.totalPrompt - parsed.cachedInput);
+              const coldCostUSD = rates
+                ? (uncachedPrefix * Math.max(0, rates.input - rates.cached)) / 1e6
+                : 0;
+              sideColdCostUSD += coldCostUSD;
+              const sysPrefixOnly = parsed.cachedInput > 0 && parsed.cachedInput <= 20_000;
+              const sessionChanged = Boolean(
+                prevCacheInv.sessionId && parsed.sessionId && prevCacheInv.sessionId !== parsed.sessionId,
+              );
+              const scKey = parsed.botId
+                ? `side:${parsed.botId}`
+                : `side:${conv.id}:${row.idx}:${currTotalPrompt}`;
+              sideColdStarts.push({
+                key: scKey,
+                family: currFamily,
+                idleGapSec: Number(idleGapSec.toFixed(1)),
+                prevPromptTokens: prevCacheInv.totalPrompt,
+                cachedInput: parsed.cachedInput,
+                totalPromptTokens: currTotalPrompt,
+                sysPrefixOnly,
+                sessionChanged,
+                coldCostUSD: Number(coldCostUSD.toFixed(5)),
+                ts: stepStartTs || completedTs,
+              });
+            }
+          }
+        } else if (
           prevCacheInv
+          && !prevCacheInv.isInherited
           && prevCacheInv.completedTs > 0
           && stepStartTs > 0
           && currFamily !== 'unknown'
@@ -414,13 +503,16 @@ export function summarizeConversationDb(conv) {
           && prevCacheInv.totalPrompt >= CACHE_MIN_PREV_PROMPT_TOKENS
           && currTotalPrompt >= prevCacheInv.totalPrompt * 0.9
         ) {
+          const sessionSwitched = Boolean(
+            prevCacheInv.sessionId && parsed.sessionId && prevCacheInv.sessionId !== parsed.sessionId,
+          );
           const compactedBetween = compactionSpans.some((cp) => (
             (cp.gmIdx !== null && cp.gmIdx > prevCacheInv!.idx && cp.gmIdx <= row.idx)
             || (prevCacheInv!.stepIdx !== null && stepIdx !== null && cp.stepIdx > prevCacheInv!.stepIdx && cp.stepIdx < stepIdx)
             || (cp.ts > prevCacheInv!.completedTs && cp.ts < stepStartTs)
           ));
           const rawGapSec = (stepStartTs - prevCacheInv.completedTs) / 1000;
-          if (!compactedBetween && rawGapSec >= -5) {
+          if (!compactedBetween && !sessionSwitched && rawGapSec >= -5) {
             const idleGapSec = Math.max(0, rawGapSec);
             const retention = parsed.cachedInput / prevCacheInv.totalPrompt;
             const hit = retention >= CACHE_HIT_RETENTION_THRESHOLD;
@@ -447,14 +539,40 @@ export function summarizeConversationDb(conv) {
               ts: stepStartTs,
             });
           }
+
+          // Check if an in-conversation revert occurred right between prevCacheInv and this call
+          if (sortedRevertSteps.length > 0 && prevCacheInv.stepIdx !== null && stepIdx !== null && !compactedBetween) {
+            const crossedRev = sortedRevertSteps.find((rs) => prevCacheInv!.stepIdx! <= rs && stepIdx > rs);
+            if (crossedRev !== undefined) {
+              const idleGapSec = Math.max(0, rawGapSec);
+              const retention = parsed.cachedInput / prevCacheInv.totalPrompt;
+              const revKey = `${conv.id}:rev:${crossedRev}`;
+              revertCacheEvents.push({
+                key: revKey,
+                family: currFamily,
+                revStep: crossedRev,
+                idleGapSec: Number(idleGapSec.toFixed(1)),
+                prevPromptTokens: prevCacheInv.totalPrompt,
+                cachedInput: parsed.cachedInput,
+                totalPromptTokens: currTotalPrompt,
+                retention: Number(retention.toFixed(4)),
+                hit: retention >= 0.8,
+                sessionKept: !sessionSwitched,
+                ts: stepStartTs || completedTs,
+              });
+            }
+          }
         }
+
         prevCacheInv = {
           idx: row.idx,
           stepIdx,
           botId: parsed.botId || '',
+          sessionId: parsed.sessionId || '',
           family: currFamily,
           totalPrompt: currTotalPrompt,
           completedTs: stepTs || stepStartTs || 0,
+          isInherited: false,
         };
 
         recordSpend({
@@ -469,11 +587,13 @@ export function summarizeConversationDb(conv) {
           countStats: true,
           ttftSec: parsed.ttftSec || 0,
           genTps: parsed.isBuffered ? 0 : (parsed.genTps || 0),
+          botId: parsed.botId || '',
         });
       }
     } catch { /* table missing */ }
 
     for (const cm of compactionMetas) {
+      if (forkStepIndex !== null && cm.stepIdx <= forkStepIndex) continue;
       const u = cm.usage;
       const resolved = resolveEnumInfo(u.modelEnum);
       const outTok = u.outputTokens || (u.thinkingTokens + u.candidateTokens);
@@ -496,6 +616,9 @@ export function summarizeConversationDb(conv) {
     try { db?.close(); } catch { /* ignore */ }
   }
 
+  const totalOwnPrompt = cachedInput + newInput;
+  const ownCacheHitPct = totalOwnPrompt > 0 ? (cachedInput / totalOwnPrompt) * 100 : null;
+
   return {
     id: conv.id,
     source: resolvedSource,
@@ -516,6 +639,11 @@ export function summarizeConversationDb(conv) {
     parentIds: [...parentIds, ...[...fallbackParentIds].filter((pid) => !parentIds.has(pid))],
     subagentType,
     calls,
+    inheritedCalls,
+    forkStepIndex,
+    ownCacheHitPct,
+    firstOwnCacheHitPct,
+    sideColdCostUSD: Number(sideColdCostUSD.toFixed(5)),
     outputTokens,
     newInput,
     cachedInput,
@@ -527,6 +655,8 @@ export function summarizeConversationDb(conv) {
     familyUsage,
     recentCalls,
     cachePairs,
+    sideColdStarts,
+    revertCacheEvents,
   };
 }
 
@@ -717,6 +847,10 @@ export function getConversationGraph(
       subagentType: s.subagentType || (swarmLookup ? 'worker' : ''),
       title: sqTitleOverrides.get(s.id) || s.title || swarmLookup?.member.meta.taskTitle || '',
       calls: s.calls,
+      inheritedCalls: s.inheritedCalls || 0,
+      ownCacheHitPct: s.ownCacheHitPct ?? null,
+      firstOwnCacheHitPct: s.firstOwnCacheHitPct ?? null,
+      sideColdCostUSD: s.sideColdCostUSD || 0,
       outputTokens: s.outputTokens,
       costUSD: s.costUSD,
       savedUSD: s.savedUSD,

@@ -139,7 +139,13 @@ export function LiveTab({
 
   const found = Boolean(snap?.found);
   const latest = found ? snap?.latest || null : null;
-  const invocations = found ? snap?.invocations || [] : [];
+  const rawInvocations = found ? snap?.invocations || [] : [];
+  const forkInfo = found ? snap?.forkInfo || null : null;
+  const reverts = found ? snap?.reverts || [] : [];
+  const invocations = useMemo(
+    () => (forkInfo && forkInfo.ownCalls > 0 ? rawInvocations.filter((r) => !r.isInherited) : rawInvocations),
+    [forkInfo, rawInvocations],
+  );
   const compactions = found ? snap?.compactions || [] : [];
   const turns = found ? snap?.turns || [] : [];
   const children = found ? snap?.sessionInfo?.childSessions || [] : [];
@@ -255,8 +261,10 @@ export function LiveTab({
       )}
 
       <RecentCallsCard
-        invocations={invocations}
+        invocations={rawInvocations}
         compactions={compactions}
+        reverts={reverts}
+        forkInfo={forkInfo}
         turns={turns}
         activeStep={found ? snap?.activeStep : null}
         serverTimeMs={snap?.serverTimeMs}

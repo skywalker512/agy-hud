@@ -98,11 +98,20 @@ export function CallsTab({
     setSelectedModel('all');
   }, []);
 
+  const forkInfo = snap?.forkInfo || null;
+  const reverts = snap?.reverts || [];
+  const chartInvocations = (forkInfo && forkInfo.ownCalls > 0)
+    ? invocations.filter((r) => !r.isInherited)
+    : invocations;
+  const chartCompactions = (forkInfo && forkInfo.ownCalls > 0)
+    ? compactions.filter((c) => c.stepIdx > forkInfo.forkStepIndex)
+    : compactions;
+
   return (
     <section id="tab-calls" className="flex flex-col gap-2.5 min-w-0">
       <TrendChartCard
-        invocations={invocations}
-        compactions={compactions}
+        invocations={chartInvocations}
+        compactions={chartCompactions}
         convId={convId}
         metric={metric}
         lang={lang}
@@ -118,6 +127,8 @@ export function CallsTab({
         lang={lang}
         invocations={invocations}
         compactions={compactions}
+        reverts={reverts}
+        forkInfo={forkInfo}
         turns={turns}
         activeStep={activeStep}
         serverTimeMs={serverTimeMs}

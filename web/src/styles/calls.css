@@ -250,6 +250,49 @@
   .row-micro-pill.is-turn {
     @apply text-hud-accent-ink bg-tint-accent;
   }
+  .row-micro-pill.is-diag-bad {
+    @apply text-hud-bad bg-tint-bad;
+  }
+  .row-micro-pill.is-diag-warn {
+    @apply text-hud-warn bg-tint-warn;
+  }
+  .row-micro-pill.is-diag-ok {
+    @apply text-hud-ok bg-tint-ok;
+  }
+  .row-micro-pill.is-diag-info {
+    @apply text-hud-muted bg-hud-card;
+    border: 1px solid var(--hud-hairline);
+  }
+  .history-row.is-inherited {
+    opacity: 0.68;
+    border-style: dashed;
+    border-color: var(--hud-hairline);
+  }
+  .history-row.is-inherited:hover {
+    opacity: 0.92;
+  }
+
+  .event-divider {
+    @apply flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md font-hud-mono tabular-nums min-w-0;
+    font-size: calc(10px * var(--hud-font-scale, 1));
+    border: 1px dashed var(--hud-hairline);
+    background: var(--hud-surface-2);
+  }
+  .event-divider.is-fork {
+    border-color: color-mix(in srgb, var(--hud-accent) 36%, transparent);
+    background: color-mix(in srgb, var(--hud-accent) 6%, var(--hud-surface-2));
+    color: var(--hud-fg-2);
+  }
+  .event-divider.is-revert-ok {
+    border-color: color-mix(in srgb, var(--hud-ok) 36%, transparent);
+    background: color-mix(in srgb, var(--hud-ok) 6%, var(--hud-surface-2));
+    color: var(--hud-ok);
+  }
+  .event-divider.is-revert-warn {
+    border-color: color-mix(in srgb, var(--hud-warn) 36%, transparent);
+    background: color-mix(in srgb, var(--hud-warn) 6%, var(--hud-surface-2));
+    color: var(--hud-warn);
+  }
 
   /* ── Tabbed Call Detail Inspector (De-boxed L2 Surface Wells) ── */
   .insp-tab {

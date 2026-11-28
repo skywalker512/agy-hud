@@ -1,8 +1,10 @@
-import type { Compaction, Invocation } from '../../types/telemetry';
+import type { Compaction, ForkInfo, Invocation, RevertEvent } from '../../types/telemetry';
 
 export type TimelineItem =
   | { kind: 'inv'; inv: Invocation }
-  | { kind: 'compact'; compact: Compaction };
+  | { kind: 'compact'; compact: Compaction }
+  | { kind: 'revert'; revert: RevertEvent }
+  | { kind: 'fork'; fork: ForkInfo };
 
 function isInvBeforeCompact(inv: Invocation, cmp: Compaction): boolean {
   if (inv.stepIdx !== null && Number.isFinite(inv.stepIdx)) {
@@ -17,7 +19,22 @@ function isInvBeforeCompact(inv: Invocation, cmp: Compaction): boolean {
   return true;
 }
 
-export function buildTimelineDesc(invocations: Invocation[], compactions: Compaction[]): TimelineItem[] {
+function getItemOrderStep(item: TimelineItem): number {
+  if (item.kind === 'inv') {
+    if (item.inv.stepIdx !== null && Number.isFinite(item.inv.stepIdx)) return item.inv.stepIdx;
+    return item.inv.idx * 2;
+  }
+  if (item.kind === 'compact') return item.compact.stepIdx;
+  if (item.kind === 'revert') return item.revert.stepIdx + 0.5;
+  return item.fork.forkStepIndex + 0.4;
+}
+
+export function buildTimelineDesc(
+  invocations: Invocation[],
+  compactions: Compaction[],
+  reverts: RevertEvent[] = [],
+  forkInfo: ForkInfo | null = null,
+): TimelineItem[] {
   const merged: TimelineItem[] = [];
   let i = 0;
   let j = 0;
@@ -34,6 +51,32 @@ export function buildTimelineDesc(invocations: Invocation[], compactions: Compac
   }
   while (j < compactions.length) {
     merged.push({ kind: 'compact', compact: compactions[j++] });
+  }
+
+  // Insert in-conversation revert markers right after their stepIdx (before afterGmIdx)
+  if (reverts.length > 0) {
+    for (const rv of reverts) {
+      let insertAt = merged.length;
+      if (rv.afterGmIdx !== null) {
+        const pos = merged.findIndex((it) => it.kind === 'inv' && it.inv.idx === rv.afterGmIdx);
+        if (pos >= 0) insertAt = pos;
+      } else {
+        const targetStep = rv.stepIdx + 0.5;
+        const pos = merged.findIndex((it) => getItemOrderStep(it) > targetStep);
+        if (pos >= 0) insertAt = pos;
+      }
+      merged.splice(insertAt, 0, { kind: 'revert', revert: rv });
+    }
+  }
+
+  // Insert Side fork boundary divider right before the first own (non-inherited) call
+  if (forkInfo && forkInfo.inheritedCalls > 0) {
+    const firstOwnPos = merged.findIndex((it) => (
+      (it.kind === 'inv' && !it.inv.isInherited)
+      || (it.kind === 'compact' && it.compact.stepIdx > forkInfo.forkStepIndex)
+    ));
+    const insertAt = firstOwnPos >= 0 ? firstOwnPos : merged.length;
+    merged.splice(insertAt, 0, { kind: 'fork', fork: forkInfo });
   }
 
   merged.reverse();

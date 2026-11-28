@@ -12,6 +12,7 @@ import {
   fmtQuotaPct,
   fmtSec,
   fmtTps,
+  fmtTtlDuration,
   fmtUsd,
   formatModelTag,
   ttftTier,
@@ -228,21 +229,53 @@ function InvocationRowImpl({
   ].filter(Boolean);
   const routedTip = routedTipParts.length > 1 ? routedTipParts.join('\n') : undefined;
 
+  const diag = r.cacheDiag;
+  const diagTag = diag ? t.cacheDiagTag(diag.kind) : '';
+  const diagClass = diag
+    ? (diag.kind === 'side_cold' || diag.kind === 'ttl_expired'
+        ? 'is-diag-bad'
+        : diag.kind === 'revert_kept'
+          ? 'is-diag-ok'
+          : diag.kind === 'gemini_2k_floor'
+            ? 'is-diag-info'
+            : 'is-diag-warn')
+    : '';
+  const diagTip = diag
+    ? t.cacheDiagTip({
+        kind: diag.kind,
+        cachedStr: fmtNum(r.cachedInput),
+        prevStr: fmtNum(diag.prevPromptTokens || r.totalPromptTokens),
+        gapStr: diag.idleGapSec !== undefined ? fmtTtlDuration(diag.idleGapSec) : '',
+        costStr: diag.missCostUSD && diag.missCostUSD >= 0.005 ? fmtUsd(diag.missCostUSD) : '',
+        sysPrefixOnly: diag.sysPrefixOnly,
+        sessionChanged: diag.sessionChanged,
+        revertStep: diag.revertStepIdx,
+      })
+    : undefined;
+
   return (
     <div
       data-inv-idx={r.idx}
-      className={`history-row${isLatest ? ' is-latest' : ''}${expanded ? ' is-expanded' : ''}${highlighted ? ' is-jump-highlight' : ''}`}
+      className={`history-row${isLatest ? ' is-latest' : ''}${expanded ? ' is-expanded' : ''}${highlighted ? ' is-jump-highlight' : ''}${r.isInherited ? ' is-inherited' : ''}`}
       onClick={() => onToggle(r.idx, hasDetail)}
     >
       {/* Collapsed Row Line 1 */}
       <div className="flex items-center justify-between gap-1.5 min-w-0">
         <div className="flex items-center gap-[5px] min-w-0 flex-1 flex-wrap">
           <span className="font-hud-mono text-[11px] text-hud-muted tabular-nums shrink-0">#{r.idx + 1}</span>
+          {r.isInherited && (
+            <span className="row-micro-pill is-diag-info">{t.inheritedRowTag}</span>
+          )}
           {showTurnBadge && r.turnIndex != null && (
             <span className="row-micro-pill is-turn">T#{r.turnIndex}</span>
           )}
           <span className="history-model">{modelTag}</span>
-          <span className={`cache-pill ${cTier}`}>{cPct}</span>
+          <span className={`cache-pill ${cTier}${diagTip ? ' cursor-help' : ''}`} data-tip={diagTip}>{cPct}</span>
+          {diagTag && (
+            <span className={`row-micro-pill ${diagClass} cursor-help`} data-tip={diagTip}>
+              {diagTag}
+            </span>
+          )}
           {r.isBuffered && <span className="row-micro-pill is-buf">{t.inspBufTag}</span>}
           {r.isToolStall && r.toolGenSec > 0 && <span className="row-micro-pill is-stall">{t.inspStallTag}</span>}
           {r.priced && (
@@ -416,11 +449,13 @@ function InvocationRowImpl({
                   </span>
                 </div>
 
-                <div className="insp-cell">
+                <div className={`insp-cell${diagTip ? ' cursor-help' : ''}`} data-tip={diagTip}>
                   <span className="insp-cell-k">{t.inspCacheHit}</span>
                   <span className={`insp-cell-v ${cacheTierColor}`}>{cPct}</span>
                   <span className="insp-cell-sub">
-                    {r.cacheSavedUSD > 0 ? t.inspSaved(fmtUsd(r.cacheSavedUSD)) : t.inspCachedTok(fmtNum(r.cachedInput))}
+                    {diagTag
+                      ? `${diagTag}${diag?.missCostUSD && diag.missCostUSD >= 0.005 ? ` · +${fmtUsd(diag.missCostUSD)}` : ''}`
+                      : (r.cacheSavedUSD > 0 ? t.inspSaved(fmtUsd(r.cacheSavedUSD)) : t.inspCachedTok(fmtNum(r.cachedInput)))}
                   </span>
                 </div>
 

@@ -268,6 +268,41 @@ export function CacheTtlCard({ cacheTtl, t }: CacheTtlCardProps) {
             );
           })}
 
+          {/* Split Side-Fork Cold Starts & Revert Retention Summary */}
+          {((cacheTtl.sideColdStartCount || 0) > 0 || (cacheTtl.revertTotalCount || 0) > 0) && (
+            <div className="pt-2 border-t border-hud-hairline flex flex-wrap items-center gap-1.5 font-hud-mono text-[9.5px] tabular-nums">
+              {(cacheTtl.sideColdStartCount || 0) > 0 && (() => {
+                const scCount = cacheTtl.sideColdStartCount || 0;
+                const scCost = cacheTtl.sideColdStartCostUSD && cacheTtl.sideColdStartCostUSD >= 0.01
+                  ? fmtUsd(cacheTtl.sideColdStartCostUSD)
+                  : '';
+                return (
+                  <span
+                    className="inline-flex items-center px-1.5 py-[1.5px] rounded bg-tint-warn text-hud-warn font-medium cursor-help"
+                    data-tip={t.cacheTtlSideColdTip(scCount, cacheTtl.sideSysPrefixOnlyCount || 0, scCost)}
+                  >
+                    {t.cacheTtlSideColdSub(scCount, scCost)}
+                  </span>
+                );
+              })()}
+              {(cacheTtl.revertTotalCount || 0) > 0 && (() => {
+                const kept = cacheTtl.revertKeptCount || 0;
+                const total = cacheTtl.revertTotalCount || 0;
+                const ratio = total > 0 ? kept / total : 0;
+                return (
+                  <span
+                    className={`inline-flex items-center px-1.5 py-[1.5px] rounded font-medium cursor-help ${
+                      ratio >= 0.65 ? 'bg-tint-ok text-hud-ok' : 'bg-hud-fill text-hud-muted'
+                    }`}
+                    data-tip={t.cacheTtlRevertTip(kept, total, cacheTtl.revertExpiredCount || 0)}
+                  >
+                    {t.cacheTtlRevertSub(kept, total)}
+                  </span>
+                );
+              })()}
+            </div>
+          )}
+
           <div className="text-[9.5px] font-hud text-hud-muted leading-[1.4] break-words">
             {t.cacheTtlFootnote}
           </div>
